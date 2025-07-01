@@ -1,0 +1,53 @@
+	.title	putc	Output one character to a file
+	.ident	/000005/
+;
+;+
+;
+; Index		Output one character to a file
+;
+; Usage
+;
+;
+;	putchar(c);
+;	char		c;
+;
+;	putc(c, iop);
+;	char		c;
+;	FILE		*iop;
+;
+; Description
+;
+;	Putchar() writes one character to the standard output file.
+;	Putc() writes one character to the named output file.
+;
+;	Normally, the character is returned.  EOF is returned on
+;	errors.
+;
+; Bugs
+;
+;-
+; Edit history
+; 000002 13-Aug-79 MM	putchar writes to fout.
+; 000003 28-Mar-80 MM	Converted to the new library
+; 000004 22-May-80 MM	remove fout, use stdout
+; 000005 19-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+putcha::
+	jsr	r5,csv$
+	mov	stdout,r4	;write to standard output		;04
+	br	putc1		;
+ 
+putc::
+	jsr	r5,csv$
+	mov	C$PMTR+2(r5),r4	;Get user's IOV.
+
+putc1:	mov	C$PMTR+0(r5),r0	;Get character.
+	call	$$putc		;Call off to common routine.
+	bit	#VF$ERR,V$FLAG(r4) ;Any errors?				;04
+	beq	10$		;Br if none
+	mov	#-1,r0		;Return EOF.
+
+10$:	jmp	cret$
+	.end

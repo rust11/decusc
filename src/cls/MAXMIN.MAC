@@ -1,0 +1,82 @@
+	.title	maxmin	Maximum and Minimum Routines
+	.ident	/000002/
+;
+;+
+;
+; Index		Find maximum of two numbers
+; Index		Find minimum of two numbers
+; Index		Find maximum of two unsigned numbers
+; Index		Find minimum of two unsigned numbers
+;
+; Usage
+;
+;	max(a,b)
+;	int		a;
+;	int		b;
+;
+;	min(a,b)
+;	int		a;
+;	int		b;
+;
+;	unsigned
+;	maxu(a,b)
+;	unsigned	a;
+;	unsigned	b;
+;
+;	unsigned
+;	minu(a,b)
+;	unsigned	a;
+;	unsigned	b;
+;
+; Description
+;
+;	max() and min() return, respectively, the maximum and minimum of their
+;	two arguments, considered as signed integers.  maxu() and minu() are
+;	the same but consider their arguments to be unsigned.
+;	
+;	Note:  If you are interested in getting the fastest code possible and
+;	have some knowledge of the relative sizes of a and b, arrange for a to
+;	be chosen most often.  (It's unlikely the difference will be noticable
+;	in virtually all cases.)
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 10-Aug-82 JSL	Invention
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+max::
+	mov	2(sp),r0		;Assume "a"
+	cmp	r0,4(sp)		;Is it?
+	blt	retb			;Nope
+	return
+
+min::
+	mov	2(sp),r0		;Assume "a"
+	cmp	r0,4(sp)		;Is it?
+	bgt	retb			;Nope
+	return
+
+maxu::
+	mov	2(sp),r0		;Assume "a"
+	cmp	r0,4(sp)		;Is it?
+	blo	retb			;Nope
+	return
+
+minu::
+	mov	2(sp),r0		;Assume "a"
+	cmp	r0,4(sp)		;Is it?
+	bhi	retb			;Nope
+	return
+;
+; Return the second argument
+;
+retb:
+	mov	4(sp),r0		;Get b
+	return				;That's all, folks
+
+	.end

@@ -1,0 +1,114 @@
+	.title	fget	Input a binary record
+	.ident	/000008/
+;
+;+
+;
+; Index		Input a binary record
+;
+; Usage
+;
+;	fget(buffer, maxbytes, iop);
+;	char		*buffer;
+;	int		maxbytes;
+;	FILE		*iop;
+;
+; Description
+;
+;	Read a record from the indicated file.  Maxbytes is the
+;	maximum record size.
+;
+;	On RSX, the record is read by a direct call to the file
+;	service GET$ routine.  Your program must not mix calls
+;	to fget() with calls to other I/O routines, such as
+;	fgets().
+;
+;	On RT11, the file must have been written by fput().
+;
+;	The actual number of bytes read is returned.  Use feof()
+;	to test for end of file.
+;
+;	Fget() is not present on Unix standard I/O libraries.
+;
+; Internal
+;
+;	On RT11, when the record is written by fput(), it
+;	is preceeded by a two-byte byte count.  This value is
+;	one greater than the number of bytes in the record.
+;	(If a zero count is read, it will mean "end of file.")
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 10-Mar-80 MM	Conversion for the newer library
+; 000003 27-Mar-80 MM	Merged libraries
+; 000004 27-Jun-80 MM	$$get returns -1 on error
+; 000005 29-Jul-80 MM	Dumb bug
+; 000006 19-Nov-80 MM	RT11 record count tweaked
+; 000007 27-Jun-82 MM	For the new libarary
+; 000008 17-Jan-02 BQT	Changed for I/D space
+;
+
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+.if ne	rsx							;03
+
+	.psect	c$code,i,ro
+
+fget::
+	jsr	r5,csv$						;02
+	mov	C$PMTR+4(r5),r4	;Get IOV pointer
+;;	bit	#VF$NBF,V$FLAG(r4) ;"u"	-- let the user hang	;07+
+;;	bne	10$		;Yes
+;;	bis	#VF$ERR,V$FLAG(r4) ;Set error
+;;	clr	r0		;
+;;	br	20$		;				;07-
+
+10$:	mov	C$PMTR+0(r5),r0	;Buffer
+	mov	C$PMTR+2(r5),r1	;Nbytes
+	call	$$get		;				;02
+	tst	r0		;End of file or error?		;04+
+	bge	20$		;Continue if ok
+	clr	r0		;Sorry, no bytes read.		;04-
+
+20$:
+	jmp	cret$		;Done				;02
+
+.iff								;03+
+
+	.psect	c$code,i,ro
+
+fget::
+	jsr	r5,csv$
+	mov	c$pmtr+4(r5),r4	;Get IOV pointer
+	call	$$getc		;Get the
+	mov	r0,-(sp)	;two-byte
+	call	$$getc		;record
+	movb	r0,1(sp)	;length				;05
+	mov	(sp),r2		;r2 := byte count
+	dec	r2		;Drop the increment		;06+
+	bge	5$		;A real record
+	bis	#VF$EOF,V$FLAG(r4) ;Force end of file		;07
+5$:				;				;06-
+	clr	(sp)		;Actual byte count
+	bit	#VF$EOR,V$FLAG(r4) ;At end of file?		;07
+	bne	20$		;Exit if so.
+	mov	c$pmtr+0(r5),r1	;r1 -> buffer
+	mov	c$pmtr+2(r5),r3	;Maximum byte count
+	add	r1,r3		;Never write after r3		;05
+
+10$:	dec	r2		;Record all done?
+	blt	20$		;Exit if so
+	call	$$getc		;Get a byte to r0
+	cmp	r1,r3		;Space in user record		;05
+	bhis	10$		;No, don't write if so		;05
+	movb	r0,(r1)+	;Yes, stuff it out
+	inc	(sp)		;Step actual byte count
+	br	10$
+;
+20$:	mov	(sp)+,r0	;How many bytes we've gotten
+	jmp	cret$		;Back we go
+
+.endc								;03-
+	.end

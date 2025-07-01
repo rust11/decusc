@@ -1,0 +1,38 @@
+	.title	getw	Input a binary integer from a file
+	.ident	/000002/
+;
+;+
+;
+; Index		Input a binary integer from a file
+;
+; Usage
+;
+;	getw(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;	getw() reads one (16-bit) word from the indicated file.
+;	The program must call feof() or ferr() to test for end
+;	of file or error.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-Mar-80 MM	Conversion for the newer library
+; 000002 18-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+getw::
+	jsr	r5,csv$
+	mov	C$PMTR+0(r5),r4	;Get user IOV
+	call	$$getc		;Get first byte
+	mov	r0,-(sp)	;Save it for now
+	call	$$getc		;Get second byte
+	swab	r0		;in right place
+	bisb	(sp)+,r0	;Get in the first byte
+	jmp	cret$		;And back to the caller
+	.end

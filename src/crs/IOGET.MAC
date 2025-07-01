@@ -1,0 +1,302 @@
+	.title	$$get	Get a record
+.if ne RMSIO
+	.ident	"RMS016"
+.iff
+	.ident	/000016/
+.endc
+;
+;+
+;
+; Internal
+;
+; Index		Get a record (internal)
+;
+; Usage
+;
+;  RSX:
+;	mov	#iov,r4		;r4 -> i/o vector
+;	mov	#buffer,r0	;r0 -> buffer
+;	mov	buflen,r1	;r1 := max. buffer size
+;	call	$$get		;Get a record
+;
+;	VF$EOF and/or VF$ERR are set on error or end of file.
+;	r0 := actual record length, -1 on error or end of file.
+;
+;	Other registers preserved.
+;
+;   RT11:
+;	mov	#blknbr,r0	;r0 := block to read
+;	call	$$get		;Get a block
+;
+;	VF$EOF and/or VF$ERR are set on error or end of file.
+;	r0 is zero if success, -1 on error or end of file.
+;
+;	Other registers preserved.
+;
+;	clr	r0		;End of file error
+;	jmp	$$geof		;(called by $$getc)
+;
+; Description
+;
+;	$$get is the internal "get a record" routine.  Note that
+;	the maximum record size (r1) is only needed on RSX.  It is fixed
+;	at 512. bytes on RT11.
+;
+;	If the file is defined as "stream" (the "n" flag was not set
+;	when the file was opened using fopen()), the end of the line
+;	will be represented by the newline (\n) character, and
+;	NULL's will be removed.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out from getc.mac
+; 000002 24-Nov-81 SDR	Clear "was eof" bit in fdb on tty's (for RSX)
+; 000003 14-Jan-82 MM	Fixed bug and moved "was eof" to cleare.mac
+; 000004 08-Feb-82 MM/SDR Redid 02/03 to correspond with Unimation sources
+; 000005 01-Jul-82 MM	Newer library
+; 000006 16-Sep-82 MM   Support for .gtlin
+; 000007 29-Sep-82 MM	No more busy bit
+; 000008 27-Oct-82 RBD	Reading a record from the terminal sets "newline
+;			pending".
+; 000009 23-Dec-82 TTC	Fixed bug. Was using r4 instead of r0 in test for
+;			EOS loop for RT11 version. Also, return byte count
+;			in r0, instead of clearing it on RT11.
+; 000010 24-Dec-82 RBD	Flush stderr and set pending newline on same
+;			regardless of assignment of stdout.
+; RMS011 17-Dec-83 RBD	Add conditional support of RMS-11(V2)
+; RMS012 02-Jan-84 RBD	Bug in buffer handling for fget().
+; RMS013 02-Mar-84 RBD	Change status test after $GET for RMS, so will
+;			work over DECnet (DAP) remote access to RSX
+;			FAL ... returns 207(8) status instead of 1.  Now
+;			any positive value is considered OK.  Also, fix
+;			EOF test to use RMS symbolic instead of IE.EOF.
+; 000014 06-Jul-84 RBD	Merge in MM's removal of call to $$mchk
+; 000015 19-Jan-87 JMC  Change .psect for I/D space.
+; 000016 18-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.iif	ndf	rmsio	rmsio	=	0	;Assume FCS-11
+.if ne	rsx							;02
+.if ne	RMSIO
+	.mcall	$GET	$STORE	$FETCH	$COMPARE			;11
+.iff
+	.mcall	GET$
+.endc
+	.psect	c$code,i,ro
+;
+;
+; Get record.
+; r0 = buffer address.
+; r1 = max record size.
+;
+; Sets IOV on EOF or error (IOV VF$EOF and/or VF$ERR set)
+; Record length in r0 -- -1 if error
+;
+
+$$get::
+	mov	r0,-(sp)	;Save registers
+	mov	r1,-(sp)	;
+	mov	r2,-(sp)	;
+	mov	r3,-(sp)	;
+	mov	r0,r2		;r2 -> buffer
+;
+; Note: the record buffer address is at 6(sp)
+;
+; Record devices.
+;
+
+	bit	#VF$REC,V$FLAG(r4) ;Record device?			;05
+	beq	10$		;Br if not
+	cmp	r4,stdin	;Are we reading standard input?
+	bne	10$		;No
+;
+; Standard input/standard output
+; Magic on a tty.
+;
+	bit	#VF$TTY,V$FLAG(r4) ;Yes, is it a TTY?			;05
+	beq	10$		;No
+;;;	mov	stdout,r0	;Is the standard output			;10+
+;;;	bit	#VF$CMD,V$FLAG(r0) ; actually the "command terminal"?	;05/08
+;;;	beq	10$		;No					;10-
+;
+; If we get here, then we are reading from the user's command terminal
+; keyboard.  All output from stdout will be diverted
+; to stderr.  The act of reading a record from the console implies a
+; pending linefeed, so we set VF$NEWL to force a leading <LF> on the next
+; output.  Here we flush so that "prompting" output (not ending in \n)
+; will get out to the typing unit.
+;
+	mov	r4,-(sp)	;Yes, flush out the
+	mov	stderr,r4	;Point explicitly to stderr		;08
+	call	$$flsh		;Flush it (actually stderr)
+	bis	#VF$NEWL,V$FLAG(r4) ; Set pending newline		;08
+	mov	(sp)+,r4	;Restore the IOV address
+;
+; Read record
+;
+
+10$:	mov	r4,r0		;R0 --> iov
+.if ne	RMSIO
+	add	#V$RAB,R0	;r0 --> RAB				;11+
+	$STORE	R2,UBF,R0						;12
+	$STORE	R1,USZ,R0						;12
+	$GET	R0
+	$COMPARE #SU$SUC,STS,R0
+	ble	20$		;HACK - Accept any positive & >0	;13
+	$FETCH	R0,STS,R0						;11-
+.iff
+	add	#V$FDB,R0	;r0 --> FDB
+	GET$	r0,r2,r1	;Get the record
+	bcc	20$		;No problem
+	movb	F.ERR+V$FDB(R4),R0	;Get error code
+.endc
+	mov	r0,$$ferr	;Save in $$ferr for user
+	bis	#VF$EOF,V$FLAG(R4) ;Trouble, force end of file		;05
+.if ne RMSIO
+	cmp	#ER$EOF,r0	;Was it end-of file?			;13
+.iff
+	cmp	#IE.EOF,r0	;Was it end of file?
+.endc
+	bne	geterr		;No, set error bit, too.		;04+
+	bit	#VF$TTY,V$FLAG(r4) ;At eof, was input from tty?		;05
+	beq	getxit		;No, can't do more
+.if eq	RMSIO
+	bicb	#10,F.BKP1+V$FDB(r4) ;Yes, clear FDB internal eof bit
+				;so user can call clearerr() and try
+				;the read again.  getc() will test VF$EOF
+				;(which is already set) and return EOF
+				;until clearerr() is called.  Then, we
+				;try to read again.
+.endc
+	br	getxit		;and exit				;04-
+
+.if ne	RMSIO
+20$:	$FETCH	R0,RSZ,R0	;r0 == actual byte count		;11/12
+.iff
+20$:	mov	V$FDB+F.NRBD(R4),R0 ;R0 := actual byte count
+.endc
+;
+; Clean up the record (thank's to RSX cleverness)
+; Enter with R0 := actual byte count
+
+getfix:	bit	#VF$NOS,V$FLAG(r4) ;Stream file?
+	bne	getxit		;If not, don't do newline stuff.
+	mov	r0,r1		;Copy actual byte count
+	add	r2,r1		;R1 -> record end
+	movb	#12,(r1)+	;tack on a line feed
+	inc	r0		;Count it, too
+;
+; Erase CR from CR/LF and  LF/CR sequences.
+;	R0 :=	actual byte count
+;	R1 ->	input buffer end
+;	R2 ->	input buffer current byte
+;	R3 ->	output buffer current byte
+;	6(SP)	input buffer start (r0 at call to $get)
+;
+	mov	r2,r3		;Start of output record
+10$:	cmp	r2,r1		;At the end?
+	bhis	getxit		;Exit if so
+	tstb	(r2)		;Null?
+	beq	30$		;Skip it if so.
+	cmpb	(r2),#15	;Carriage return?
+	bne	20$		;No, go copy it
+	cmpb	1(r2),#12	;Carriage return, is next LF?
+	beq	30$		;Yes, ignore carriage return
+	cmpb	r3,6(sp)	;At start of output line?
+	blos	20$		;Yes, keep carriage return
+	cmpb	-1(r3),#12	;No, is previous LF?
+	beq	30$		;Yes, ignore Carriage return
+;
+20$:	movb	(r2)+,(r3)+	;Copy the byte
+	br	10$		;And get another
+
+;
+30$:	inc	r2		;Skip over this byte
+	dec	r0		;Erase from count, too
+	br	10$		;And get another
+;
+; Exit from $$get
+;
+geterr:									;04
+	bis	#VF$ERR,V$FLAG(R4) ;Error exit from $$get		;04/05
+
+getxit:
+	mov	(sp)+,r3	;Restore
+	mov	(sp)+,r2	;Registers
+	mov	(sp)+,r1	;R3 - R1
+	tst	(sp)+		;Keep actual byte count
+	bit	#VF$EOR,V$FLAG(r4) ;Error or end of file?		;05
+	beq	10$		;Neither, exit
+	mov	#-1,r0		;Yes, signal error
+10$:
+	return			;and exit
+.endc
+
+.if eq	rsx
+;
+; RT11
+;
+	.psect	c$data,d,rw						;15
+
+REAERR:	.BYTE	E$$EOF, E$$ERR, E$$FAT
+	.even
+
+	.psect	c$code,i,ro
+	.mcall	.gtlin	.rctrlo						;06
+;
+; Get one block
+;
+$$GET::
+	BIT	#VF$TTY,V$FLAG(R4) ; we're called for the tty		;06+
+	BEQ	5$		; Br if not
+	.RCTRLO			; Refresh ^O to fix LC typein
+	.GTLIN	V$BASE(r4)	; Get the record
+	BCS	25$		; Oops
+;;	call	$$mchk		; for library debug			;14
+	MOV	V$BASE(r4),r0	; The record is terminated by EOS
+3$:	CMPB	(R0),#'Z-0100	; ^Z?
+	BEQ	25$		; EOF if so
+	TSTB	(r0)+		; Look for EOS terminator		;09
+	BNE	3$
+	MOVB	#12,-1(r0)	; Stuff a <LF>
+	CLRB	(r0)		; Terminate the record
+	SUB	V$BASE(r4),r0	; r0 = number of bytes in buffer	;09
+	BR	10$		; and exit
+5$:				; Main sequence				;06-
+	MOV	R0,V$BNBR(R4)	; Fseek needs to refresh block number
+	CLR	-(SP)		; make an arg block for .READW
+	MOV	V$RBSZ(R4),-(SP) ; so the next block can be read	;05+
+	ASR	(SP)		; Make it a word count
+	MOV	V$BASE(R4),-(SP) ; and record buffer			;05-
+	MOV	R0,-(SP)	; And the block number
+	MOV	#10 * 400,-(SP)	; .READW function
+	BISB	V$LUN(R4),(SP)	; channel
+	MOV	SP,R0		; R0 -> arg block
+	EMT	375		; .READW
+	BCS	20$		; branch if the read failed
+	MOV	V$RBSZ(R4),R0	; R0 = number of bytes in buffer	;09
+	MOV	R0,V$BCNT(R4)	; Bytes to do in buffer			;05+
+	MOV	V$BASE(R4),V$BPTR(R4)	; Free byte pointer
+	INC	V$BNBR(R4)	; bump blockno, it points to "next"
+	ADD	#5.*2,SP	; Clear stack				;05-
+;
+10$:
+	RTS	PC		; And exit				;07--
+
+20$:	ADD	#5*2,SP		; Clear the stack on errors
+25$:	MOVB	@#52,R0		; Get the error code			;06
+
+;
+$$GEOF::			; Enter with MOV ERR_CODE,R0/JMP $$GEOF
+	BEQ	10$		; Br if end of file
+	BIS	#VF$ERR,V$FLAG(R4) ; Set error bit			;05
+10$:	BIS	#VF$EOF,V$FLAG(R4) ; Always set eof bit			;05
+	MOVB	REAERR(R0),$$FERR ; Save the error code
+	MOV	#-1,R0		; Return EOF
+	RTS	PC		; And exit
+
+.endc
+	.END

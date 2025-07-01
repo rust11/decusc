@@ -1,0 +1,41 @@
+	.title	ftty	Test if terminal file
+	.ident	/000005/
+;
+;+
+;
+; Index		Test if a file is a terminal
+;
+; Usage
+;
+;	ftty(iop)
+;	FILE		*iop;
+;
+; Description
+;
+;	Return 1 if the file is a terminal-type device.
+;	In general, this means the user's command terminal.
+;
+; Bugs
+;
+;	Obsolete -- use isatty(fileno(iop)) instead for transportability.
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 10-Mar-80 MM	Conversion for the newer library
+; 000003 08-Oct-81 MM	Bummed code
+; 000004 29-Jun-82 MM	Newer library
+; 000005 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+ftty::
+	clr	r0
+	mov	2(sp),r1		;r1 -> fdb		;04
+	bit	#VF$TTY,V$FLAG(r1)				;03/04
+	beq	10$
+	inc	r0
+10$:
+	return							;03
+	.end

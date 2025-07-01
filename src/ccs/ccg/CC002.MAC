@@ -1,0 +1,761 @@
+	.TITLE	CC002
+	.ident	/X01.03/
+ 
+	.NLIST	BEX
+	.ENABL	LC, GBL
+	.LIST	MEB
+ 
+;
+; C COMPILER
+; PREPROCESSOR (EVALUATOR FOR #IF)
+;
+; VERSION X01
+;
+; MARTIN MINOW		25-NOV-82
+;
+; EDIT HISTORY
+; 01 25-Nov-82 MM	Hand translated MPEXPR.C 
+; 02 27-Dec-82 MM	Undefined symbol == 0 (tracks Unix C)
+; 03 06-Jan-83 MM	Typo
+
+.IF NE	RSX
+	.MCALL	CALL
+	.MCALL	CALLR
+	.MCALL	RETURN
+.IFF
+
+.MACRO	CALL	ARG1,ARG2
+.IF B	ARG2
+	  JSR	PC,ARG1
+.IFF
+	  JSR	ARG1,ARG2
+.ENDC
+.ENDM	CALL
+
+.MACRO	CALLR	ARG1
+	  JMP	ARG1
+.ENDM
+
+.MACRO	RETURN	ARG1
+.IF B	ARG1
+	  RTS	PC
+.IFF
+	  RTS	ARG1
+.ENDC
+.ENDM	RETURN
+
+.ENDC
+
+	.globl	ifeval
+
+	.psect	er002
+err01:	.asciz	"Ill-formed #if expression"
+err02:	.asciz	"Bad #if query syntax"
+err03:	.asciz	"Divide by zero in #if expression"
+err04:	.asciz	"Missing ')' in #if expression"
+err05:	.asciz	"Illegal character constant in #if expression"
+err06:	.asciz	"Syntax error in #if expression"			;02
+	.even
+
+.macro	fail	msg
+	  mov	msg,r0
+	  jmp	iffail
+.endm	fail
+
+;
+; Note: ungetc assumes that spnor sets the line pointer BEYOND
+; the end of line, so sequences such as
+;	call spnor
+;	ungetc
+;	call spnor
+; continue to return "end of line"
+;
+; This is a bit of a hack, but, what the hell, it's getting
+; pretty late and nobody reads this stuff anyways.
+;
+.macro	ungetc
+	  dec	r5		; back up line pointer
+.endm	ungetc
+
+debug	=	0
+.macro	log	message,?loc,?exit
+ .if ne	debug
+	mov	r0,-(sp)
+	mov	#loc,r0
+	call	ccerr
+	mov	r5,r0
+	call	ccerr
+	mov	(sp)+,r0
+	br	exit
+loc:	.asciz	message
+	.even
+exit:
+ .endc
+.endm	log
+
+.macro	regs	reg
+ .if gt	debug-1
+	mov	r1,-(sp)
+	ror	r1
+	call	regdmp
+	rol	r1		; restore carry
+	mov	(sp)+,r1
+  .if nb reg
+	mov	reg,reg		; Set condition codes, preserving C bit
+  .endc
+ .endc
+.endm	regs
+
+.macro	skip	why
+	log	<why>		; Only if you're desperate
+	call	spnor
+	regs	r0		; Only if you're really desperate
+.endm
+
+.macro	logreg	what
+	regs
+	log	<what>
+.endm
+
+
+	.psect	cc002
+;+
+; ** IFEVAL
+;
+; Evaluate an expression.
+;
+; Input:
+;	R5 ->	start of string
+;	BEND	(end of string -- hidden)
+; Output:
+;	R2	Result
+;
+; Registers:
+;	R0, R1	Temps (R1 for multiply-divide
+;	R2	Current value
+;	R3, R4	Unused
+;	R5	Input pointer.
+;
+; Yes friends, this is a crude recursive-descent expression evaluator.
+; taken without much thought or consideration from MPEXPR.C.
+; Errors are handled by stuffing the error code in R0 and jumping to
+; IFFAIL which fixes up the stack.
+;
+; Before calling ifeval, all #define'd symbols have been expanded.
+;
+; Limitation:  The C ||, &&, and "? :" are fully evaluated.  Thus,
+; you can't write something like
+;	#if (foo == 0) ? bar : 10 / foo
+; as your program will get a syntax error.  Fix it if you dare.
+;
+;
+; The code assumes it can "unget" a character by decrementing R5
+; and that a null byte follows the line.
+;
+
+ifeval:
+	call	query		; Compile expression
+	skip	<"ifeval after query">
+	bcs	10$		; ok exit at end of line
+	fail	#err01		; parse messup
+10$:
+	log	<"normal return">
+	return
+
+;
+; Algorithms are given in BNF.  Note syntax:
+;	:==	separates result from its expansion.
+;	||	separates choices.
+;	{{ }}	encloses optionally repeated elements.
+;
+; Query is explained in detail -- other routines aren't to save my
+; fingers and sanity.
+;
+;	<query>		:==	<lor> || <lor> ? <query> : <query>
+;
+query:
+	log	<"at query">
+	call	lor		; Result or value to test if ?
+	skip	<"query after lor">
+	cmp	r0,#'?		; Query?
+	beq	10$		; Br if so.
+	ungetc			; Rescan this character later
+	return			; result is <lor> value.
+
+10$:	mov	r2,-(sp)	; Save test value for later
+				; Strictly speaking, we should really
+				; evaluate only the "true" or "false"
+				; expression.  We evaluate both.
+	call	query		; Get "if query is true" value
+	skip	<"after 2nd query call">
+	cmp	r0,#':		; Colon separates <true> and <false>
+	beq	20$		; Gotcha
+	fail	#err02		; Sorry.
+20$:	mov	r2,-(sp)	; Push <if true> result
+	call	query		; One more time for <if false>
+	mov	(sp)+,r0	; Reget <if true>.  Note:
+				; r0 has <if true>
+				; r2 has <if false>
+	tst	(sp)+		; Evaluate query itself. 
+	beq	30$		; Branch if false, r2 has result
+	mov	r0,r2		; Return <if true> value
+30$:	return			; Done
+
+;
+;	<lor>		:==	<land> {{ '||' <land> }}
+;
+lor:
+	log	<"at lor">
+	call	land
+10$:	skip	<"lor loop">
+	cmp	r0,#'|		; Followed by '||'?
+	bne	30$		; No way
+	cmpb	(r5)+,#'|	; Check out second '|'
+	bne	20$		; Br if followed by one '|'
+	mov	r2,-(sp)	; Save left hand value
+	call	land		; Evaluate another term
+	bis	(sp)+,r2	; Or 'em together
+	beq	10$		; FALSE, go for another term
+	mov	#1,r2		; || returns one or zero
+	br	10$		; Go for more.
+
+20$:	ungetc			; Here after reading two char's after expr.
+30$:	ungetc			; Here after reading one char after expr.
+	return
+
+;
+;	<land>		:==	<bor> {{ && <bor> }}
+;
+land:
+	log	<"at land">
+	call	bor
+10$:	skip	<"land loop">
+	cmp	r0,#'&
+	bne	30$
+	cmpb	(r5)+,#'&	
+	bne	20$
+	mov	r2,-(sp)
+	call	bor
+	mov	r2,r0		; result to a temp
+	clr	r2		; assume zero result
+	tst	(sp)+		; left-hand side?
+	beq	10$		; is zero, onward
+	tst	r0		; right-hand side?
+	beq	10$		; is zero, onward
+	inc	r2		; && is true, result is one
+	br	10$		; onward
+
+20$:	ungetc
+30$:	ungetc
+	return
+
+;
+;		<bor> ::= <bxor> {{ | <bxor> }}
+;
+bor:	log	<"at bor">
+	call	bxor
+10$:	skip	<"bor loop">
+	cmp	r0,#'|
+	bne	20$
+	cmpb	(r5),#'|	; Must not be followed by ||
+	beq	20$		; Exit if so.
+	mov	r2,-(sp)	; Save left side
+	call	bxor		; Evaluate right side
+	bis	(sp)+,r2
+	br	10$
+
+20$:	ungetc
+	return
+
+;
+;	<bxor>		:==	<band> {{ ^ <band> }}
+;
+bxor:	log	<"at bxor">
+	call	band
+10$:	skip	<"bxor loop">
+	cmpb	r0,#'^
+	bne	20$
+	mov	r2,-(sp)
+	call	band
+	mov	(sp),-(sp)	; Evaluate xor the hard way
+	bic	r2,2(sp)
+	bic	(sp)+,r2
+	bis	(sp)+,r2
+	br	10$
+
+20$:	ungetc
+	return
+
+;
+;	<band>		:==	<eql> {{ & <eql> }}
+;
+band:	log	<"at band">
+	call	eql
+10$:	skip	<"band loop">
+	cmp	r0,#'&
+	bne	20$
+	cmpb	(r5),#'&
+	beq	20$		; Not if followed by &&
+	mov	r2,-(sp)
+	call	eql
+	com	(sp)		; And the hard way
+	bic	(sp)+,r2
+	br	10$
+
+20$:	ungetc
+	return
+
+;
+;	<eql>		:==	<relat> {{ <eqrel> <relat> }}
+;
+eql:	log	<"at eql">
+	call	relat
+10$:	call	eqrel		; Subroutine 'cause it's ugly
+	bmi	30$		; Not relation if -1
+	mov	r2,-(sp)	; Push left-hand side
+	mov	r0,-(sp)	; Push relation
+	call	relat		; Get right-hand side
+	mov	r2,r0
+	clr	r2		; Assume not-equal result
+	tst	(sp)+		; relation?
+	bne	20$		; Br if != test wanted
+	cmp	(sp)+,r0	; if (left == right)
+	bne	10$		; (br if they're unequal)
+	inc	r2		; result is 1.
+	br	10$		; and go on
+
+20$:	cmp	(sp)+,r0	; if (left != right)
+	beq	10$		; (br if they're equal)
+	inc	r2		; result is 1.
+	br	10$		; and go on.
+
+30$:	return
+
+;
+;	<eqrel>		:==	'=' || '==' || '!='
+;
+eqrel:	skip	<"eqrel">
+	cmp	r0,#'=
+	bne	20$		; not ==
+	cmpb	(r5)+,#'=	; is it = or ==?
+	beq	10$		; br if ==
+	ungetc			; back up
+10$:	clr	r0		; return zero for ==
+	return
+
+20$:	cmp	r0,#'!		; Is it !=
+	bne	40$		; No way.
+	cmpb	(r5)+,#'=	; Well?
+	bne	30$		; !foo, exit.
+	mov	#1,r0		; return one for !=
+	return			;
+
+30$:	ungetc			; Backup twice for !foo
+40$:	ungetc			; Backup once if not ! or =
+	mov	#-1,r0		; Return -1 (set N bit, too)
+	return
+
+;
+;	<relat>		:==	<shift> {{ <relop> <shift> }}
+;
+relat:	log	<"at relat">
+	call	shift
+10$:	call	relop		; Return handler location or NULL
+	beq	30$		; Not a relop
+	mov	r2,-(sp)	; Left side
+	mov	r0,-(sp)	; Relation
+	call	shift		; Get right side
+	mov	r2,r0		; Save right side
+	clr	r2		; Assume zero result.
+	jmp	@(sp)+		; Do it.
+
+LSS	=	.		; left < right
+	cmp	(sp)+,r0
+	bge	10$		; Br if >=
+	br	20$
+
+LEQ	=	.		; left <= right
+	cmp	(sp)+,r0
+	bgt	10$		; Br if >
+	br	20$
+
+GEQ	=	.
+	cmp	(sp)+,r0
+	blt	10$
+	br	20$
+
+GTR	=	.
+	cmp	(sp)+,r0
+	ble	10$
+	;;br	20$
+20$:	inc	r2
+	br	10$
+
+30$:	return
+
+;
+;	<relop> 	:==	'<' || '<=' || '>=' || '>'
+;
+relop:	skip	<"relop">
+	cmp	r0,#'<
+	bne	20$
+	cmpb	(r5)+,#'=						;03
+	bne	10$
+	mov	#LEQ,r0
+	return
+
+10$:	ungetc
+	mov	#LSS,r0
+	return
+
+20$:	cmp	r0,#'>
+	bne	40$
+	cmpb	(r5)+,#'=
+	bne	30$
+	mov	#GEQ,r0
+	return
+
+30$:	ungetc
+	mov	#GTR,r0
+	return
+
+40$:	ungetc
+	clr	r0
+	return
+
+;
+;	<shift>		:==	<primary> {{ <shift_op> <primary> }}
+;	<shift_op>	:==	'<<' || '>>'
+;
+shift:	log	<"at shift">
+	call	primary
+10$:	skip	<"shift loop">
+	cmp	r0,#'<
+	beq	20$
+	cmp	r0,#'>
+	bne	80$
+20$:	cmpb	(r5)+,r0	; >> or << ?
+	bne	70$		; No, isn't a shift
+	mov	r0,-(sp)	; Push shift op.
+	mov	r2,-(sp)	; Push left side
+	call	primary		; Get right side
+	mov	r2,r0		; Save it.
+	mov	(sp)+,r2	; Left side
+	cmp	(sp)+,#'>	; Right shift?
+	beq	60$		; Br if so.
+	br	40$		; Left shift, enter at test.
+
+30$:	asl	r2		; Shift left once
+40$:	dec	r0		; More?
+	bge	30$		; Yes.
+	br	10$
+
+50$:	asr	r2		; Shift right once
+60$:	dec	r0		; More?
+	bge	50$		; Yes
+	br	10$
+
+70$:	ungetc			; <foo
+80$:	ungetc			; not '<' or '>'
+	return
+
+;
+;	<primary>	:==	<term> {{ <addop> <term> }}
+;	<addop>		:==	'+' || '-'
+;
+primary:
+	log	<"at primary">
+	call	term
+10$:	skip	<"primary loop">
+	cmp	r0,#'+
+	beq	20$
+	cmp	r0,#'-
+	bne	40$
+20$:	mov	r0,-(sp)
+	mov	r2,-(sp)
+	call	term
+	mov	r2,r0
+	mov	(sp)+,r2
+	cmp	(sp)+,#'-
+	beq	30$
+	add	r0,r2
+	br	10$
+
+30$:	sub	r0,r2
+	br	10$
+
+40$:	ungetc
+	return
+
+;
+;	<term>		:==	<unary> {{ <mulop> <unary> }}
+;	<mulop>		:==	'*' || '/' || '%'
+;
+term:	log	<"at term">
+	call	unary
+10$:	skip	<"term loop">
+	cmp	r0,#'*
+	beq	20$
+	cmp	r0,#'/
+	beq	20$
+	cmp	r0,#'%		; modulus
+	bne	60$		; not a mulop
+20$:	mov	r2,-(sp)	; left side (numerator)
+	mov	r0,-(sp)	; operator
+	call	unary		; get denomenator
+	mov	(sp)+,r0	; get back op
+	mov	(sp),r1		; numerator to r1 (don't pop)
+	mov	r2,(sp)		; "push" denomenator
+	cmp	r0,#'*		; mul?
+	beq	40$		; do it.
+	tst	(sp)		; Divide and mod have problems with zero
+	beq	70$		; urk.
+	cmp	r0,#'/		; divide?
+	beq	30$		; do it.
+	clr	r0		; Clear high word
+	call	$divr0		; 
+	br	50$		; R1 has remainder
+
+30$:	clr	r0
+	call	$divr0
+	mov	r0,r1		; R1 has quotient
+	br	50$
+
+40$:	call	$mulr1
+50$:	mov	r1,r2
+	tst	(sp)+		; Drop temp
+	br	10$
+
+60$:	ungetc
+	return
+
+70$:	fail	#err03
+
+;
+;	<unary>		:==	<factor> || <unaryop> <unary>
+;	<unaryop>	:==	'!' || '<TILDE>' || '-'
+;
+unary:	log	<"at unary">
+	skip	<"unary">
+	cmp	r0,#'!
+	beq	10$
+	cmp	r0,#0176	; Just paranoid about tilde's
+	beq	10$
+	cmp	r0,#'-
+	bne	50$		; not a unary
+10$:	mov	r0,-(sp)	; stack the op
+	call	unary		; again
+	mov	(sp)+,r0	; reget the op
+	cmp	r0,#'!		; logical not?
+	bne	30$
+	clr	r0		; yes, assume "no"
+	tst	r2		; well
+	bne	20$		; no it is
+	inc	r0		; yes it is
+20$:	mov	r0,r2		; get value
+	return
+
+30$:	cmp	r0,#0176	; TILDE?
+	bne	40$
+	com	r2		; yes
+	return
+
+40$:	neg	r2
+	return
+
+50$:	ungetc
+	callr	factor
+
+;
+;	<factor>	:==	<const> || '(' <query> ')'
+;
+factor:	log	<"at factor">
+	skip	<"factor">
+	cmp	r0,#'(
+	bne	10$
+	call	query		; from the top
+	skip	<"factor after (query)">
+	cmp	r0,#')
+	beq	20$		; match
+	fail	#err04
+
+10$:	ungetc
+	call	const
+20$:	return
+
+;
+;	<const>		:==	<number> || '<char>'
+;	<char>		:==	'\' <octal>
+;			  ||	'\' <special char>
+;			  ||	<other char>
+
+const:	log	<"at const">
+	skip	<"const">
+	cmp	r0,#''		; character?
+	beq	10$		; go for it
+	ungetc
+	callr	number
+
+10$:	movb	(r5)+,r0	; the character
+	cmp	r0,#''		; '' is illegal
+	beq	70$
+	cmp	r0,#'\		; backslash is funny
+	bne	40$
+	movb	(r5)+,r0	; next byte
+	beq	70$		; end of line test
+	cmpb	r0,#'0		; digit?
+	blo	20$		; nope
+	cmpb	r0,#'7		; octal digit?
+	bhi	20$		; nope
+	call	octal		; yep
+	br	50$		; check for terminating ' and exit.
+
+20$:	mov	#esctab,r2	; Search for funny escape char's
+30$:	cmpb	(r2)+,r0	; Found?
+	beq	60$		; yep.
+	tstb	(r2)+		; nope, at end?
+	bne	30$		; not yet
+;
+; Not a funny escape (such as '\n').  The result is in r0
+;
+40$:	mov	r0,r2
+;
+; We have a character (in r2), check for a closing quote.
+;
+50$:	cmpb	(r5)+,#''
+	bne	70$
+	return
+
+;
+; Here when we have a character from the escape table. 
+; Get its actual value
+;
+60$:	movb	(r2),r2
+	br	50$
+
+;
+; Trouble.
+;
+70$:	fail	#err05
+
+;
+; The escape table contains internal values for all \ escapes
+;
+esctab:	.byte	'n,012
+	.byte	'r,015
+	.byte	't,011
+	.byte	'b,010
+	.byte	'f,014
+	.byte	'e,033		; <escape>
+	.byte	0,0		; end of the table
+	.even
+
+;
+;	<number>	digit string.  Even 0xFFF
+;
+number:	log	<"at number">
+	skip	<"number">
+	cmpb	r0,#'9		; digit?
+	bhi	30$		; not a number <fooey>
+	cmpb	r0,#'0		; digit?
+	blo	30$		; not a number <double fooey>
+	bne	20$		; decimal.
+;
+; octal or hex
+;
+	movb	(r5)+,r0	; next digit tells.
+	cmpb	r0,#'x		; hex?
+	beq	10$		; yep
+	cmpb	r0,#'X		; hex again?
+	beq	10$		; still yep.
+	ungetc
+	callr	octal
+
+10$:	callr	hex
+
+20$:	ungetc
+	callr	decimal
+;
+; Not a number.  Undefined symbols have zero value.
+; (This follows Unix C.)
+;
+30$:									;02+
+	call	oksid		; Can it start an ID?
+	bcs	50$		; Sorry about that
+40$:	movb	(r5)+,r0	; Get the next one
+	call	okid		; Is it a valid id?
+	bcc	40$		; Keep 'em coming
+	clr	r2		; Return zero value
+	ungetc			; Back up the scanner
+	return			; All done
+
+50$:									;02-
+	fail	#err06
+
+;
+; Number converters, result to r2
+;
+octal:	log	<"at octal">
+	clr	r2
+10$:	movb	(r5)+,r0
+	cmp	r0,#'0
+	blo	20$
+	cmp	r0,#'9		; Unix misfeature
+	bhi	20$
+	sub	#'0,r0
+	asl	r2
+	asl	r2
+	asl	r2
+	add	r0,r2
+	br	10$
+
+20$:	ungetc
+	return
+
+hex:	log	<"at hex">
+	clr	r2
+10$:	movb	(r5)+,r0
+	cmp	r0,#'0
+	blo	30$
+	cmp	r0,#'9
+	blos	20$
+	bic	#040,r0		; mash to upper case
+	cmp	r0,#'A
+	blo	30$
+	cmp	r0,#'F
+	bhi	30$
+	sub	#'A-'9-1,r0
+20$:	sub	#'0,r0
+	asl	r2
+	asl	r2
+	asl	r2
+	asl	r2
+	add	r0,r2
+	br	10$
+
+30$:	ungetc
+	return
+
+decimal:
+	log	<"at decimal">
+	clr	r2
+10$:	movb	(r5)+,r0
+	cmp	r0,#'0
+	blo	20$
+	cmp	r0,#'9
+	bhi	20$
+	sub	#'0,r0
+	asl	r2		; Multiply by 10
+	add	r2,r0		; <n * 2> + <digit>
+	asl	r2
+	asl	r2		; <n * 8)
+	add	r0,r2		; <n * 8> + <n * 2> + <digit>
+	br	10$
+
+20$:	ungetc
+	return
+
+;
+; No more.
+;
+	.end	

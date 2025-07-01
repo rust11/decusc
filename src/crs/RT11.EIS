@@ -1,0 +1,117 @@
+	.title	rt11	rt11 header file
+;
+;	NOTE: Update CRS:RT11.* and CLS:RT11.* for all edits.
+;
+
+; Version of 11-Dec-03
+; Version of 19-Jul-82
+;
+; 000001 11-Dec-03 IJH	Update C$AUTO from -6 to -10 to match CSV.MAC
+; 000002 11-Dec-03 IJH	Define RMSIO
+; 000003 12-Mar-25 IJH	Add C$$CRA conditional and change CRASH from 
+;			<BPT> to <CALL C$RASH>. See CSV.MAC.
+
+RSX	=	0		;Assemble for RT11
+VMS3.0	=	1		;Assemble vms release-specific code
+C$$SXT	=	1		;Assume SXT, SOB instructions
+				;Note: set C$$SXT = 0 for 11/04, 11/05,
+				; 11/20 and 11/40 without EIS.
+C$$EIS	=	C$$SXT		;Assume inline EIS if C$$SXT.  This
+				; may be overridden at compile time.
+C$$FLT	=	0		;Assume double precision
+N$$FIL	=	8.		;For the RSX run-time library,
+				;Default to 8 simultaneously open files.
+				;Note: change this to allocate block buffers.
+C$PMTR	=	4		;Locally define C$PMTR and C$AUTO
+C$AUTO	=	-10		;To minimize global symbol references	;01
+XASCII	=	1		;Extended (8-bit) Ascii
+RMSIO	=	0		;No RMS 				;02
+C$$CRA	=	1		;Change CRASH to <CALL C$RASH>		;03
+
+.IIF	NDF	L$$IST	.NLIST
+.IIF	NDF	L$$IST	.DSABL	CRF
+.IIF	NDF	C$$SXT	C$$SXT	=	0	; No SXT, SOB
+.IIF	NDF	C$$EIS	C$$EIS	=	0	; No EIS
+.IIF	NDF	XASCII	XASCII	=	1	; Allow extended Ascii
+
+.MACRO	CALL	ARG1,ARG2
+.IF	B	ARG2
+	  JSR	PC,ARG1
+.IFF
+	  JSR	ARG1,ARG2
+.ENDC
+.ENDM	CALL
+
+.MACRO	CALLR	ARG1
+	  JMP	ARG1
+.ENDM	CALLR
+
+.MACRO	RETURN	ARG1
+.IF B	ARG1
+	  RTS	PC
+.IFF
+	  RTS	ARG1
+.ENDC
+.ENDM	RETURN
+
+;
+; The null branch macro
+;
+.macro	.br	label
+.iif	ndf	label	.error	label argument needed
+.iif	ne	.-label	.error	label must be the next location
+.endm	.br
+
+;
+; The .sob macro is like an sob but does not set condition codes correctly
+; since it is a dec/bne when sob isn't available.
+;
+
+.IF EQ	C$$SXT
+.MACRO	.SOB	ARG1,ARG2
+	DEC	ARG1
+	BNE	ARG2
+.ENDM	.SOB
+.IFF
+.MACRO	.SOB	ARG1,ARG2
+	SOB	ARG1,ARG2
+.ENDM	.SOB
+.ENDC
+
+; This macro defines the crash instruction				
+;
+;	For RT-11 CRASH now displays a message.
+;
+;	?CC-F-Crash at <location>
+;
+.MACRO	CRASH
+.LIST
+.iif df c$$cra, c$$cra = 1					;03+
+.if ne c$$cra
+	CALL	C$RASH		; crash with a message
+.iff
+	BPT
+.endc								;03-
+.NLIST
+.ENDM	CRASH
+
+;
+; Check an assumption.  Use this macro as follows:
+;
+;	ASSUME	ARG1 COND ARG2
+;
+; An error will be signalled unless the condition is satisfied.
+; COND may be one of:  EQ,NE,GT,GE,LT,LE,DF,NDF,B,NB,Z,NZ,G,L,
+; but it may not be IDN or DIF.
+;
+.MACRO	ASSUME	ARG1,COND,ARG2
+	.IF	COND	<ARG1>-<ARG2>
+	.IFF
+		.ERROR	;Invalid assumption (ARG1) COND (ARG2)
+	.ENDC
+.ENDM
+
+	.ENABL	LC, GBL
+	.NLIST	CND, BEX
+.IIF	NDF	L$$IST	.ENABL	CRF
+.IIF	NDF	L$$IST	.LIST

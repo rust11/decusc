@@ -1,0 +1,68 @@
+SWITCH BASIC
+! RMAKAS.CMD	Run by ATPK
+!
+! Make the C-style assembler, RT11-style.
+!
+! You must be logged in under a privileged account in order to
+! do cross-account creates.
+!
+! Note that the library OU:RCOMLB.OBJ must have already been built
+! by executing the compiler build procedure.
+!
+! Assignments:
+!	[this]	Objects, and listings
+! OU:	[5,2]	Compiler account for COMPLB.OLB and AS.SAV
+! SR:	[5,3]	Source files
+! LS:	NL:	Listing file temp.
+!
+DEASSIGN
+ASSIGN SY:[5,3]	SR
+ASSIGN NL:	LS
+ASSIGN C:	OU
+!
+PRINT DATE$(0), TIME$(0)
+!
+$ALLOW FATAL ERRORS
+PIP LS:*.LST<0>/RE
+PIP LS:*.LST/DE
+!
+$ALLOW WARNING ERRORS
+RUN $MACRO
+AS0,LS:AS0/C=SR:RT11,SR:AS0
+AS1,LS:AS1/C=SR:RT11,SR:AS1
+AS2,LS:AS2/C=SR:RT11,SR:AS2
+AS3A,LS:AS3A/C=SR:RT11,SR:AS3A
+AS3B,LS:AS3B/C=SR:RT11,SR:AS3B
+AS3C,LS:AS3C/C=SR:RT11,SR:AS3C
+AS3D,LS:AS3D/C=SR:RT11,SR:AS3D
+AS3E,LS:AS3E/C=SR:RT11,SR:AS3E
+AS3F,LS:AS3F/C=SR:RT11,SR:AS3F
+AS3G,LS:AS3G/C=SR:RT11,SR:AS3G
+AS3H,LS:AS3H/C=SR:RT11,SR:AS3H
+^Z
+!
+PRINT DATE$(0), TIME$(0)
+!
+$ALLOW FATAL ERRORS
+!
+RUN $LINK
+AS.TMP,RAS=AS0,OU:RCOMLB/K:34/B:2000/C
+AS1,AS2,OU:RCOMLB/O:1/C
+AS3A,AS3B,AS3C/O:1/C
+AS3D,AS3E,AS3F,AS3G,AS3H,OU:RCOMLB
+^Z
+PIP
+OU:AS.SAV<104>=AS.TMP
+AS.TMP/DE
+^Z
+PIP
+AS0.OBJ,AS1.OBJ,AS2.OBJ,AS3A.OBJ,AS3B.OBJ/DE
+AS3C.OBJ,AS3D.OBJ,AS3E.OBJ,AS3F.OBJ,AS3G.OBJ/DE
+AS3H.OBJ/DE
+^Z
+!
+PRINT DATE$(0), TIME$(0)
+!
+! Assembler build complete
+!
+DEASSIGN

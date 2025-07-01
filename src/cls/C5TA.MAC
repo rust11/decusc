@@ -1,0 +1,85 @@
+	.title	$$c5ta	Convert Radix-50 to Ascii
+	.ident	/000003/
+;
+;+
+;
+; Internal
+;
+; Index		Convert Radix-50 to Ascii
+;
+; Usage
+;
+;	mov	rad50_word, r1
+;	mov	out_ptr, r0
+;	call	$$c5ta
+;
+;	Return:
+;		r0 updated
+;		r1 random
+;		other registers preserved.
+;
+; Description:
+;
+;	Convert one radix-50 word to three Ascii bytes.
+;	All letters will be in upper-case.  The output buffer
+;	will not be null-trailed, nor will blank fields be supressed.
+;
+; Bugs
+;
+;-
+; Edit history
+;
+; 000001 22-Aug-80 MM	Initial steal from [5,3]ac5toa.mac
+; 00001a 08-Jun-85 DLE	Add .psect c$data for table; permits I/D task
+; 000002 17-JAN-87 JMC  Add type to .psect for I/D space.
+; 000003 14-Jan-02 BQT	Changed code for I/D space.
+;
+	.psect	c$code,i,ro
+$$c5ta::
+	mov	r5,-(sp)	;Save
+	mov	r4,-(sp)	;all
+	mov	r3,-(sp)	;registers
+	mov	#3,r5		;character count
+10$:
+	mov	#divtab,r3	;r3 -> divisor table
+20$:
+	tst	-(r3)		;backup through table, at end?
+	beq	10$		;if equal, yes
+	mov	#-1,r4		;initialize quotient reg.
+	cmp	#174777,r1	;.rad50 value too large?
+
+	blo	40$		;yes, output "???"
+30$:
+	inc	r4		;divide by power of 50(octal)
+	sub	(r3),r1		;
+	bcc	30$		;not now
+	add	(r3),r1		;restored difident
+	tst	r4		;char. a blank?
+	beq	50$		;br if so
+	cmp	#33,r4		;char. a $ or digit?
+	blo	60$		;period or digit
+	beq	70$		;dollar sign
+	cmp	#35,r4		;Illegal character?
+	bne	40$		;Nope
+	mov	#-1,r4		;Yep, output "?"
+40$:
+	add	#40,r4		;nope, alpha or "?"
+50$:
+	add	#16,r4		;
+60$:
+	add	#11,r4		;
+70$:
+	add	#11,r4		;
+	movb	r4,(r0)+	;store converted char.
+	dec	r5		;count 'em
+	bne	20$		;more to do
+	mov	(sp)+,r3	;restore
+	mov	(sp)+,r4	;scratch
+	mov	(sp)+,r5	;registers
+	rts	pc		;and exit
+
+	.psect	c$mwcn,d,ro						;02
+
+	.word	0,1,50,3100
+divtab:
+	.end

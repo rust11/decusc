@@ -1,0 +1,275 @@
+	.title	fgetname	Convert file name to Ascii
+.if ne RMSIO
+	.ident	"RMS016"
+.iff
+	.ident	/000016/
+.endc
+;
+;+
+;
+; Index		Convert file name to Ascii
+;
+; Usage
+;
+;	char *
+;	fgetname(iop, buffer);
+;	FILE		*iop;
+;	char		*buffer;
+;
+; Description
+;
+;	Convert the file name to Ascii and put it in the buffer.
+;
+;	On native RSX (and RSTS/E emulation) the device name,
+;	file name, file type, and version are converted to Ascii.  The UIC
+;	is converted if it was specified and differs from the job's
+;	default UIC.  (Note that on VMS compatibility mode, the
+;	UIC is unavailable.)  The version is converted to octal on
+;	native RSX and to decimal on VMS emulation.  The result should
+;	be sufficient to delete the file.
+;
+;	On RT11 modes, the file name passed to fopen() is copied to
+;	the buffer without further processing.  If the file was opened
+;	by an fwild()/fnext() sequence, the correct file name is
+;	returned.  (On RSTS/E, the PPN is returned as well.)
+;
+;	Fgetname() returns a pointer to the buffer argument.
+;
+;	Fgetname() is present in the Vax-11 C support library, but
+;	is not generally present on Unix implementations.
+;
+;	Note that fgetname() returns a fully-qualified file specification
+;	including, where possible, the disk, directory, and version
+;	of the file.  The resulting string can be surprisingly long if
+;	using RMS and DECnet (DAP) file names, logicals on P/OS, etc.
+;
+;	If only the actual file name is needed, the
+;	following code segment may be executed.  As shown, it writes
+;	the file name and filetype (extension) to a global "buffer".
+;
+;	    getfilename(fd, buffer)
+;	    FILE		*fd;
+;	    register char	*buffer;
+;	    {
+;		register char *tp;
+;		register char c;
+;
+;		fgetname(fd, buffer);
+;		/*
+;		 * Skip over node and device name
+;		 */
+;		while ((tp = strchr(buffer, ':')) != NULL)
+;		    strcpy(buffer, tp + 1);
+;		/*
+;		 * Skip over [UIC] or [PPN] if present
+;		 */
+;		c = EOS;
+;		switch (*tp) {
+;		case '[':	c = ']'; break;
+;		case '(':	c = ')'; break;
+;		case '<':	c = '>'; break;
+;		}
+;		if (c != EOS
+;		 && (tp = strchr(buffer, c)) != NULL) {
+;		    strcpy(buffer, tp + 1);
+;		/*
+;		 * Don't include version
+;		 */
+;		if ((tp = strchr(buffer, ';')) != NULL)
+;		    *tp = EOS;
+;	    }
+;
+; Bugs
+;
+;	Various operating systems behave differently.
+;	RSX can have decimal version numbers. Not handled right now.
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the newer C library
+; 000003 27-Mar-80 MM	Added RT11 support
+; 000004 09-Jun-80 MM	Debugged
+; 000005 22-Aug-80 MM	Reversed $$fdba arguments (bummed code)
+; 000006 16-Sep-80 MM	Merged fdbta.mac into iovtoa.mac, much hackery
+; 000007 17-Nov-80 MM	More hackery
+; 000008 10-Dec-80 MM	Changed VMS test -- no functional changes
+; 000009 28-May-81 MM	Changed iovtoa to fgetname
+; 000010 16-Sep-81 MM	Don't do '_' for RSX-11M PLUS
+; 000011 27-Jun-82 MM	Newer library -- include directory name stuff
+; RMS012 17-Dec-83 RBD	Add conditional support for RMS-11(V2)
+; RMS013 29-Dec-83 TTC	Fix bug to get pointer to NAM block properly
+;			and restore r2 before returning.
+; 000014 06-Jul-84 RBD	Merge in TTC's P/OS named directory & "_"
+;			fixes.
+; 000015 17-Jan-02 BQT	Changed for I/D space
+; 000016 19-Jan-02 BQT	Added code to handle decimal numbers on RSX.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+.if ne	rsx
+.if ne	RMSIO
+									;12+
+	.mcall	$FETCH
+
+	.psect	c$code,i,ro
+;
+; This routine should work whether or not wildcarding is in
+; progress.  If the "resultant" string length is zero, use the
+; "expanded" string.
+;
+fgetname::
+	mov	r2,-(sp)		;Save r2
+	mov	4(sp),r1		;r1 --> iov
+	mov	r1,r2			;r2 --> iov			;13
+	add	#v$nam,r2		;r2 --> NAM block		;13
+
+	$FETCH	r0,RSL,r2		;r0 = resultant string length
+	beq	10$			;(none present)
+	$FETCH	r1,RSA,r2		;r1 --> resultant string
+	br	20$
+
+10$:	$FETCH	r0,ESL,r2		;r0 = expanded string length
+	$FETCH	r1,ESA,r2		;r2 --> expanded string
+
+20$:	add	r1,r0			;r0 --> last byte + 1
+	clrb	(r0)			;Null terminate string
+
+	mov	6(sp),r0		;r0 --> output buffer
+30$:	movb	(r1)+,(r0)+		;Copy the string
+	bne	30$
+	mov	6(sp),r0		;Get back the buffer arg.
+	mov	(sp)+,r2		;Restore r2			;13
+	return
+									;12-
+.iff
+	.psect	c$code,i,ro
+
+	.mcall	fdof$l,nbof$l,feat$s
+	fdof$l
+	nbof$l
+
+ISRSX	=	1
+ISMPL	=	6		; RSX-11M Plus				;10
+ISPOS	=	11		; P/OS (Pro-3xx)			;14
+
+fgetname::								;09
+	jsr	r5,csv$
+	tst	-(sp)		; Get a temp				;11
+	mov	C$PMTR+0(r5),r4	;Get IOV pointer
+	mov	C$PMTR+2(r5),r0	;r0 -> buffer
+	mov	#itoa,r2	;Assume RSTS' decimal PPN and unit no's
+	tst	$$rsts		;Well?
+	bne	10$		;Br if RSTS/E
+	mov	#itoa8,r2	;Some people will never learn
+10$:				;
+	cmp	$$opsy,#ISRSX	;Running on native RSX
+	beq	12$		;Yes, don't do underscore or dir name	;14--
+	mov	v$dnam(r4),r3	;r3 -> dir. name (for vms,pos,micro ...);11+
+	beq	1020$		;Don't have one
+1010$:	movb	(r3)+,(r0)+	;output the directory name
+	bne	1010$		;all of it
+	dec	r0		;r0 -> last byte
+	mov	#itoa,r2	;Going to do decimal version numbers
+	br	nouic		;done all uic stuff now.
+1020$:
+	cmp	$$opsy,#ISMPL	;On M+ or Micro-RSX ?			;14+
+	beq	12$		;Yes, no underscore
+	cmp	$$opsy,#ISPOS	;How about P/OS?
+	beq	12$		;Again, no underscore			;14-
+	movb	#'_,(r0)+	;We don't want logical name translation
+12$:
+	movb	v$fdb+f.fnb+n.dvnm(r4),(r0)+	;Output device name
+	movb	v$fdb+f.fnb+n.dvnm+1(r4),(r0)+	;both bytes
+	mov	v$fdb+f.fnb+n.unit(r4),(sp)	;Unit number		;11
+	tst	$$vms		;Running on RSX under VMS emulation	;08
+	beq	14$		;No					;08
+	mov	#itoa,r2	;VMS uses decimal unit numbers
+	mov	(sp),r3		;Get unit number
+	asr	r3		;Divide
+	asr	r3		; by
+	asr	r3		;  sixteen
+	asr	r3		;
+	bic	#360,r3		;Mask out all but the low octad
+	add	#'A,r3		;Change DB20: to DBB0:
+	movb	r3,(r0)+	;Output it
+	bic	#360,(sp)	;Keep low octad of unit number
+14$:
+	mov	r0,2(sp)	;buffer address
+	call	(r2)		;convert it -- itoa[8] updates r0
+	movb	#':,(r0)+	;Syntactic colon
+	mov	v$uic(r4),r3	;Get UIC/PPN
+	beq	nouic		;Exit if none given
+	cmp	r3,$$uic	;If the same as the task caller's
+	beq	nouic		;Don't convert it
+20$:
+	movb	#'[,(r0)+	;Output the bracket
+	mov	r0,2(sp)	;Update the buffer pointer
+	mov	r3,(sp)		;UIC
+	swab	(sp)		;Want the group, first
+	bic	#177400,(sp)	;Just the low byte, please
+	call	(r2)		;Call the converter
+	movb	#',,(r0)+	;Syntatic comma
+	mov	r0,2(sp)	;Update buffer pointer
+	mov	r3,(sp)		;Now for the
+	bic	#177400,(sp)	;Member
+	call	(r2)		;Off we go
+	movb	#'],(r0)+	;More syntax
+;
+; No need to hack uic's
+;
+nouic:
+	mov	v$fdb+f.fnb+n.fnam(r4),r1	;Get file name
+	bne	10$				;Br if first part's there
+	tst	v$fdb+f.fnb+n.ftyp(r4)		;No name, is there a type?
+	bne	10$				;Strange, but do it anyway
+	br	20$				;and exit for now
+10$:						;
+	call	$$c5ta				;Convert all
+	mov	v$fdb+f.fnb+n.fnam+2(r4),r1	;three
+	call	$$c5ta				;parts
+	mov	v$fdb+f.fnb+n.fnam+4(r4),r1	;of
+	call	trim				;it and trim off blanks
+	movb	#'.,(r0)+			;The dot
+	mov	v$fdb+f.fnb+n.ftyp(r4),r1	;The file type
+	call	trim				;Convert and trim blanks
+	mov	v$fdb+f.fnb+n.fver(r4),(sp)	;Version number
+	ble	20$				;Assume any 0 or -ve is ;0
+	movb	#';,(r0)+			;Convert version number
+	mov	r0,2(sp)			;Buffer for itoa[8]
+	feat$s	#fe$dvn				;Decimal version number?
+	cmpb	#is.set,$dsw
+	bne	19$
+	mov	#itoa,r2			;Yes...
+19$:	call	(r2)				;convert to ascii
+20$:
+	clrb	(r0)		;Make sure it's terminated
+	mov	c$pmtr+2(r5),r0	;return -> buffer argument
+	jmp	cret$		;And exit
+
+trim:
+	call	$$c5ta		;Convert
+10$:				;and then
+	cmpb	#040,-(r0)	;Loop to trim blanks
+	beq	10$		;around we go
+	inc	r0
+	return
+.endc
+
+.iff
+	.psect	c$code,i,ro
+;
+; RMS makes this sooooo easy!!
+;
+fgetname::
+	mov	2(sp),r1	;r1 -> IOV
+	mov	4(sp),r0	;r0 -> output buffer
+	mov	V$NAME(r1),r1	;r1 -> file name
+
+10$:	movb	(r1)+,(r0)+	;Output the
+	bne	10$		;name
+	mov	4(sp),r0	;Get back the buffer arg.
+	return			;Simplicity itself.
+
+.endc
+	.end

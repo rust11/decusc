@@ -1,0 +1,89 @@
+	.title	gettty	Get control terminal name
+	.ident	/000006/
+;
+;+
+;
+; Index		Get control terminal name
+;
+; Usage
+;
+;	gettty(buffer);
+;	char		*buffer;
+;
+; Description
+;
+;	Store the device name of the control terminal in the buffer.
+;	If this cannot be done, a null string will be returned.
+;
+; Bugs
+;
+;	On RSX modes, gettty() uses the GLUN$ executive directive
+;	to obtain the device name and unit number of stderr (which
+;	always is assigned to the control terminal).
+;
+;	On RT11 modes, gettty() calls iovtoa to return the file name
+;	on which stderr was opened.  This will not necessarily contain
+;	a valid unit number.
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the newer C library
+; 000003 27-Mar-80 MM	Added RT11 support
+; 000004 14-Oct-80 MM	RSX doesn't return anything
+; 000005 28-May-81 MM	iovtoa becomes fgetname
+; 000006 18-Jan-02 BQT	Changed for I/D space
+;
+.if ne	rsx							;03
+
+	.psect	c$code,i,ro
+ 
+gettty::
+	jsr	r5,csv$						;02
+	sub	#14,sp
+ 
+	mov	C$PMTR+0(r5),r4
+	clrb	(r4)
+ 
+	mov	sp,r0
+	mov	r0,-(sp)
+	mov	stderr,r0
+	clr	-(sp)
+	bisb	V$LUN(r0),(sp)
+	mov	#5.+<3.*256.>,-(sp)
+	emt	377
+	bcs	20$						;04
+ 
+10$:	mov	sp,r3
+	movb	(r3)+,(r4)+
+	movb	(r3)+,(r4)+
+	movb	(r3),r2
+	bic	#^C<70>,r2
+	asr	r2
+	asr	r2
+	asr	r2
+	bis	#'0,r2
+	movb	r2,(r4)+
+	movb	(r3),r2
+	bic	#^C<7>,r2
+	bis	#'0,r2
+	movb	r2,(r4)+
+	movb	#':,(r4)+
+	clrb	(r4)
+ 
+20$:
+	jmp	cret$						;02
+
+.iff								;03+
+	.psect	c$code,i,ro
+
+gettty::
+	mov	2(sp),-(sp)
+	mov	stderr,-(sp)	;This is the terminal
+	call	fgetname	;fgetname(stderr, buffer)	;05
+	cmp	(sp)+,(sp)+	;Clear the stack
+	rts	pc		;And return
+
+.endc								;03-
+	.end

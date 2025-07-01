@@ -1,0 +1,178 @@
+	.title	$$main	Start of C programs, short form
+	.ident	/000001/
+;
+;+
+;
+; Index		C main program, no I/O.
+; Index		C library global variables
+; Index		Operating-system unique variables
+; Index		$$opsy -- Operating system id.
+; Index		$$rsts -- Test if RSTS/E
+; Index		$$vms -- Test if VMS emulation
+; Index		$$uic -- RSX-11M default UIC
+; Index		$$stnd -- Stack end point
+; Index		$$task -- RSX-11M task name
+;
+; Description
+;
+;	The routines in this module allow a very small C task
+;	to be built, provided that they perform no I/O.
+;	This module contains portions of SUPORT.MAC, INIT.MAC,
+;	EXIT.MAC, and ABORT.MAC, to avoid pulling in modules
+;	from FCS. The following entry points are defined:
+;
+;		$$main
+;		$$init
+;		exits
+;		exit
+;		$$exit
+;		$$fail
+;		abort
+;
+;	The following globals are defined in this module in order
+;	to fake out normal programs:
+;
+;		$$exst
+;		$$pptr
+;		$$opsy
+;		$$rsts
+;		$$vms
+;		$$stnd
+;		$$argc
+;		$$argv
+;		$$mend
+;		$$mlim
+;		$$mtop
+;		$$uic
+;		$$task
+;
+; Bugs
+;
+;	RSX only.  Note that the module is named MAINR.TXT so it
+;	will not be included in the automatically-created library
+;	build command files.  To use MAINR, it should be assembled
+;	(with RSX.MAC) and linked explicitly with your task image:
+;
+;		TKB
+;		TKB>TASK=OBJECTS,MAINR,C:C/LB
+;		/
+;		TASK	= ...xxx
+;		//
+;
+;-
+;
+; Run time startoff.
+;
+; Edit history:
+; 000001 ??	SDR	Initial creation, some documentation by MM
+;
+
+; The '$' symbols are for internal use.
+; The '.' symbols are set by the loader.
+;
+	.psect	.data.
+$$pptr::
+	.word	.+2		;Ptr to profile printer
+	return			;Just hop back
+$$opsy::
+	.word	1		;Gets op sys unique value
+				;	RSX11-D		 0
+				;	RSX11-M		 1
+				;	RSX11-S		 2
+				;	IAS		 3
+				;	RSTS/E V7	 4
+				;	VMS		 5
+				;	RT11		 7
+$$rsts::
+	.word	0		;Set non-zero on RSTS/E	
+$$vms::
+	.word	0		;Set non-zero on VMS
+$$stnd::
+	.blkw	1		;High-point of stack
+$$argc::
+	.word	0		;Number of command args
+$$argv::
+	.word	0		;-> argv[]
+$$mend::
+	.word	0		; End of untouched memory
+$$mlim::
+	.limit			; Memory limits
+$$mtop	==	$$mlim+2	; We need first byte unused
+;
+$$uic::
+	.word	0		;Task uic is undefined
+
+$$task::
+	.ascii	"??????"	;Gets the task name
+	.byte	0		;Null terminated.
+
+	.even
+
+; Main program start
+
+	.psect	.prog.
+;
+; Run time startoff.
+; Called from the operating system
+;
+
+$$main::
+	mov	sp,$$stnd	;Save end of stack
+	clr	r5		;No environment linkage yet
+	call	$$init		;Initialize everything
+	mov	$$argv,-(sp)	;Arg. vector
+	mov	$$argc,-(sp)	;Arg. count
+	call	main		;Call user program
+	br	exit		;Normal exit
+
+; Initialize, short form
+
+	.mcall	GPRT$S
+
+$$init::
+	sub	#3*2,sp		; Get partition return area
+	mov	sp,r1		; r1 -> gprt$ buffer
+	GPRT$S	,r1		; Get partition parameters
+	bcc	35$		; Continue if we got it
+	CRASH			; Can't happen
+35$:
+	mov	2(r1),r1	; Partition size in clicks
+	asl	r1		; Shift left to mul. by 32
+	asl	r1		;
+	asl	r1		;
+	asl	r1		;
+	asl	r1		;
+	asl	r1		;
+	add	$dsw,r1		; Top of memory (correctly)
+	mov	r1,$$mend	; Save true top of memory
+	add	#3*2,sp		; Dump the stack
+	return
+
+; Exit, short form, no I/O
+
+	.mcall	exit$s, exst$s
+	.psect	.data.
+$$exst::
+	.word	1	;Presuppose "normal" exit
+exitfl:	.byte	-2	;-1 during windup(), 0 during library exit
+	.even
+
+	.psect	.prog.
+exits::
+	mov	2(sp),$$exst	;Set exit code and fall through
+
+exit::
+$$exit::
+	incb	exitfl		;Are we exiting?
+	beq	10$		;Br if we come here twice.
+	bpl	$$fail		;Br if here too often
+	call	wrapup		;User wrapup routine
+10$:
+$$fail::			;Very hard exit
+	EXST$S	$$exst		;Return status code
+	EXIT$S			;Back to RSX (EXST$ not emulated)
+
+abort::
+	CRASH			;Nothing to do but die
+
+	.end	$$main

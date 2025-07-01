@@ -1,0 +1,200 @@
+	.title	kbin	Single Character Terminal Input
+	.ident	/000010/
+;
+;+
+;
+; Index		Read from the terminal without delimiters
+;
+; Usage
+;
+;	int
+;	kbin();
+;
+; Description
+;
+;	Read one character from the console terminal.  The input character
+;	is not echoed nor does the program delay until an
+;	entire line has been entered.
+;
+;	Note the following:
+;
+;	This routine is very inefficient, as it requests operating-system
+;	service for every character entered.
+;
+;	Typing Control/C (or Control/Y on VMS) will cause the program
+;	to exit immediately (as if the main() routine exited), closing
+;	all files.
+;
+;	On RT-11 (native and emulated), the operating system expands
+;	<return> to a carriage return line feed sequence.  This will
+;	be stripped by kbin() to just <return> ('\r' in C).  Thus,
+;	if the user program reads '\n', a <line-feed> was typed.
+;	Note that this is unlike the general C library.
+;
+; Bugs
+;
+;	On RSX, this routine requires the command terminal
+;	having been assigned as logical unit number 1.
+;
+;	In general, the input character will not have been echoed.
+;	On RSTS/E and native RT11, the operating system may already
+;	have echoed the character if you type the character before
+;	the read request has been made.
+;-
+;
+; Edit history
+; 000001 05-Feb-81 MM	Initial edit
+; 000002 09-Feb-81 MM	Typo
+; 000003 12-Feb-81 MM	Removed TTSYM$ definition -- not in RSTS/E mac lib.
+; 000004 15-Apr-81 MM	CTRL/C exits through the general library EXIT routine
+; 000005 26-Feb-82 MM	RSTS debugging
+; 000006 02-Jul-82 MM	Newer library
+; 000007 09-Aug-82 MM	RSTS 7.1 can't do .ttyin (undone, see init.mac edit 30)
+; 000008 17-Jan-83 MM/LZ Preserve JSW on RT11 modes.
+; 000009 19-Jan-87 JMC  Change .psect for I/D space.
+; 000010 19-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+;
+; Set rstsxx non-zero to do rt11 read via rsts native call
+;
+rstsxx	=	rsx			; No rsts input on rt11 now	;07
+
+CR	=	015			; Magic carriage control character
+CTRLC	=	003			; Exit (needed for RSX)
+
+.if ne	rstsxx
+	.psect	c$data,d,rw						;09
+buff:	.blkw	1
+.endc
+
+.if ne	rsx
+	.mcall	qiow$s, exit$s
+TF.RNE	=	20			; Can't do this with ttsym$	;03
+
+	.psect	c$code,i,ro
+kbin::
+	tst	$$rsts			; If on RSTS/E			;05
+	bne	isrsts			; We do it natively		;05
+	qiow$s	#IO.RAL!TF.RNE,#1,#1,,#$$iosb,,<#buff,#1>		;06
+	bcs	die
+	cmpb	$$iosb,#IS.SUC						;06
+	bne	die
+	movb	buff,r0
+	bic	#177600,r0
+	cmp	r0,#CTRLC		; Abort?
+	beq	die			; Urk.
+	return				; done.
+
+die:
+	jmp	exit			; All done			;04
+
+.iff
+	.mcall	.ttyin
+
+JSW	=	044			; Job status word
+SINGLE	=	010000			; Single character input
+
+kbin::									;02
+.if ne	rstsxx								;07+
+	tst	$$rsts			; On RSTS, must do native
+	bne	isrsts			; operation
+.endc									;07-
+	mov	@#JSW,R1		; Save old JSW			;08
+	bis	#SINGLE,@#JSW		; Enter single character mode
+	.ttyin
+	cmp	r0,#CR			; <return>?
+	bne	10$			; no, exit.
+	.ttyin				; yes, flush <LF>
+	mov	#CR,r0			; recover <CR>
+10$:	mov	r1,@#JSW		; return to user's normal mode	;08
+	return				; done.
+
+.if ne	rstsxx								;07+
+die:	jmp	exit			; Exit on CTRL/C
+.endc									;07-
+.endc
+
+.if ne	rstsxx								;07+
+;									;05+
+; Special input for RSTS/E
+;
+
+firqb	=	402		; RSTS FIRQB, byte zero has error code
+xrb	=	442		; RSTS transfer request block
+xrlen	=	0
+xrbc	=	2
+xrloc	=	4
+xrci	=	6
+xrblk	=	10
+xrtime	=	12
+xrmod	=	14
+
+.macro	.PRIV								;07+
+.if eq	rsx
+	EMT	0377		; Next emt is for rsts
+.endc
+.endm	.PRIV
+
+.macro	.TTECH
+	.PRIV
+	EMT	020		; Set Echo on
+.endm	.TTECH
+
+.macro	.TTNCH
+	.PRIV
+	EMT	022		; Turn off echoing
+.endm	.TTNCH
+
+.macro	.TTDDT
+	.PRIV
+	EMT	024		; Enter ODT submode -- delimiter-free
+.endm	.TTDDT
+
+.macro	.READ
+	.PRIV
+	EMT	002		; Read
+.endm	.READ
+
+isrsts:
+	call	readin		; Get a character
+	cmp	r0,#CTRLC	; Exit trap?
+	beq	die		; Exit if so
+;
+; Note: On RSTS/E <CR> is followed by <LF> but, unlike "normal" rsts input,
+; <LF> is not followed by <CR><0>.
+;
+	cmp	r0,#CR		; If it's not a return
+	bne	10$		; continue,
+	call	readin		; Return, dump the <LF>
+	mov	#CR,r0		; and return a RETURN
+10$:
+	return			; Exit from RSTS/E readin
+;
+; Actually read a character (to r0), destroys r1
+; If any error is detected, r0 is set to CTRL/C
+;
+readin:
+	.TTNCH			; Turn off echoing
+	.TTDDT			; Enter one-shot single char. mode
+	mov	#xrb,r0		; r0 -> transfer request block
+	mov	#1,(r0)+	; XRLEN	Buffer length for one byte
+	clr	(r0)+		; XRBC	Must be zero for .read
+	mov	#buff,(r0)+	; XRLOC	Buffer start address
+	clr	(r0)+		; XRCI	Channel number zero = console
+	clr	(r0)+		; XRBLK	Block (record) for disks
+	clr	(r0)+		; XRTIME Timeout, ignored
+	clr	(r0)		; XRMOD
+	.READ			; Go for it.
+	movb	@#firqb,r1	; Save error code so .TTECH doesn't eat it
+	.TTECH			; Turn on echoing
+	clr	r0		; Get the character			;06
+	bisb	buff,r0		; (but keep parity for newer terminals)	;06
+	tstb	r1		; Check .read error code
+	beq	10$		; Gotcha, look for <CR><LF>
+	mov	#CTRLC,r0	; Sorry about that
+10$:
+	return			; and exit				;05-
+.endc				;					;07-
+	.end
+

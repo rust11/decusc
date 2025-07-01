@@ -1,0 +1,45 @@
+	.title	strrchr	Find Last Instance of a Character in a String
+	.ident	/000002/
+;
+;+
+;
+; Index		Find the last instance of a character in a string
+;
+; Usage
+;
+;	char *
+;	strrchr(stng, chr)
+;	char		*stng;	/* String to search in	*/
+;	char		chr;	/* Byte to search for	*/
+;
+; Description
+;
+;	If chr is in stng, return a pointer to the last (rightmost)
+;	occurrance of it.  If not, return NULL.
+;	strrchr(NULL, chr) returns NULL.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-May-82 MM	Initial edit
+; 000002 15-Jan-02 BQT	CHanged for I/D space and null stng.
+;
+	.psect	c$code,i,ro
+
+strrchr::
+	clr	r0		; Haven't found it yet.
+	mov	2(sp),r1	; R1 -> string
+	beq	30$		; Exit if null string
+
+10$:
+	cmpb	(r1),4(sp)	; Are they the same
+	bne	20$		; No, continue
+	mov	r1,r0		; Got something to return
+20$:
+	tstb	(r1)+		; At string end?
+	bne	10$		; Br if not.
+30$:
+	rts	pc		; Back to user
+	.end

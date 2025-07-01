@@ -1,0 +1,54 @@
+	.title	atofd	Convert ASCII to floating -- dummy
+	.ident	/000003/
+	.iif ndf RUST, RUST=0
+;+
+;
+; Internal
+;
+; Index		Convert ASCII to floating point -- dummy
+;
+; Usage
+;
+;	double
+;	atof(buffer)
+;	char	*buffer;
+;
+; Description
+;
+;	This is a dummy routine that is always present in the
+;	Decus C run-time library.  If a program attempts to
+;	convert an ASCII string to a floating point value (by calling
+;	scanf() with a '%f' format effector), the program will crash.
+;
+;	If floating point conversion is needed, the conversion
+;	routine must be named in the link or task-build command
+;	line as follows:
+;
+;	  RSX:	TKB file=file,c:atof,c:c/lb
+;	  RT11:	LINK file,c:atof,c:suport,c:clib/bot:2000
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 27-Jun-82 MM	Dummy routine written
+; 00001a 07-Jun-85 DLE	Add .psect c$code so I/D tasks work.
+; 000002 09-Apr-87 JMC  force C$STRN psect to data type
+; 000003 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$stcn,d,ro						;02
+
+msg:	.asciz	/{atof?}/
+
+	.psect	c$code,i,ro
+
+atof::
+	mov	#msg,-(sp)
+.if ne RUST
+	call	cc$err
+.iff
+	call	error		; crash
+.endc
+	return			; and return
+	.end

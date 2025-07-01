@@ -1,0 +1,55 @@
+	.title	qset	Add memory to the RT11 queue area
+	.ident	/000003/
+;
+;+
+;
+; Index		Add entries to the RT11 queue
+;
+; Usage
+;
+;	qset(number)
+;	int	number;	/* How many elements		*/
+;
+; Description
+;
+;	Allocate sufficient memory for the requested number of
+;	queue elements.  If sufficient memory cannot be allocated,
+;	do nothing.
+;
+; Bugs
+;
+;	This routine is ignored on RSX.
+;
+;-
+;
+; Edit history
+; 000001 04-Jun-81 MM	Initial edit.
+; 000003 19-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+	.psect	c$code,i,ro
+
+qset::
+
+.if eq	rsx
+	mov	2(sp),r1
+	mov	r1,r0		; Get argument
+	asl	r0		; *  2
+	asl	r0		; *  4
+	add	r1,r0		; *  5
+	asl	r0		; * 10.
+	call	$$aloc		; Allocate it
+	tst	r0		; Well?
+	beq	10$		; Exit if failure
+	.mcall	.qset		; Name it
+;;	.qset	r0,r1		; Give it away -- Note: this cannot	;02+
+;;				; be done as a macro as the registers
+;;				; get clobbered.
+	mov	r0,-(sp)	; save address
+	mov	r1,r0		; r0 := length
+	emt	^O353		; .qset					;02-
+10$:
+.endc
+	rts	pc		;Return
+	.end
+

@@ -1,0 +1,252 @@
+	.title	time	Compute time of day
+	.ident	/000006/
+;
+;+
+;
+; Index		Compute time of day
+;
+; Usage
+;
+;
+;	long
+;	time(0);
+;
+;	long
+;	time(tloc);
+;	long		*tloc;
+;	
+; Internal
+;
+;	call	$$time
+;
+; Description
+;
+;	time returns the time of day in seconds.  If tloc is
+;	non-null, the return value is also stored in the place to
+;	which tloc points.
+;
+;	The value is the time since midnite, Jan 1, 1970, measured
+;	in seconds.
+;
+; Note
+;
+;	If time() appears to give the wrong value, check that
+;	you have declared it
+;
+;	    extern long time();
+;
+; Internal
+;
+;	$$time is called by time and ftime.  It returns the time
+;	value in registers r0 and r1, and the number of ticks
+;	in the current second in r2.  R3 and r4 are modified.
+;
+;	On RSX, $$time refreshes $$tick.
+;
+; Bugs
+;
+;	The Unix time function returns GMT.  This function returns
+;	local time.
+;
+;	The leap year algorithm is only accurate in the range
+;
+;		1970 <= year < 2100
+;
+;-
+;
+; Edit history
+; 000001 16-Feb-82 MM	Written from scratch
+; 000002 28-Feb-82 MM	Rewritten from scratch
+; 000003 01-Feb-84 MM	Sigh.  Damn that Julius Caeser anyways
+; 000004 19-Jan-87 JMC  Change .psect for I/D space.
+; 000005 31-Jan-87 JMC  Change C$MWCN .pesect to d type
+; 000006 19-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+time::
+	jsr	r5,csv$			; Link environments
+	call	$$time			; Get the time
+	mov	C$PMTR+0(r5),r2		; User supply a parameter?
+	beq	10$			; no, just exit
+	mov	r0,(r2)+		; yes, out the high
+	mov	r1,(r2)			; and low words
+10$:	jmp	cret$			; and exit
+
+	.sbttl	$$time	Internal time of day routine
+;
+; Calling sequence:
+;
+;	call	$$time
+;
+;	return:
+;	r0,r1	time in seconds
+;	r2	ticks in this second
+;	r3,r4	modified
+;
+
+;
+; Days to the beginning of this month.  The -1 is needed as Unix
+; thinks Jan 1 is the zero'th day of the year.
+;
+	.psect	c$mwcn,d,ro
+montab:	.word	  0.-1,  31.-1,  59.-1,  90.-1, 120.-1, 151.-1
+	.word	181.-1, 212.-1, 243.-1, 273.-1, 304.-1, 334.-1
+
+.if ne	rsx
+
+	.mcall	GTIM$S
+	.psect	c$mwcn,d,ro
+multab:	.word	365., 24., 60., 60., 0.	; ((((year*365) + day)*24) ...
+.iif ne	G.TIDA-G.TIMO-2		.error ;day offset wrong
+.iif ne	G.TIHR-G.TIDA-2		.error ;hour offset wrong
+.iif ne	G.TIMI-G.TIHR-2		.error ;minute offset wrong
+.iif ne	G.TISC-G.TIMI-2		.error ;second offset wrong
+
+	.psect	c$code,i,ro
+
+$$time::
+	sub	#8.*2,sp		; Work area
+	mov	sp,r4			; r4 -> work area
+	GTIM$S	r4			; Get the time
+	mov	G.TICP(r4),$$tick	; Refresh ticks/sec.
+	mov	G.TICT(r4),r2		; Ticks in this second
+;
+; We will modify the month value to the "true" year and change
+; the date value to the number of days since the beginning of the year.
+; This sets the buffer up for the big multiply and add loop.
+;
+	mov	(r4)+,r1		; r1 := year - 1900
+	.iif ne	G.TIYR-0		.error ;Year offset wrong
+	mov	(r4),r0			; Month
+	.iif ne	G.TIMO-G.TIYR-2		.error ;Month offset wrong
+	mov	r1,(r4)+		; Save year in month entry
+	asl	r0			; as an index
+	add	<montab-2>(r0),(r4)	; Get days since year started
+	.iif ne	G.TIDA-G.TIMO-2		.error ;Day offset wrong
+	cmp	r0,#<2*2>		; Is it January or February?
+	ble	10$			; If so, ignore leap year stuff	;03
+;
+; NOTE: r4 -> buffer @ G.TIDA.  Also, we have verified that the buffer
+; is organized such that:
+;	G.TIYR	= 0
+;	G.TIMO	= 2
+;	G.TIDA	= 4
+;
+	bic	#^C3,r1			; year mod 4 == 0?
+	bne	10$			; can't be leap year
+	inc	(r4)			; increment day in year
+10$:
+;
+; G.TIDA now has the number of days in this year.  Compute the
+; actual number of leap years since 1970.
+;
+	sub	#1970.-1900.,-(r4)	; fix year for Unix time (year - 1970)
+					; r4 -> G.TIMO
+	mov	(r4),r0			; r0 has years since 1970
+	inc	r0			; years since 1969 (1968 was leapyear)
+	asr	r0			; / 2
+	asr	r0			; / 4
+	add	r0,G.TIDA-G.TIMO(r4)	; Fix number of days.
+	clr	r0			; r0, r1 will get time
+	clr	r1			; initialize both
+	mov	#multab,r3		; r3 -> multiplication table
+20$:
+	add	(r4)+,r1		; add in table factor
+	adc	r0			; as a longword
+	mov	(r3)+,-(sp)		; here is the multiplier
+	beq	30$			; exit at table end
+	mov	r1,-(sp)		; get the multiplicand low word
+	mov	r0,-(sp)		; and the high word
+	call	mul$li			; multiply
+	add	#6.,sp			; clear the stack
+	br	20$			; and loop for another
+;
+; Cleanup
+;
+30$:	add	#<8.*2.+2.>,sp		; Time buffer and leftover multiplier
+	return				; Done
+.endc
+
+.if eq	rsx
+	.mcall	.date, .gtim
+
+	.psect	c$data,d,rw						;04
+work:	.blkw	2			; Pmtr area for .time
+tod:	.blkw	2			; time of day
+
+	.psect	c$code,i,ro
+
+$$time::
+	.date				; Get date encoded
+	bit	#37,r0			; did we get one?
+	bne	10$			; br if so
+	clr	r0			; no, clear time of
+	clr	r1			; day and
+	br	nodate			; get time of day only
+
+10$:
+	mov	#365.,-(sp)		; days in year (needed later)
+20$:
+	mov	r0,-(sp)		; unpack 3 five-bit fields
+	bic	#177740,(sp)		; mask out field only
+	asr	r0			; Shift to next field
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	asr	r0			;
+	bne	20$			; unpack next.
+;
+; Stack now contains:
+;	0(sp)	month
+;	2(sp)	day
+;	4(sp)	year - 1972
+;	6(sp)	365. for mul$li below
+;
+	mov	(sp)+,r0		; r0 := month (1 .. 12)
+	mov	(sp)+,r4		; r4 := day in month
+	asl	r0			; *2 for index
+	add	<montab-2>(r0),r4	; r4 := days in year
+	cmp	r0,#2*2			; past march?
+	blt	30$			; no, don't look at leap
+	mov	(sp),r0			; years - 1972 ('72 was a leap year)
+	bic	#^C3,r0			; year mod 4
+	bne	30$			; not leapyear
+	inc	r4			; fix date
+30$:
+	add	#1972.-1970.,(sp)	; Unix wants year - 1970.
+	mov	(sp),r0			; year - 1970
+	inc	r0			; year - 1969
+	asr	r0			; divide by 4 to get number
+	asr	r0			; of leap years since 1970
+	add	r0,r4			; fix day in year
+	clr	-(sp)			; make (year - 1970) a long
+	call	mul$li			; multiply by 365. (remember)
+	add	#6.,sp			; clear stack
+	add	r4,r1			; real days
+	adc	r0			; doubly.
+;
+; r0,r1 has days since Jan 1, 1970.
+;
+nodate:
+	mov	r1,-(sp)		; days -- low word
+	mov	r0,-(sp)		; doubly -- high word
+					; push 86400. in pieces
+	mov	#20864.,-(sp)		; <24*60*60> mod 65535
+	mov	#1,-(sp)		; <24*60*60>  /  65536
+	call	mul$l			; Get seconds
+	add	#4*2,sp			; clear stack
+	mov	r0,r3			; save seconds
+	mov	r1,r4			; both words
+	.gtim	#work,#tod		; ticks today
+	mov	$$tick,r2		; ticks per second
+	mov	tod,r0			; ticks since midnight, high word
+	mov	tod+2,r1		; low word
+	call	$$div2			; seconds, r2 has remainder
+	add	r4,r1			; really get seconds
+	adc	r0			; doubly
+	add	r3,r0			; both words
+	return				; exit routine
+.endc
+	.end
+

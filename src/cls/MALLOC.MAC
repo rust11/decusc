@@ -1,0 +1,218 @@
+	.title	malloc	Allocate and free memory
+	.ident	/000011/
+;
+;+
+;
+; Index		Allocate and free memory
+;
+; Usage
+;
+;	char *
+;	malloc(size);		/* NULL if no space	*/
+;	unsigned	size;	/* Number of bytes	*/
+;
+;	mfree(p);
+;	free(p);
+;	char		*p;	/* Was allocated	*/
+;
+; Internal
+;
+;	extern char *$$alhd;	/* Allocated block list	*/
+;
+;	mov	size,r0		; Internal call
+;	call	$$aloc		; to malloc()
+;
+;	Return: r0 -> space (or 0), other registers preserved
+;
+;	mov	pointer,r0	; Internal call
+;	call	$$free		; to free()
+;
+;	Return: r0 random, other registers preserved
+;
+; Description
+;
+;	malloc() allocates the indicated number of bytes,
+;	returning a pointer to the first.  If the allocation request
+;	cannot be satisfied, malloc returns NULL.
+;	The program image is expanded as needed.
+;
+;	free() and mfree() return a buffer to free space.
+;	Nothing is returned.
+;
+;	See also the description of realloc() and sbrk().
+;
+; Internal
+;
+;	All free memory is allocated in linked lists which are
+;	stored in monotonically linked, noncontiguous areas.
+;	Each block has is preceeded by a one word header:
+;
+;		pointer to next block + "busy bit"
+;
+;	The pointer is to the next following block.  The last block
+;	points to the first.  The "busy bit" will be set if the
+;	data in the block is in use.  $$alhd points to the first
+;	such block.
+;
+;	Note that a block need not contain any data.  Free space is
+;	coalesced during the allocation search.
+;
+; Diagnostics
+;
+;	The program may abort if free() is passed a random pointer
+;	or if the program writes outside of an area reserved by malloc().
+;	Note that only certain cases are trapped by this test and that
+;	free will accept invalid addresses, which will cause mysterious
+;	failures.  The isalloc() function may be used to test whether
+;	a block of memory has been allocated by malloc().
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 28-Jul-80 MM	(Complete rewrite of alloc())
+; 000002 04-Aug-80 MM	Remove guard word, bummed code, fixed subtle bug.
+;			Extensive changes, no edit codes
+; 000003 13-Aug-80 MM	Added $$alox for realloc() communication
+; 000004 22-Sep-80 MM	Fixed .psect name
+; 000005 28-May-81 MM	Renamed sbreak as sbrk.
+; 000006 08-Oct-81 MM	Header is really only one word
+; 000007 13-Jul-82 MM	Added $$mchk, no changes to allocator.
+; 000008 19-Jul-82 JSL	Provide $$ahld for link with isalloc
+; 000009 13-Aug-82 MM	Split out $$link and $$mchk, no algorithm changes
+; 000010 19-Jan-87 JMC  Change .psect for I/D space.
+; 000011 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$data,d,rw						;10
+currp:	.word	last		;Current start of scan (last free'd)
+lastp:	.word	last		;End of scan (top of memory)
+$$alhd::
+	.word	last+1		;Initial memory allocation
+last:	.word	$$alhd+1	;Initial memory allocation
+$$alox::
+	.word	0		;Contains value for realloc()		;03
+HDRSIZ	=	.-$$alox	;Size of a pointer			;06
+BLOCK	=	512.		;Bytes to allocate from sbrk()
+
+.iif	ndf	DEBUG	DEBUG = 0	;Default: disable $$link code 
+.iif	ndf	CHECK	CHECK = 0	;Default: disable $$mchk code
+.iif	ne	CHECK	DEBUG = 1	;Force debug code if checking
+
+	.psect	c$code,i,ro
+
+malloc::
+	mov	2(sp),r0	; Grab size.
+
+;
+; $$aloc.
+; Internal allocate routine.
+; Input: r0=size (bytes).
+; Output: r0=ptr to space or NULL.
+;
+
+$$aloc::
+	jsr	r5,$$svr1	; Save r5-r1
+	mov	r0,r4		; R4 := number of bytes to get
+	add	#HDRSIZ+1,r4	; Including the list header
+	bic	#1,r4		; Rounded up to a word boundary
+	mov	currp,r0	; Current free list start
+
+10$:
+	bit	#1,(r0)		; Busy?
+	bne	50$		; Br if so, go look for next
+;
+; Coalesce free blocks together and see if there's enough space
+;
+20$:
+	mov	(r0),r2		; If current -> a busy block
+	bit	#1,(r2)		; (it's busy bit will be set)
+	bne	30$		; so exit this loop
+	mov	(r2),(r0)	; Update "first free" to enhance free space
+	br	20$		; Loop to get another
+;
+; r0 -> the current free space (extended as much as possible)
+; r2 -> the first busy block
+;
+30$:
+	mov	r0,r3		; r3 ->
+	add	r4,r3		; "current free" + number of bytes needed
+	cmp	r2,r3		; is first busy block < end of new block?
+	blo	50$		; Br if so, (gotta scan somewhere else)
+	cmp	r3,r0		; Is end of new block > start of free
+	blos	50$		; No (wrap around test)
+;
+; We've found enough for our needs.  Note: the following code requires
+; a one-word header.  Thus, the link word can always be stored (and
+; freed)
+;
+	assume	hdrsiz eq 2
+	mov	r3,currp	; currp -> "after new block"
+	cmp	r2,r3		; First busy <= "after new block"
+	blos	40$		; Br if so
+	mov	(r3),$$alox	; Remember old contents for realloc()	;03
+	mov	(r0),(r3)	; First busy is later, setup linkage
+40$:
+	mov	r3,(r0)		; New block -> end of new block
+	inc	(r0)+		; bis #1,(r0)+, mark it busy
+	return			; Exit, r0 -> user's requested block
+;
+; No free space here
+;
+50$:
+	mov	r0,r2		; Here's a new ending point
+	mov	(r0),r0		; Here's a new place to start
+	bic	#1,r0		; Clear flag bit
+	cmp	r2,currp	; Did we wrap around?
+	bhis	10$		; Not yet
+	cmp	r0,currp	; Did we really wrap around?
+	blo	10$		; Keep on trying
+;
+; Gotta extend memory
+;
+	mov	r0,-(sp)	; sbrk() kills r1
+	mov	#BLOCK,-(sp)	; How much to allocate each time
+	call	sbrk		; Go for it				;05
+	mov	r0,r2		; New allocation
+	beq	70$		; Exit if nothing left
+	mov	lastp,r1	; Here's where it all ends
+	mov	r2,(r1)+	; lastp->pointer = new block
+	cmp	r1,r2		; Is new space continuous with old?
+	beq	60$		; Br if so
+	inc	-(r1)		; bis #1,-(r1), make rest busy
+60$:
+	mov	r2,r1		; Here's the new space
+	add	(sp)+,r1	; r1 -> after what we asked for
+	mov	(sp)+,r0	; Restore current scan pointer
+	tst	-(r1)		; r1 -> a dummy block at the end
+	mov	r1,(r2)		; New space -> the dummy block
+	mov	r1,lastp	; The end -> the dummy block
+	mov	#$$alhd+1,(r1)	; Wrap the scan around
+	br	10$		; And here we go again
+;
+; Out of memory (r0 == 0)
+;
+70$:
+	cmp	(sp)+,(sp)+	; Clean the stack
+	return			; and return
+;
+;
+; Free (and friends)
+;
+mfree::
+free::
+	mov	2(sp),r0	; Here's what to free
+
+$$free::			; Internal free call
+	tst	r0		; How can I free nothing
+	beq	10$		; Urk
+	cmp	-(r0),r0	; Are pointers ascending?
+	blos	10$		; Trouble if not.
+	mov	r0,currp	; Free scan starts here
+	bic	#1,(r0)		; Clear busy bit
+	clr	r0		; Return null (just in case)
+	return			; So simple
+
+10$:
+	CRASH			; Die
+	.end

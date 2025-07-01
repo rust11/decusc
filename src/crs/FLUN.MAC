@@ -1,0 +1,33 @@
+	.title	flun	Get logical unit number
+	.ident	/000005/
+;
+;+
+;
+; Index		Get logical unit number
+;
+; Usage
+;
+;	flun(iop)
+;	FILE		*iop;
+;
+; Description
+;
+;	Return the logical unit number associated with the file.
+;	(On RT11, the channel number is returned.)
+;
+; Bugs
+;
+;	Obsolete -- use fileno() for transportability.
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 10-Mar-80 MM	Conversion for the newer library
+; 000003 16-Jun-80 MM	Fixed typo, made smaller
+; 000004 27-Jun-82 MM	For newer library
+; 000005 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+flun::	jmp	fileno
+	.end

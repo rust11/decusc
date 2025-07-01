@@ -1,0 +1,15 @@
+;
+; Task build command file for C compiler.  Execute as
+;	link @pccbld.tkb
+;
+CC/CP=PCCBLD/MP
+ASG=TI:1
+TASK=...XCC
+STACK=512
+;
+; Patch SYSINC to change "#include <...>" location, currently C:
+; Must be set to [ZZDECUSC] for the PRO-350.
+;
+GBLPAT = CC000:SYSINC:54523:55472:55132:42504:52503:41523:135
+;
+

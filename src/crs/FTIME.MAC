@@ -1,0 +1,77 @@
+	.title	ftime	Compute time of day (augmented)
+	.ident	/000003/
+;
+;+
+;
+; Index		Compute time of day (augmented)
+;
+; Usage
+;
+;
+;	#ifdef unix
+;	#include <sys/types.h>
+;	#include <sys/timeb.h>
+;	#else
+;	#include <timeb.h>
+;	#endif
+;
+;	long
+;	ftime(buf);
+;	struct timeb	*buf;
+;
+; Description
+;
+;	ftime returns the time of day in seconds.  The time buffer
+;	receives the time of day, milliseconds since the current
+;	second, and timezone and Daylight Savings time indicators.
+;
+;	The time buffer has the following format:
+;
+;	  struct timeb {
+;	    long      time;	/* Time of day		*/
+;	    unsigned  millitm;	/* Milliseconds		*/
+;	    short     timezone;	/* Current timezone	*/
+;	    short     dstflag;	/* Daylight Savings	*/
+;	};
+;
+;	The time value is the time since midnite, Jan 1, 1970, measured
+;	in seconds.  The timezone value is the number of minutes that
+;	local time differs from GMT.
+;
+;	Note that, on Unix, the time buffer definition is stored
+;	in the sys directory, while for Decus-C and Vax-11 C, it is
+;	stored in the default system library (C: or sys$library:
+;	respectively).
+;
+; Bugs
+;
+;	The Unix time function returns GMT.  Decus C returns
+;	local time.  Timezone and dstflag are set to zero.
+;
+;-
+;
+; Edit history
+; 000001 28-Feb-82 MM	Written from scratch
+; 000002 13-May-82 MM	Added c$code
+; 000003 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro						;02
+ftime::
+	jsr	r5,csv$			; Link environments
+	call	$$time			; Get the time
+	mov	C$PMTR+0(r5),r4		; User supply a parameter?
+	beq	10$			; no, just exit
+	mov	r0,(r4)+		; yes, out the high
+	mov	r1,(r4)+		; and low words
+	mov	#1000.,-(sp)		; make it milliseconds
+	mov	r2,-(sp)		; ticks
+	clr	-(sp)			; as a long
+	call	mul$li			; now it is
+	add	#6.,sp			; clear stack
+	mov	$$tick,r2		; ticks per second
+	call	$$div2			; get the milliseconds
+	mov	r1,(r4)+		; milltime
+	clr	(r4)+			; timezone
+	clr	(r4)			; dstflag
+10$:	jmp	cret$			; and exit
+	.end

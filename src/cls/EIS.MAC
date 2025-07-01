@@ -1,0 +1,261 @@
+	.title	eis$i	EIS emulator module
+	.ident	/000006/
+;
+;+
+;
+; Internal
+;
+; Index		EIS emulator
+;
+; Usage
+;
+;	asl$i(a, b);		/* Execute a << b	*/
+;	asr$i(a, b);		/* Execute a >> b	*/
+;	mul$i(a, b);		/* Execute a * b	*/
+;	div$i(a, b);		/* Execute a / b	*/
+;	mod$i(a, b);		/* Execute a % b	*/
+;
+; Description
+;
+;	All arguments are integers.  These routines are called by the C
+;	compiler to perform the indicated operations.
+;
+;	The module may be conditionally compiled to generated hardware
+;	EIS operations.  Edit RT11.MAC or RSX.MAC to define C$$EIS
+;	as needed:
+;
+;		0	Emulate EIS operations
+;		1	Generate EIS operations
+;
+;	C$$EIS is defaulted zero for RT11, non-zero for RSX.
+;
+;	If n is negative, x << n == x >> (-n) and v.v.
+;
+;	Note: div$i returns the remainder in r1.  This may be useful
+;	for assembly-language programs that need both the quotient
+;	and remainder.
+;
+;	To explicitly position this module in an overlay structure,
+;	refer to the title, EIS$I.
+;
+; Bugs
+;
+;	Divide by zero yields zero for the quotient and remainder.
+;-
+;	
+; Edit history
+; 01 14-Jun-79 MM	Conversion form .s format
+; 02 31-Aug-79 MM	Added hardware EIS support
+; 03 06-Mar-80 MM	Updated for new library
+; 04 01-Jul-80 MM	Emulated divide with negative numerator fixed
+; 05 07-Aug-80 MM	Handle shift by a negative argument
+; 06 14-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+.iif	ndf	C$$EIS	C$$EIS	=	0			
+.if ne	C$$EIS							;02
+.iftf								;02
+
+;
+; asr$i(x, y) does x >> y						;05+
+; asl$i(x, y) does x << y
+;
+ 
+asr$i::
+	neg	4(sp)		;Neg. shift
+
+asl$i::
+.ift								;02 +
+	mov	2(sp),r0
+	ash	4(sp),r0
+	return
+.iff								;02 -
+	mov	2(sp),r0
+	mov	4(sp),r1
+	bpl	20$		;Left shift (or zero)
+	br	30$		;Right shift (at least once)
+ 
+10$:
+	asl	r0
+	dec	r1
+20$:
+	bgt	10$
+	return
+ 
+30$:
+	asr	r0
+	inc	r1
+	blt	30$
+	return
+.iftf
+ 
+ 
+;
+; mul$i(x, y) does x*y
+;
+ 
+mul$i::
+.ift								;02 +
+	mov	2(sp),r1
+	mul	4(sp),r1
+	mov	r1,r0
+.iff								;02 -
+	mov	r2,-(sp)
+	mov	r3,-(sp)
+	mov	r4,-(sp)
+ 
+	clr	r2
+	mov	10(sp),r1
+	bpl	50$
+	neg	r1
+	com	r2
+ 
+50$:
+	mov	12(sp),r3
+	bpl	60$
+	neg	r3
+	com	r2
+ 
+60$:
+	clr	r0
+	mov	#16.,r4
+ 
+70$:
+	bit	#1,r1
+	beq	80$
+	add	r3,r0
+ 
+80$:
+	clc
+	ror	r0
+	ror	r1
+	dec	r4
+	bne	70$
+ 
+	tst	r2
+	beq	90$
+	neg	r1
+ 
+90$:
+	mov	r1,r0
+	mov	(sp)+,r4
+	mov	(sp)+,r3
+	mov	(sp)+,r2
+.iftf								;02
+	rts	pc
+ 
+;
+; div$i(x, y) does x/y
+;
+ 
+div$i::
+.ift								;02 +
+	mov	2(sp),r1
+	sxt	r0
+	div	4(sp),r0
+.iff								;02 -
+	call	divmod
+.iftf								;02
+	rts	pc
+ 
+;
+; mod$i(x, y) does x%y
+;
+ 
+mod$i::
+.ift								;02 +
+	mov	2(sp),r1
+	sxt	r0
+	div	4(sp),r0
+	mov	r1,r0
+.iff								;02 -
+	call	divmod
+	mov	r1,r0
+.iftf								;02
+	rts	pc
+
+.iff								;02
+ 
+;
+; Common code for div$i and mod$i.
+; Divide 12(sp) by 14(sp).
+; Return quotient in r0.
+; Return remainder in r1.
+;
+; Note: the code is -- except for register allocations -- identical
+; with the DVI routine in the floating-point math package.
+;
+; Register usage:
+;	r0	gets quotient
+;	r1	gets remainder
+;	r2	divisor
+;	r3	loop counter
+;	r4	flag for negative arguments
+;
+ 
+divmod:
+								;04+
+	mov	r4,-(sp)	; Save
+	mov	r3,-(sp)	; working
+	mov	r2,-(sp)	; registers.
+	clr	r4		; R4 = sign of result
+	mov	14(sp),r2	; divisor
+	bgt	10$		; br if divisor > 0
+	beq	60$		; Error if zero
+	mov	#100000,r4	; Set flag
+	neg	r2		; and negate divisor
+
+10$:
+	mov	12(sp),r0	; Dividend
+	bgt	20$		; Br if dividend > 0
+	beq	70$		; Exit if zero
+	add	#40000,r4	; Negative, set flag
+	neg	r0		; negate dividend
+
+20$:
+	mov	#8.,r3		; Assume eight iterations
+	clr	r1		; Clear high-order dividend
+	swab	r0		; Is it a small dividend
+	beq	30$		; Br if so, fewer iterations
+	asl	r3		; Nope, need all 16
+	swab	r0		; Undo swab
+
+30$:
+	asl	r0		; Double left
+	rol	r1		; shift
+	beq	40$		; Br if no change
+	inc	r0		; Assume it will go
+	sub	r2,r1		; Trial step
+	bhis	40$		; Br if ok
+	add	r2,r1		; Nope, dividend not big enough
+	dec	r0		; Remove quotient bit
+
+40$:
+	dec	r3		; Iteration count
+	bgt	30$		; Keep on dividing
+	asl	r4		; Look at the negative flag
+	bvc	50$		; Continue if either/both were neg.
+	neg	r0		; Negate quotient
+
+50$:	tst	r4		; Look at remainder sign
+	bpl	80$
+	neg	r1		; Negate remainder
+	br	80$		; Just exit
+
+;
+; Branch here if divide by zero
+;
+
+60$:				; Br here if divide by zero
+
+70$:				; Br here if dividend is zero
+	clr	r0		; Return zero quotient
+	clr	r1		; and remainder
+
+80$:
+	mov	(sp)+,r2	; Restore
+	mov	(sp)+,r3	; working
+	mov	(sp)+,r4	; registers			;04-
+	return
+.endc								;02
+	.end

@@ -1,0 +1,39 @@
+	.title	feof	Test for end of file
+	.ident	/000005/
+;
+;+
+;
+; Index		Test for end of file
+;
+; Usage
+;
+;	feof(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;	Return 1 if end of file on iop, else zero.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 10-Mar-80 MM	Conversion for the newer library
+; 000003 08-Oct-81 MM	Bummed code
+; 000004 27-Jun-82 MM	Newer library
+; 000005 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+feof::
+	clr	r0
+	mov	2(sp),r1					;04
+	bit	#VF$EOF,V$FLAG(r1)				;04
+	beq	10$
+	inc	r0
+
+10$:
+	return							;03
+	.end

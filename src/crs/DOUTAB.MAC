@@ -1,0 +1,36 @@
+	.title	$$tens	Conversion table for dtoa, atof
+	.ident	/000003/
+	.enabl	lc,gbl
+	
+;+
+;
+; Internal
+;
+; Index		Conversion table for floating point
+;
+; Usage
+;
+;	extern double $$tens[];
+;
+;	
+; Description
+;
+;	$$tens[i] has 10^i for the range 0..35
+;-
+;
+; Edit history
+; 000001 07-Mar-83 MM	Lost the original.
+; 000002 02-Feb-87 JMC  Change c$mwcn .psect to d type
+; 000003 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$mwcn,d,ro						;02
+
+$$tens::
+$	=	0
+	.rept	35.+1.
+	.irp	z,<$>
+	  .flt4	1E'z
+	.endm
+$	=	$+1
+	.endr
+	.end

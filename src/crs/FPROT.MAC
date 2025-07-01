@@ -1,0 +1,109 @@
+	.title	fprot	File protection handling.
+.if ne rmsio
+	.ident	"RMS001"
+.iff
+	.ident	"000001"
+.endc
+;
+;+
+;
+; Index		Handle default and file protection
+;
+; Usage
+;
+;	int getdpro();
+;	setdpro(pro);
+;	int		pro;	/* Protection to set	*/
+;	int getfpro(f);
+;	FILE		*f;	/* Open file to read protection on	*/
+;
+; Description
+;
+;	getdpro reads the current default protection word.
+;	setdpro sets the current default protection word.
+;	getfpro read the file protection word.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 4-Feb-02 BQT	Moved to a separate module from fpar/fcsi
+;
+.if ne rsx
+.if ne rmsio
+;
+; Set default protection
+;
+; Calling sequence:
+; setdpro(x)
+;
+SETDPRO::
+	MOV	2(SP),$$DPRO	; Save new default protection.
+	RETURN
+;
+; Get default protection
+;
+; Calling sequence:
+;
+; x = getdpro()
+;
+GETDPRO::
+	MOV	$$DPRO,R0
+	RETURN
+;
+; Get open file protection
+;
+; Calling sequence:
+;
+; x = getfpro(f)
+;   FILE *f;
+;
+GETFPRO::
+	MOV	2(SP),R0
+	MOV	V$PRO+O$PRO(R0),R0
+	RETURN
+
+.iff
+;
+; Set default protection
+;
+; Calling sequence:
+; setdpro(x)
+;
+SETDPRO::
+	MOV	2(SP),R1	; Save new default protection.
+	CALLR	.WDFFP
+;
+; Get default protection
+;
+; Calling sequence:
+;
+; x = getdpro()
+;
+GETDPRO::
+	CALL	.RDFFP
+	MOV	R1,R0
+	RETURN
+;
+; Get open file protection
+;
+; Calling sequence:
+;
+; x = getfpro(f)
+;   FILE *f;
+;
+GETFPRO::
+	JSR	R5,CSV$		; Start function.
+	MOV	C$PMTR(R5),R0	; Get IOV.
+	ADD	#V$FDB,R0	; We have FDB.
+	MOV	#IO.RAT,R1	; Function (Read attribute)
+	MOV	#QAL,R2		; Length of param list
+	MOV	#QALST,R3	; Pointer to param list.
+	CALL	.XQIO		; Do the read.
+	MOV	FPRO,R0		; Get protection word.
+	JMP	CRET$		; Done.
+
+.endc
+.endc
+	.end

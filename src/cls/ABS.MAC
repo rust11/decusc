@@ -1,0 +1,32 @@
+	.title	abs	Integer absolute value
+	.ident	/000002/
+;
+;+
+;
+; Index		Absolute value
+;
+; Usage
+;
+;	abs(val)
+;	int		val;
+;
+; Description
+;
+;	Return absolute value of the integer argument.
+;
+; Bugs
+;
+;-
+; Edit history
+;
+; 000001	Original	JMT
+; 000002	Added I/D space	BQT
+
+	.psect	c$code,i,ro
+
+ABS::
+	MOV	2(SP), R0
+	BGE	10$
+	NEG	R0
+10$:	RTS	PC
+	.END

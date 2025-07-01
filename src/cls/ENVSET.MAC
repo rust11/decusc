@@ -1,0 +1,123 @@
+	.title	envsave	Multi-level function return
+	.ident	/000002/
+;
+;+
+;
+; Index		Multi-level function return
+; Index		Save and restore function context
+;
+; Usage
+;
+;	int *
+;	envsave();
+;
+;	envreset(frame, hval, lval)
+;	int		*frame;	/* Frame pointer	*/
+;	int		hval;	/* High-order return	*/
+;	int		lval;	/* Low-order return	*/
+;
+; Description
+;
+;	These functions permit a multi-level return from a C function
+;	to one of its dynamic ancestors in the stack.
+;
+;	Envsave() returns the address of the frame of its
+;	caller.  Later calls to envreset() with this pointer as an
+;	argument will create the illusion that the last function invoked
+;	by the caller of envsave() returned directly with a value
+;	equal to the parameter(s) to envreset().
+;
+;	Envreset() simulates a return to the function whose frame
+;	pointer matches frame (the result of a previous call to
+;	envsave()).  Envreset() may be made to look as if it is
+;	returning a one or two word value.  If only a single integer
+;	value is passed in addition to envreset(), it looks as if
+;	a 1-word value was returned.  If two integers (or equivalently,
+;	a long) are specified, it looks like a long is returned.
+;	Thus any 1 or 2 word value may be returned because of the lax
+;	type checking in C.
+;
+;	It is catastrophic to attempt to return to a function
+;	which has itself already returned!!!
+;
+;	The following illustrates use of envsave() and envreset():
+;
+;		int	*save_frame;
+;
+;		process() {
+;		  ...
+;		  save_frame = envsave();
+;		  if (subroutine()) {
+;		    /*
+;		     * Success
+;		     */
+;		  }
+;		  else {
+;		    /*
+;		     * Failure
+;		     */
+;		  }
+;		}
+;
+;		subroutine() {
+;		  /*
+;		   * Abort on error
+;		   */
+;		  if (...)
+;		    envreset(save_frame, 0)
+;		  /*
+;		   * Success
+;		   */
+;		  return(1);
+;		}
+;
+;	When subroutine() detects an error, it calls envreset() to
+;	return to the caller of process(), passing a "failure" flag.
+;
+; Bugs
+;
+;	If the caller of envsave() has already returned, disaster will
+;	result.
+;
+;	It is highly recommended that programs use setjmp/longjmp instead.
+;
+;-
+; Edit History
+;
+; Originally written by J. Lutz and distributed on a Unix SIG tape.
+;
+; 000001 14-Aug-80 MM		Redone for the Decus compiler
+; 000002 14-Jan-02 BQT		Changed for I/D space
+;
+	.psect	c$code,i,ro
+;
+;	NOTE:	These routines are heavily dependent on the calling
+;		sequence produced by the Decus C compiler.  Though
+;		the usage is portable, the implementation is not.
+
+envsav::
+	mov	r5,r0			; frame pointer to r0
+	rts	pc			;   and return
+
+FP = 0.					; param. frame offset from frame
+HVAL = 2.				; param. hval offset from frame
+LVAL = 4.				; param. lval offset from frame
+
+envres::
+	jsr	r5,csv$			; enter function
+	mov	C$PMTR+FP(r5),r2	; desired frame ptr. to r1
+	mov	C$PMTR+HVAL(r5),r0	; return value to r0
+	mov	C$PMTR+LVAL(r5),r1	;   and to r1
+;
+; Loop back through frames until r5 points a value equal
+; to the desired frame.  Then a jump to 'cret$' cleans up the
+; stack and completes the multi-level return.
+;
+10$:
+	cmp	r2,(r5)			; r5 -> frame pointer from envset()
+	beq	20$			; yes -- return
+	mov	(r5),r5			; no -- link back one more frame
+	br	10$			;    and branch to compare again
+20$:
+	jmp	cret$			; return to dynamic ancestor
+	.end

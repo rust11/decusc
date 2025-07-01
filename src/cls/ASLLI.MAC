@@ -1,0 +1,86 @@
+	.title	asl$li	Shift long << integer
+	.ident	/000006/
+;
+;+
+;
+; Internal
+;
+; Index		Shift long by integer
+;
+; Usage
+;
+;	long
+;	asl$li(l, n)
+;	long		l;
+;	int		n;
+;
+;	long
+;	asr$li(l, n)
+;	long		l;
+;	int		n;
+;
+; Description
+;
+;	Performs arithmetic shifting for integer shift arguments.
+;	Note that only the low-order six bits of the shift argument
+;	are examined.  This is compatible with the hardware shift
+;	instruction.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 25-Jul-80 SB	Add eis version
+; 000003 06-Aug-80 SB	Bug fix
+; 000004 07-Aug-80 MM	Fix neg. arguments
+; 000005 07-Aug-80 SB	Bug fix
+; 000006 14-Jan-02 BQT	Changed for I/D space.
+;
+.iif ndf C$$EIS, C$$EIS = 0						;02/03
+
+	.psect	c$code,i,ro
+
+asr$li::								;04+
+	neg	6(sp)		;Negative right shift
+
+asl$li::
+	mov	2(sp),r0
+	mov	4(sp),r1
+
+.if ne	C$$EIS
+	ashc	6(sp),r0
+	return
+.iff
+	mov	r2,-(sp)	;Use t.o.s. as a temp
+	mov	6+2(sp),r2	;Get shift count to a register		;05
+$$asll::			;Enter here from asl$ll()
+	bic	#177700,r2	;Mask out high-order junk
+	bit	#40,r2		;Right shift bit set?
+	beq	30$		;No, continue -- left or null shift
+	bis	#177700,r2	;"Sign-extend" counter
+;
+; Right shift
+;
+10$:
+	asr	r0		;Double precision
+	ror	r1		;Right shift
+	inc	r2		;Up the counter
+	blt	10$		;Continue if more
+	br	40$		;Done, exit
+;
+; Left shift
+;
+20$:
+	asl	r1		;Double precision
+	rol	r0		;left shift
+30$:
+	dec	r2		;Drop count
+	bge	20$		;Loop if more
+
+40$:
+	mov	(sp)+,r2	;Restore temp.
+	return			;And exit				;04-
+.endc									;02-
+	.end

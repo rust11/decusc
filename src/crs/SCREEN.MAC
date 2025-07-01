@@ -1,0 +1,898 @@
+	.title	screen	Screen I/O Primitives
+	.ident	/000010/
+	.enabl	lc,gbl
+	.list	meb,bex
+;
+;+
+;
+; Index		Screen I/O primitives
+;
+; Usage
+;
+;	scdown()		/* Roll screen down	*/
+;
+;	scerln(line, column)	/* Erase to end of line	*/
+;	int		line;	/* Line number		*/
+;	int		column;	/* Column number	*/
+;
+;	scerpg(line, column)	/* Erase to end of page	*/
+;	int		line;	/* Line number		*/
+;	int		column;	/* Column number	*/
+;
+;
+;	char *
+;	scget(buff, size, text)
+;				/* Prompt and read	*/
+;	char		*buff;	/* Returned text	*/
+;	int		size;	/* Buffer size		*/
+;	char		*text;	/* Optional prompt	*/
+;
+;
+;	int
+;	sclmargin(lmarg)	/* Set left margin	*/
+;	int		lmarg;	/* New left margin	*/
+;
+;
+;	scout(line, column, text)
+;				/* Write text to screen	*/
+;	int		line;	/* Line number		*/
+;	int		column;	/* Column number	*/
+;	char		*text;	/* Text to write	*/
+;
+;
+;	scput(oldbf)		/* Reset buffer mode	*/
+;	char		*oldbf;	/* Previous buffer	*/
+;
+;
+;	int
+;	scset(newbf, size, old)
+;				/* Set buffer mode	*/
+;	char		*newbf;	/* New buffer		*/
+;	char		size;	/* Size of new buffer	*/
+;	char		**old;	/* Previous buffer save	*/
+;
+;
+;	int
+;	scsettype(type)		/* Force terminal type	*/
+;	int		type;	/* Terminal type	*/
+;
+;
+;	int
+;	sctype()		/* Return terminal type	*/
+;
+;
+; Description
+;
+;	Based on the "terminal independent screen procedures"
+;	in the VAX/VMS runtime library, these routines provide
+;	an efficient, operating-system independent, interface
+;	to (DIGITAL) video terminals.  They work correctly with
+;	VT52 and VT100 (ANSI) terminals and do nothing disasterous
+;	if the terminal is not a video terminal.
+;
+;	Note that they only work with the user's console (stderr)
+;	terminal.
+;
+;	The following definitions should be noted:
+;
+;		line	The line on  the  screen  to  which  the
+;			cursor  is  to be moved.  The top of the
+;			screen is line one.   If  line  is  less
+;			than  or  equal to zero, the cursor does
+;			not move.
+;
+;		column	The column to which the cursor is to  be
+;			moved.  This value will be offset by the
+;			left-margin value (if one is set).   The
+;			default  left-hand margin is column one.
+;			If column  (after  offsetting)  is  less
+;			than  or  equal to zero, the cursor does
+;			not move.
+;
+;		text	A null-terminated string to  be  output.
+;			If  text  equals NULL, nothing is output
+;			and internal buffers are flushed.
+;
+;	The routines are designed to operate in a buffered mode,
+;	allowing the program to format an entire screen of information
+;	and present this data with one call to the monitor-level
+;	I/O service.  This is particularily efficient on multi-user
+;	or networked systems.  The routines scput() and scset()
+;	establish and release buffer mode.  Buffers can be chained
+;	together, allowing a subroutine to establish a buffer
+;	independently of its callers.  Each buffer must be at
+;	least 12 bytes long.  Longer buffers are more efficient.
+;
+;	Although multiple buffers can be established, only one is
+;	active at any particular time.  If a call to scset() establishes
+;	a new buffer, the contents of the previous buffer are copied
+;	to the new buffer and the previous buffer is set empty.
+;	If scput() releases a buffer, its contents are copied to
+;	any higher-level buffer.
+;
+;	The first call to any routine determines the terminal type.
+;	Note that on native RT11, if the screen handler decides that the
+;	terminal may be a scope, it will send an "identify" request
+;	"<ESC>/Z" to determine whether it is a VT52 or VT100.  If the
+;	screen routine decides that the terminal is not a scope, cursor
+;	move operations are ignored and text is output to "stderr".
+;	If the screen handler decides that the terminal is a VT100,
+;	the "Enter ANSI mode" escape sequence will be sent to the terminal.
+;	Similarily, if the terminal is thought to be a VT52, the
+;	"Enter VT52 emulation mode" sequence will be sent.  The screen
+;	handler will not record the current mode for subsequent resetting.
+;
+;	Screen output will be to the "stderr" device (explicitly the
+;	console terminal).  Input will be from the "stdin" device. If a
+;	local buffer has been established, the screen handler calls 
+;	operating system service directly, bypassing the "standard" I/O
+;	library. This means that output formatting should use sprintf() to
+;	format a user buffer which is subsequently output using scout().
+;	Furthermore, the newline '\n' character will not be expanded
+;	to a "carriage return/line feed" sequence.  It is thus highly
+;	recommended that the user program perform all formatting by passing
+;	appropriate row and column values to scout().
+;
+;	The following routines are defined:
+;
+;
+;		scdown()
+;
+;	The cursor is moved up one line on the screen.  If the
+;	cursor was already at the top line on the screen, all
+;	lines are moved down one line, the top line is replaced
+;	with a blank, and the data that was on the bottom line
+;	is lost.  (VMS Lib$Down_Scroll)
+;
+;
+;		scerln(line, column)
+;
+;	Erase the screen from the indicated (or current) cursor
+;	position to the end of the current line.  (VMS Lib$Erase_Line)
+;
+;
+;		scerpg(line, column)
+;
+;	Erase the screen from the indicated (or current) cursor
+;	position to the end of the screen. (VMS Lib$Erase_Page)
+;
+;
+;		scget(buff, size, text)
+;
+;	Output the prompt text, if given, then flush any buffered text.
+;	Read text input by the terminal user (from stdin) to the buffer.
+;	Scget() returns NULL on end of file or error. (Scget calls
+;	fgetss() to perform the read.)  (VMS Lib$Get_Screen)
+;	Programs using scget() to read from the keyboard should not
+;	use the input redirection capabilities of the C library.
+;
+;
+;		sclmargin(lmarg)
+;
+;	Define a new left margin (if lmarg is greater than zero).
+;	Sclmargin() returns the old lmarg value.  After calling
+;	sclmargin(), an output request to column one will be written
+;	to column lmarg.
+;
+;
+;		scout(line, column, text)
+;
+;	Move the cursor to the indicated line and column and output
+;	the text.  If line or column are less than or equal to zero,
+;	the cursor is not moved.  If text is equal to NULL, the
+;	internal buffers are flushed (possibly after cursor movement).
+;	(VMS Lib$Put_Screen)
+;
+;
+;		scput(oldbf)
+;
+;	Scput() terminates the current buffering mode and reverts to
+;	the previous mode as specified in the parameter.  If oldbuf
+;	is NULL, buffering is terminated and the current buffer is
+;	flushed to the screen.  If oldbuf is not zero, it is taken
+;	as the location of a previous buffer (established by calling
+;	scset()) and the current buffer is copied into the previous
+;	buffer.  The previous buffer is then made current.
+;	(VMS Lib$Put_Buffer)
+;
+;
+;		scset(newbf, size, old)
+;
+;	Scset() establishes a new buffer for the screen routines.
+;	Newbf is a character array whose size is given in parameter
+;	size (Size must be at least 12 bytes.)  Old is the address
+;	of a word which will be set to the previous buffer (if any).
+;	This is used for a subsequent call to scput().  Scset returns
+;	zero if correct, returning -1 if size was less than 12 bytes.
+;	(VMS Lib$Set_Buffer).
+;
+;	A larger buffer will generally yield a more efficient program
+;	as the number of operating system requests will be minimized.
+;	For example, for a typeout program, a buffer size of 800 bytes
+;	might well be used.
+;
+;
+;		scsettype(type)
+;
+;	This routine sets the terminal type, overriding the definition
+;	supplied by the operating system.  scsettype() returns what it
+;	thought the type was (as if sctype were called).  The type
+;	must be one of the following values:
+;
+;		0	Not a video terminal
+;		65	VT52 or VT100 in VT52 mode
+;		97	VT100 in ANSI mode
+;
+;	If type has some other value, scsettype() does not change the
+;	type.
+;
+;
+;		sctype()
+;
+;	This routine returns the terminal type.  The following types
+;	are defined:
+;
+;		0	Not a video terminal
+;		1	Unknown video terminal
+;		1+64	VT52
+;		1+96	VT100 type
+;
+;	Note: On intitialization, a VT100 will be forced into
+;	VT52 or VT100 mode depending on the determined type.
+;	VT100-type terminals include newer terminals such as the
+;	VT125.  It is not clear whether the algorithm used is
+;	correct for terminals developed since these routines
+;	were written.
+;
+;	Note the following normal use of scset() and scput()
+;
+;		char	**oldbuf;
+;		char	mybuf[100];
+;
+;		main()
+;		{
+;		    /*
+;		     * Setup
+;		     */
+;		    scset(mybuf, sizeof mybuf, &oldbuf);
+;		    /*
+;		     * Usage
+;		     */
+;		    scout(1, 1, "Stuff");
+;		    /*
+;		     * Termination (force out last buffer)
+;		     */
+;		    scout(0, 0, NULL);
+;		    scput(oldbuf);
+;		}
+;
+;
+; Bugs
+;
+;	These routines are fairly inefficient if no buffer is supplied.
+;
+;	Determining the terminal type turns out to be a somewhat painful
+;	process which is different for the various operating systems:
+;
+;	On native RSX-11M and VMS compatibility mode, the QIO
+;	"get multiple characteristics function" is executed.
+;	If the terminal is a scope and can generate escape
+;	sequences, it is assumed to be a VT100, otherwise, if
+;	it is a scope, it is assumed to be a VT52.
+;
+;	On all RSTS/E systems, the executive "get terminal characteristics"
+;	request is executed, the determination proceeding as above.
+;
+;	On native RT11 systems, a peek sequence described in the
+;	RT11 Software Support manual is used to determine whether
+;	the terminal is a scope.  (This may not work on the XM monitor.)
+;	If so, an "<ESC>/Z" is sent to request identification and various
+;	tests are made on the returned text.  Note that, if the terminal
+;	does not reply to the inquiry, the program will hang.  These tests
+;	are valid for VT52 and VT100 terminals only.  You will have to modify
+;	this routine if you have anything else (including a VT125).
+;
+;	On RSX-11M systems (even emulated), if a local buffer is
+;	established by calling scset(), output will be done using
+;	the IO.WAL QIO function.
+;
+;
+;	While based on the VMS Run-time library screen I/O primitives,
+;	there are a few differences that may be of interest:
+;
+;	The VMS library standard assumes that subroutines generally
+;	return a status code, permit missing parameters, and return
+;	error codes on being presented with invalid arguments.  The
+;	routines described here do nothing when arguments are out of
+;	range.  Also, there are no optional arguments (optionality
+;	is provided for by specifing zero or NULL argument values).
+;	Where appropriate, arguments have been ordered "line_no, col_no,
+;	other".
+;
+;	A more significant difference is that the VMS library writes
+;	to the standard output device (SYS$OUTPUT: or TT:) while
+;	these routines write to the user's terminal (SYS$ERROR or CO:).
+;	scget() reads from the standard input.
+;
+;-
+;
+; Edit history
+; 000001 14-Nov-80 MM	Initial edit
+; 000002 01-Dec-80 MM	Some RT11 edits
+; 000003 30-Dec-80 MM	Bug in ini52 text
+; 000004 08-Jan-81 JSL	Scsettype() should reinit vt52/vt100's
+; 000005 13-Jan-81 JSL	Scsettype() should return the old mode
+; 000006 13-Oct-81 MM	Typos and missing stuff on RSTS
+; 000007 09-Aug-82 MM	Turn off VF$NEWL on stdout (rsx only)
+; 000008 01-Feb-83 MM	All "bit 2" set are vt100's
+; 000009 19-Jan-87 JMC  Change .psect for I/D space.
+; 000010 19-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX-11M
+
+;
+;
+LF	=	012		; Line feed
+CR	=	015		; Carriage return
+BL	=	040		; Blank
+ESC	=	033		; Escape
+;
+; Definitions for RSTS/E
+;
+; These definitions are here so that the subroutine need not be
+; linked together with common.mac
+;
+FIRQB	=	402		; FIRQB location
+FQSIZE	=	40		; FIRQB size
+.UUO	=	66		; SYS call request
+FQFUN	=	3		; FIRQB function offset
+UU.TRM	=	16.		; Get terminal characteristics
+
+.macro	system	op
+.if eq	rsx
+	emt	377
+.endc
+	emt	op
+.endm
+
+.if ne	rsx
+	.mcall	QIOW$S
+;
+; The RSTS/RSX system macro library does not include a definition of
+; the TTSYM$ macro.  The relevent definitions are supplied here:
+;
+SF.GMC	=	002560		; Get characteristics
+T.VT52	=	000011		; Is a VT52
+T.V100	=	000015		; Is a VT100				;06
+; NOTE: Anything whose characteristics value is >= T.V100 is assumed	;08
+; to be a VT100.							;08
+TC.TTP	=	000010		; Get terminal characteristics		;06
+.endc
+;
+; General macros
+;
+.macro	setup
+	jsr	r5,csv$
+	call	check
+.endm	setup
+
+	.psect	c$data,d,rw						;09
+;
+; Dynamic data
+;
+curbuf:	.word	0			; Points to current buffer
+offset:	.word	0			; Lmargin - 1
+
+$$ttyp:
+	.word	-1			; -1 == initialization
+					;  0	Not a scope
+					;  2	VT52
+					;  4	VT100 in ANSI mode
+.if ne	rsx
+gmcbf:					; Parameter for GMC QIO
+tcttp:	.byte	TC.TTP,0		; Terminal type
+gmcbfe:
+.endc
+	.psect	c$stcn,d,ro						;09
+;
+; Static (string) data
+;
+
+ttyp:	.word	0,64.+1.,96.+1.,-1	; Terminal type
+
+down:	.word	newlin,dwn52,dwn100
+
+erln:	.word	nullst,eln52,eln100
+
+erpg:	.word	nullst,epg52,epg100
+
+curs:	.word	newlin,cur52,cur100
+
+init:	.word	nullst,ini52,ini100
+
+nullst:	.byte	0			; Do nothing string
+
+newlin:	.byte	CR,LF,0			; Newline
+
+dwn52:	.byte	ESC,'I,0
+dwn100:	.byte	ESC,'M,0
+
+eln52:	.byte	ESC,'K,0
+eln100:	.byte	ESC,'[,'K,0
+
+epg52:	.byte	ESC,'J,0
+epg100:	.byte	ESC,'[,'J,0
+
+cur52:	.byte	CR,ESC,'Y,0		; Note CR prepended
+cur100:	.byte	CR,ESC,'[,0		; Note CR prepended
+
+ini52:	.byte	CR,ESC,'[,'?,'2,'L+040,ESC,'\,CR+0200,BL,BL,BL,BL,CR+0200,0
+						; VT100 -> VT52 mode
+ini100:	.byte	ESC,'<,0			; VT100 -> ANSI mode
+
+ident:	.byte	ESC,'Z,200
+
+	.psect	c$code,i,ro
+
+scdown::
+	setup
+	mov	down(r4),r0		; Cursor up and scroll
+	call	outstr			; Output the string
+	jmp	cret$			; Return to caller
+
+scerln::
+	setup
+	mov	erln(r4),(sp)		; Erase to end of line
+	br	simple
+
+scerpg::
+	setup
+	mov	erpg(r4),(sp)		; Erase to end of screen
+
+simple:
+	mov	C$PMTR+2(r5),-(sp)	; Column
+	mov	C$PMTR+0(r5),-(sp)	; Line
+	call	scout			; scout(line, col, "");
+	jmp	cret$
+
+scget::
+	setup
+	mov	C$PMTR+4(r5),(sp)	; Prompt
+	clr	-(sp)			;
+	clr	-(sp)			;
+	call	scout			; scout(0, 0, prompt)
+	cmp	(sp)+,(sp)+
+
+10$:
+	call	oflush			; Flush the buffer
+.if ne	rsx								;07+
+;
+; This is needed as fgetss will call fflush to dump a pending output
+; line and stdout/stderr are initialized with the VF$NEWL bit set
+; to force a <LF> at the beginning of output so as to avoid overwriting
+; a previous line from e.g., a batch log file.  See IOPUT.MAC for the
+; gory details.
+;
+	mov	stdout,r0		; Output device
+	bic	#VF$NEWL,V$FLAG(r0)	; Don't put out extra newline
+	mov	stderr,r0		; Do 'em
+	bic	#VF$NEWL,V$FLAG(r0)	; all
+.endc									;07-
+	mov	stdin,(sp)		; Input device
+	mov	C$PMTR+2(r5),-(sp)	; User buffer size
+	mov	C$PMTR+0(r5),-(sp)	; Buffer location
+	call	fgetss			; Fgetss(buffer, size, stdin);
+	jmp	cret$			; Back to user
+
+sclmargin::
+	mov	offset,r0		; Old offset
+	inc	r0			; Old left margin
+	mov	2(sp),offset		; New left margin
+	dec	offset			; New offset
+	return
+
+scout::
+	setup
+	tst	C$PMTR+0(r5)		; Check the line
+	ble	20$			; Zero means don't
+	add	offset,C$PMTR+2(r5)	; Offset column
+	tst	C$PMTR+2(r5)		; Check column, too
+	ble	20$			; Don't
+	mov	curs(r4),r0		; Output the leadin
+	call	outstr			;
+	cmp	r4,#2			; VT100
+	bgt	10$			; Do it funny like
+;
+; Cursor move for VT52
+;
+	mov	C$PMTR+0(r5),r0		; Line
+	add	#31.,r0			; Offset
+	call	outc			;
+	mov	C$PMTR+2(r5),r0		; Column
+	add	#31.,r0			; Offset
+	call	outc			;
+	br	20$			; Done
+
+10$:
+	mov	C$PMTR+0(r5),r0		; VT100 Line
+	call	outdec			;
+	mov	#';,r0			; Separator
+	call	outc			;
+	mov	C$PMTR+2(r5),r0		; Column
+	call	outdec
+	mov	#'H,r0			; Terminator
+	call	outc
+
+20$:
+	mov	C$PMTR+4(r5),r0		; Text
+	bne	30$			; Non-null, continue
+	call	oflush			; Just flush buffers
+	br	40$			; and exit
+
+30$:
+	call	outstr
+40$:
+	jmp	cret$
+
+scput::
+	setup
+	mov	C$PMTR+0(r5),r0		; Old buffer given?
+	bne	10$			; Yes, simple
+	call	oflush			; Flush pending
+	clr	curbuf			; No more buffer
+	jmp	cret$			; Exit
+
+10$:
+	mov	curbuf,r3		; Current buffer
+	mov	r0,curbuf		; Establish new buffer
+	call	save			; Save (r3) in curbuf
+	jmp	cret$
+
+scset::
+	setup
+	mov	C$PMTR+0(r5),r1		; New buffer
+	mov	C$PMTR+2(r5),r2		; New buffer size
+	bit	#1,r1			; Odd boundary?
+	beq	10$			; No, ok
+	inc	r1			; Yes, round up
+	dec	r2			; Less one byte
+
+10$:
+	cmp	r2,#11.			; Too small?
+	blt	30$			; Yes, trouble
+.if eq	rsx
+	dec	r2			; Need a free byte for RT11
+.endc
+	mov	r1,(r1)			; Setup buffer pointers
+	add	#4,(r1)			; "First free byte"
+	mov	r1,2(r1)		;
+	add	r2,2(r1)		; "First don't touch"
+	mov	curbuf,r3		; Previous buffer
+	mov	C$PMTR+4(r5),r0		; Old buffer pmtr
+	beq	20$			; None given
+	mov	r3,(r0)			; Save current buffer
+
+20$:
+	mov	r1,curbuf		; Here's the new one
+	call	save			; Save (r3) in curbuf
+	jmp	cret$			; Exit
+
+30$:
+	mov	#-1,r0			; Trouble
+	jmp	cret$			; Exit
+
+sctype::
+	setup
+	mov	ttyp(r4),r0		; Terminal type
+	jmp	cret$			; Simplicity itself
+
+scsett::
+	setup
+	mov	ttyp(r4),(sp)		; Save old type
+	clr	r0			; Assume "not video"
+	br	20$			; Enter inside of the loop
+
+10$:
+	tst	(r0)+			; Step to next type
+
+20$:
+	tst	ttyp(r0)		; At the end?
+	bmi	30$			; Yes, exit
+	cmp	C$PMTR+0(r5),ttyp(r0)	; Desired type?
+	bne	10$			; No, try another
+	mov	r0,r4			; Yes, get new type index
+30$:
+	mov	r4,$$ttyp		; Update type code		;05+
+	call	doinit			; and init the terminal		;03
+	mov	(sp),r0			; Return old type		;05-
+	jmp	cret$
+
+; ** SAVE **
+;
+; Save an old buffer into the new buffer
+;
+; Entry:
+;	r3 ->	old buffer (NULL if none present)
+;	curbuf	new buffer
+;
+; Uses	r3,r4
+;
+
+save:
+	tst	r3			; Is there an old buffer
+	beq	30$			; Br if not
+	mov	(r3)+,r4		; r4 -> free byte
+	tst	(r3)+			; r3 -> first byte
+	br	20$			; Enter loop at test
+
+10$:
+	movb	(r3)+,r0		; Get next byte from old
+	call	outc			; Output it
+
+20$:
+	cmp	r3,r4			; At the end?
+	blo	10$			; No, continue
+
+30$:
+	return				; Yes, done.
+
+;
+; ** OUTC **
+;
+; Output a character to the buffer
+;
+; Entry:
+;
+;	r0	Contains the character
+;
+; Uses	r0,r1,r2
+;
+
+outc:
+10$:
+	mov	curbuf,r1		; Current buffer
+	beq	30$			; None
+	mov	(r1)+,r2		; Current free byte
+	cmp	r2,(r1)			; Past the end?
+	blo	20$			; No, plenty of room
+	call	oflush			; Yes, sorry
+	br	10$			; Retry
+
+20$:	movb	r0,(r2)+		; Output the byte
+	mov	r2,-(r1)		; Update the pointer
+	return
+
+30$:
+	mov	stderr,-(sp)		; No buffer, do it the
+	mov	r0,-(sp)		; hard way:
+	call	putc			; putc(byte, stderr)
+	cmp	(sp)+,(sp)+		; Clean up
+	return				; And return
+
+;
+; ** OUTSTR **
+;
+; Output an asciz string
+;
+; Entry:
+;
+;	r0 -> string
+;
+; Uses	r0,r1,r2
+;
+
+outstr:
+10$:
+	mov	curbuf,r1		; Current buffer
+	beq	40$
+	mov	(r1)+,r2		; Free pointer
+
+20$:
+	cmp	r2,(r1)			; Too far?
+	blo	30$			; Nope
+	mov	r2,-(r1)		; Yep, update buffer
+	call	oflush			; Flush and
+	br	10$			; Try again
+
+30$:
+	movb	(r0)+,(r2)+		; Stuff the byte
+	bne	20$			; Continue on non-null
+	dec	r2			; Went too far
+	mov	r2,-(r1)		; Save for next time
+	return				; Done
+
+40$:
+	mov	stderr,-(sp)		; No buffer, punt
+	mov	r0,-(sp)		; String start
+	call	fputs			; The hard way
+	cmp	(sp)+,(sp)+		; Clean up
+	return				; Done
+
+;
+; ** OUTDEC **
+;
+; Output a decimal integer
+;
+; Entry
+;
+;	r0 := integer to output
+;
+; Uses	r0,r1,r2
+;
+outdec:
+	mov	r0,-(sp)		; Save the value
+	clr	r0			; Work register
+
+10$:
+	inc	r0			; Slow
+	sub	#10.,(sp)		; Divide
+	bhis	10$			;
+	add	#'0+10.,(sp)		; Here's the byte
+	dec	r0			; Next time around
+	beq	20$			; Nothing left to do
+	call	outdec			; Here we go again
+
+20$:
+	mov	(sp)+,r0		; Output a byte
+	call	outc			; The easy way
+	return				; Unwind
+
+;
+; ** OFLUSH **
+;
+; Dump a non-empty buffer, initialize it	
+;
+; Saves any used registers
+;
+
+oflush:
+	mov	r1,-(sp)		; Save registers
+	mov	r0,-(sp)		;
+	mov	curbuf,r0		; r0 -> current buffer
+	beq	10$			; None?  Just flush
+	mov	(r0)+,r1		; r1 -> first free byte
+	tst	(r0)+			; r0 -> first byte in buffer
+	mov	r0,@curbuf		; Reset the buffer
+.if eq	rsx
+	movb	#200,(r1)		; Stuff a funny trailer
+	.mcall	.print, .ttyin
+	.print	;;r0			; Do it
+.iff
+	sub	r0,r1			; R1 has byte count
+	ble	20$			; Don't output nothing
+	.mcall	qiow$s
+	qiow$s	#IO.WAL,#1,#1,,,,<r0,r1,#0> ;output it			;03
+.endc
+	br	20$			; Exit
+
+10$:
+	mov	stderr,-(sp)		; Flush the funny
+	call	fflush			; (unbuffered) screen
+	tst	(sp)+			; Clean stack
+
+20$:
+	mov	(sp)+,r0		; Restore
+	mov	(sp)+,r1		; and
+	return				; Exit
+
+;
+; ** CHECK **
+;
+; Initialization routine -- if the first time, try to find out
+; the terminal type.
+;
+;
+; Uses all registers
+;
+
+check:
+	mov	$$ttyp,r4		; Set yet?
+	blt	5$			; No, do it
+	return				; Done
+5$:
+	clr	r4			; Assume nothing
+	tst	$$rsts			; Running on RSTS/E?
+	beq	20$			; No, do it the hard way
+	mov	#firqb,r0		; Clear the firqb
+10$:
+	clr	(r0)+
+	cmp	r0,#firqb+fqsize
+	blo	10$
+	movb	#UU.TRM,@#FIRQB+FQFUN	; Get terminal characteristics
+	movb	#-1,@#FIRQB+5		; The console
+	system	.UUO			; Do it
+	cmpb	@#FIRQB+14,#255.	; Scope?
+	bne	gotcha			; Not one of ours
+	tst	(r4)+			; Assume VT52
+	cmpb	@#FIRQB+12,#255.	; Terminal sends ESC seq?
+	bne	gotcha			; No, it's a VT52
+	tst	(r4)+			; Gotta be a VT100	
+	br	gotcha			; Done
+
+20$:
+.if ne rsx
+	.mcall	QIO$S
+
+	QIO$S	#SF.GMC,#1,,,,,<#gmcbf,#gmcbfe-gmcbf>
+	bcs	gotcha			; Urk
+	cmpb	tcttp+1,#T.VT52		; VT52?
+	bne	30$			; No, try for VT100
+	tst	(r4)+			; R4 := 2
+
+30$:
+	cmpb	tcttp+1,#T.V100		; Not VT52, is it VT100?
+	blt	gotcha			; No, exit			;08
+	cmp	(r4)+,(r4)+		; R4 := 4
+;	br	gotcha			; and exit
+
+.iff
+;
+; RT11 is a mess.  The following code is from the Software Support manual
+;
+	mov	@#30,r0			; R0 -> EMT handler !
+	tst	-(r0)			; The terminal status
+	bpl	gotcha			; Positive means nothing
+	mov	@#44,-(sp)		; Save JSW
+	bis	#10000,@#44		; Set bit 12
+	.print	#ident			; Ask for identification	;02
+	.ttyin				; Look for an
+	bic	#177600,r0		; Remove parity, junk		;02
+	cmp	r0,#ESC&177		; Escape
+	bne	rgotit			; Urk
+	.ttyin				; Get the signal		;02
+	cmp	r0,#'/			; VT52 mode?
+	bne	30$			; No, try for ANSI
+	.ttyin				; What's next
+	tst	(r4)+
+	cmp	r0,#'K			; VT52
+	beq	rgotit
+	cmp	r0,#'E			; VT55
+	beq	rgotit
+	cmp	r0,#'Z			; VT100 in VT52 mode
+	beq	rgotit
+	tst	-(r4)			; Urk, back to zero		;02
+	br	rgotit			; Just exit
+
+30$:
+	cmp	r0,#'[			; Ansi leadin?
+	bne	rgotit			; Nope
+	.ttyin
+	cmp	r0,#'?			;
+	bne	rgotit			; Urk
+	.ttyin				;				;02+
+	cmp	r0,#'1			; VT100 is a
+	bne	rgotit			; type one terminal
+	.ttyin				;				;02-
+	cmp	r0,#';
+	bne	rgotit
+	.ttyin
+	.ttyin
+	cmp	r0,#'c			; Note: lowercase
+	bne	rgotit			; Urk
+	cmp	(r4)+,(r4)+		; VT100 ANSI, r4 := 4		;02
+;
+rgotit:
+	mov	(sp)+,@#44		; Reset old JSW			;02
+.endc
+
+gotcha:
+	mov	r4,$$ttyp
+	;br	doinit			; Put the terminal in the mode	;05+
+;
+; ** DOINIT **
+;
+; Force the terminal into the correct mode.  This is necessary as VT100's
+; can be in VT52 or ANSI mode.  The init(r4) string sets up the VT100.
+;
+; Entry:
+;	r4	Contains the terminal type index
+;
+; Uses:
+;	r0,r1,r2
+;
+
+doinit:					; NOTE: called by scsettype()	;03
+	mov	init(r4),r0
+	call	outstr							;03
+	callr	oflush			; Flush needed for VT100's	;03
+	.end

@@ -1,0 +1,47 @@
+	.title	brk	Change memory allocation
+	.ident	/000006/
+;+
+;
+; Index		Change top of memory pointer
+;
+; Usage
+;
+;	char *
+;	brk(addr);
+;	int		*addr;
+;
+; Description
+;
+;	brk() sets the run-time library's "top of memory" pointer
+;	to addr.  This value should have been returned by a previous
+;	call to sbrk().  Intervening calls to malloc() or file open
+;	routines may cause memory to be corrupted by calling brk().
+;
+; Diagnostics
+;
+;	Returns 0 if the brk() argument is reasonable.  Returns -1
+;	if it is greater than the current top of memory.  (Use sbrk()
+;	to increase memory allocation.)
+;
+; Bugs
+;
+;
+;-
+; Edit history
+; 000001		Original
+; 000002 04-Jun-78 JMT	Bug fix.  Return address just above program
+; 000003 18-Mar-80 MM	Updated for the new library.
+; 000004 27-Mar-80 MM	Merged libraries.
+; 000005 28-May-81 MM	Redone to remove sbrk
+; 000006 14-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+brk::
+	mov	#-1,r0		; Assume failure
+	cmp	2(sp),$$mtop	; Is it past the limit?
+	bhi	10$		; Exit if so
+	mov	2(sp),$$mtop	; Ok, reset top of memory
+	clr	r0		; and clear the flag
+10$:
+	return			; done
+	.end

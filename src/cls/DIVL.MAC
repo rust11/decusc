@@ -1,0 +1,307 @@
+	.title	div$li	Long division and modulus
+	.ident	/000008/
+;
+;+
+;
+; Internal
+;
+; Index		Long division and modulus
+;
+; Usage
+;
+;	div$li(long, integer)
+;	div$l(long, long)
+;	mod$li(long, integer)
+;	mod$l(long, long)
+;
+; Description
+;
+;	Division with long result.  Called by the compiler when the
+;	appropriate code sequences are encountered.
+;
+; Bugs
+;
+;	Warning -- an internal version of cret$ is present.  Change one,
+;	change both.
+;
+;-
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit, bummed some code
+; 000002 24-Jun-80 MM	Nothing like debugging
+; 000003 01-Jul-80 MM	Redone from scratch
+; 000004 23-Jul-80 MM	SXT support
+; 000005 31-Jul-80 LS   Fix test for divisor, low-order
+; 000006 05-Aug-80 MM	Bummed code
+; 000007 10-Dec-81 SDR	Added EIS versions and checks for small longs
+; 000008 14-Jan-02 BQT	Changed code for I/D space
+; 000009 25-Feb-04 IJH	Fixed EXIT: routine to match CRET$. Added comment
+;			in CSV.MAC noting the dependency.
+;
+; The stack and r5 are treated differently here to save some time/space.
+; r5 is used as a temp variable for the divide.  Thus, it cannot be
+; used to restore the previous environment.  The "secret" relation between
+; the stack and environment pointers is thus misused within this routine.
+;
+.iif	ndf	C$$SXT	C$$SXT	=	0				;04
+.iif	ndf	C$$EIS	C$$EIS	=	0				;07
+	.psect	c$code,i,ro
+; long mod$li(a, b);		-- Long remander operation
+; long a; int b;
+;
+
+HIGH	=2			; Stack offsets for dividend		;07+
+LOW	=HIGH+2
+DIVISOR	=LOW+2			;	and divisor
+
+mod$li::
+.if ne C$$EIS
+	MOV	R2,-(SP)	; Save reg
+	MOV	DIVISOR+2(SP),R2 ; Divisor
+	BPL	10$
+	NEG	R2		; Make divisor positive
+10$:	CLR	R0		; Clear R0 for first DIV below
+	MOV	HIGH+2(SP),R1	; Dividend high-order
+	BPL	20$
+	NEG	R1		; Make dividend positive
+	NEG	LOW+2(SP)
+	SBC	R1
+20$:	BEQ	30$		; Dividend high-order is zero, skip DIV
+	DIV	R2,R0		; (0 ,, dividend high-order) / divisor
+	MOV	R1,R0		; (Remainder ,, dividend low-order) / 2
+30$:	MOV	LOW+2(SP),R1
+	ASR	R0
+	ROR	R1
+	ROR	-(SP)		; Remember the lost bit
+	DIV	R2,R0		; (Remainder ,, dividend low-order)/2 / divisor
+	ASL	R1		; 2nd-remainder * 2
+	ROL	(SP)+		;	+ lost bit
+	ADC	R1
+	CMP	R1,R2		; Re-adjusted 2nd-remainder > divisor?
+	BLT	40$		;	No
+	SUB	R2,R1		;	Yes, adjust 2nd-remainder
+40$:	TST	HIGH+2(SP)	; Result (2nd) remainder negative?
+	SXT	R0		;  	(High-order remainder always +-0)
+	BPL	50$		;	No
+	NEG	R1		;	Yes
+50$:	MOV	(SP)+,R2	; Restore reg
+	RETURN
+.iff
+	jsr	r5,csv$		;Linkage
+	call	getli		;Divide long by int
+	br	mod1		;Juggle result and exit
+.endc ; z C$$EIS							;07-
+; long div$li(a, b);		-- Long divide operation
+; long a; int b;
+;
+
+HIGH	=2			; Stack offsets for dividend		;07+
+LOW	=HIGH+2
+DIVISOR	=LOW+2			;	and divisor
+
+div$li::
+.if ne C$$EIS
+	MOV	R2,-(SP)	; Save reg
+	MOV	DIVISOR+2(SP),R2 ; Divisor
+	SXT	-(SP)		; Remember sign of divisor
+	BPL	10$
+	NEG	R2		; Make divisor positive
+10$:	CLR	R0		; Clear R0 for first DIV below
+	MOV	HIGH+4(SP),R1	; Dividend high-order
+	BPL	20$
+	COM	(SP)		; Remember sign of dividend/divisor
+	NEG	R1		; Make dividend positive
+	NEG	LOW+4(SP)
+	SBC	R1
+20$:	BEQ	30$		; Dividend high-order is zero, skip DIV
+	DIV	R2,R0		; (0 ,, dividend high-order) / divisor
+30$:	MOV	R0,-(SP)	; Remember quotient
+	MOV	R1,R0		; (Remainder ,, dividend low-order) / 2
+	MOV	LOW+6(SP),R1
+	ASR	R0
+	ROR	R1
+	ROR	-(SP)		; Remember the lost bit
+	DIV	R2,R0		; (Remainder ,, dividend low-order)/2 / divisor
+	ASL	R0		; 2nd-quotient * 2
+	ASL	R1		; 2nd-remainder * 2
+	ROL	(SP)+		;	+ lost bit
+	ADC	R1
+	CMP	R1,R2		; Re-adjusted 2nd-remainder > divisor?
+	BLT	40$		;	No
+	INC	R0		;	Yes, adjust 2nd-quotient
+40$:	MOV	R0,R1		; 2nd-quotient becomes low-order result
+	MOV	(SP)+,R0	; 1st-   "        "    high- "      "
+	TST	(SP)+		; Negate result?
+	BEQ	50$		;	No
+	NEG	R0		;	Yes
+	NEG	R1
+	SBC	R0
+50$:	MOV	(SP)+,R2	; Restore reg
+	RETURN
+.iff
+	jsr	r5,csv$		;Linkage
+	call	getli		;Divide long by int
+	br	exit		;Back to user
+.endc ; z C$$EIS							;07-
+; long mod$l(a, b);		-- Long remainder operation
+; long a; long b;
+;
+
+mod$l::
+.if ne C$$EIS								;07+
+	TST	6(SP)		; Divisor zero? (unsigned or small)
+	BNE	10$		;	No
+	MOV	8.(SP),R1	; Low order word of divisor
+	BLT	10$		;	High bit (sign bit) set
+	MOV	R1,6(SP)	; Make divisor an integer and do it simply
+	BR	MOD$LI
+10$:
+.endc ; C$$EIS								;07-
+	jsr	r5,csv$		;Linkage
+	call	getll		;Divide long by long
+
+mod1:
+	mov	r4,r0		;Remainder
+	mov	r5,r1		;both words
+	br	exit		;and exit
+
+
+;
+; long div$l(a, b);		-- Long divide operation
+; long a; long b;
+;
+
+div$l::
+.if ne C$$EIS								;07+
+	TST	6(SP)		; Divisor zero? (unsigned or small)
+	BNE	10$		;	No
+	MOV	8.(SP),R1	; Low order word of divisor
+	BLT	10$		;	High bit (sign bit) set
+	MOV	R1,6(SP)	; Make divisor an integer and do it simply
+	BR	DIV$LI
+10$:
+.endc ; C$$EIS								;07-
+	jsr	r5,csv$		;Linkage
+	call	getll		;Divide long by long
+;;	br	exit		;Back to user
+
+
+;
+; Warning: this code must match the effect of cret$
+;
+; BUT: it didn't and thus crashed rather badly. 			;09
+
+exit:
+	cmp	(sp)+,(sp)+	;pop return and profile from stack	;09
+	mov	(sp)+,r2	;restore r2-r5
+	mov	(sp)+,r3	;
+	mov	(sp)+,r4	;
+	mov	(sp)+,r5	;
+	return
+; getli		get long, integer arguments and divide
+; getll		get long, long    arguments and divide
+;
+; return:
+;	r0,r1	quotient
+;	r4,r5	remainder
+;
+; all other registers used
+;
+
+.if z C$$EIS								;07
+getli:	mov	r5,r4		;r4 ->					;04+
+	add	#C$PMTR+4,r4	;divisor (low)
+  .if ne C$$SXT
+	mov	(r4),r3		;divisor low-order
+	sxt	r2
+  .iff									;04-
+	clr	r2		;high-order divisor
+	mov	(r4),r3		;divisor low-order
+	bpl	getll1		;Continue if non-negative
+	com	r2		;negate high-order divisor
+  .endc ; C$$SXT							;04
+	br	getll1		;continue main sequence
+.endc ; z C$$EIS							;07
+
+getll:
+	mov	r5,r4		;r4 ->
+	add	#C$PMTR+6,r4	;divisor (low)
+	mov	(r4),r3		;divisor low-order
+	mov	-(r4),r2	;divisor, high-order
+
+getll1:
+	mov	#33.,-(sp)	;divisor count, also negation flags
+	mov	-(r4),r1	;Dividend, low-order
+	mov	-(r4),r0	;and high-order
+	bpl	10$		;Continue if positive
+	neg	r0		;negative, invert
+	neg	r1		;both, and
+	sbc	r0		;fix carry
+	add	#40000,(sp)	;save negation flag
+
+10$:	clr	r4		;Clear remainder			;06
+	clr	r5		;Both words				;06
+	tst	r2		;Divisor
+	bmi	20$		;Br if negative				;06
+	bgt	30$		;Exit if positive and > 0		;06
+	tst	r3		;better check low-order, too
+	beq	80$		;divide by zero				;06
+	br	30$		;skip high-order sign test		;05
+
+20$:	add	#100000,(sp)	;set negative flag
+	neg	r2		;negate
+	neg	r3		;the
+	sbc	r2		;divisor
+; At this point:
+;
+;	r2,r3	dividend
+;	r0,r1	divisor, quotient
+;	r4,r5	remainder
+;	(sp)	neg. flags + loop count
+
+30$:	CMP	R0,R2		; Is the dividend < divisor?		;07+
+	BLT	40$		;	Yes, quick exit
+	BGT	50$		;	No
+	CMP	R1,R3
+	BCC	50$		;	No
+40$:	MOV	R0,R4		; Remainder <== dividend
+	MOV	R1,R5
+	CLR	R0		; Quotient <== 0
+	CLR	R1
+	BR	80$		; Fix sign and exit			;07-
+
+50$:	rol	r5		;multiply
+	rol	r4		;remainder by 2
+	cmp	r2,r4		;compare dividend : remainder
+	bhi	70$		;continue if greater
+	bne	60$		;
+	cmp	r3,r5		;look at low-order word, too
+	bhi	70$		;keep on trying
+
+60$:	sub	r3,r5		;subtract, low-order
+	sbc	r4		;carry,
+	sub	r2,r4		;and high-order
+	sec			;(get's quotient bit)
+
+70$:	rol	r1		;update the
+	rol	r0		;quotient
+	decb	(sp)		;drop the counter
+	bgt	50$		;keep on trucking
+
+;
+; Done, straighten out the signs  (exit at 80$ if divide by zero)
+;
+	asl	(sp)		;check sign flags
+	bvc	80$		;Br if same
+	neg	r0		;different,
+	neg	r1		;fix quotient
+	sbc	r0		;all of it
+
+80$:	tst	(sp)+		;fix remainder
+	bpl	90$		;quotient, too
+	neg	r4		;negative,
+	neg	r5		;so change
+	sbc	r4		;it
+
+90$:	return
+
+.end

@@ -1,0 +1,109 @@
+	.title	rsx	rsx header file
+;
+; Version of 17-Oct-82
+;
+RSX	=	1		;Assemble for RSX
+VMS3.0	=	0		;DO NOT Assemble vms release-specific code
+C$$SXT	=	1		;Assume SXT, SOB instructions
+				;Note: set C$$SXT = 0 for 11/04, 11/05,
+				; 11/20 and 11/40 without EIS.
+C$$EIS	=	C$$SXT		;Assume inline EIS if C$$SXT.  This
+				; may be overridden at compile time.
+C$$FLT	=	0		;Assume double precision
+N$$FIL	=	8.		;For the RSX run-time library,
+				;Default to 8 simultaneously open files.
+				;Note: change this to allocate block buffers.
+
+RMSIO	=	1		;Assemble for RMS
+
+C$PMTR	=	4		;Locally define C$PMTR and C$AUTO
+C$AUTO	=	-6		;To minimize global symbol references
+XASCII	=	1		;Extended (8-bit) Ascii
+
+;
+; Uncomment the following if you want the compiler to generate
+; the old default P-section names (".prog.", etc.).  BE SURE YOU
+; REALLY WANT THIS. IT IS INCOMPATIBLE WITH THE CURRENT LIBRARY!!
+;
+;;;OLDPSC	=	1
+
+.IIF	NDF	L$$IST	.NLIST
+.IIF	NDF	L$$IST	.DSABL	CRF
+.IIF	NDF	C$$SXT	C$$SXT	=	0	; No SXT, SOB
+.IIF	NDF	C$$EIS	C$$EIS	=	0	; No EIS
+.IIF	NDF	XASCII	XASCII	=	1	; Allow extended Ascii
+
+.MACRO	CALL	ARG1,ARG2
+.IF	B	ARG2
+	  JSR	PC,ARG1
+.IFF
+	  JSR	ARG1,ARG2
+.ENDC
+.ENDM	CALL
+
+.MACRO	CALLR	ARG1
+	  JMP	ARG1
+.ENDM	CALLR
+
+.MACRO	RETURN	ARG1
+.IF B	ARG1
+	  RTS	PC
+.IFF
+	  RTS	ARG1
+.ENDC
+.ENDM	RETURN
+
+;
+; The null branch macro
+;
+.macro	.br	label
+.iif	ndf	label	.error	label argument needed
+.iif	ne	.-label	.error	label must be the next location
+.endm	.br
+
+;
+; The .sob macro is like an sob but does not set condition codes correctly
+; since it is a dec/bne when sob isn't available.
+;
+
+.IF EQ	C$$SXT
+.MACRO	.SOB	ARG1,ARG2
+	DEC	ARG1
+	BNE	ARG2
+.ENDM	.SOB
+.IFF
+.MACRO	.SOB	ARG1,ARG2
+	SOB	ARG1,ARG2
+.ENDM	.SOB
+.ENDC
+
+;
+; This macro defines the crash instruction
+;
+.MACRO	CRASH
+.LIST
+	BPT
+.NLIST
+.ENDM	CRASH
+
+;
+; Check an assumption.  Use this macro as follows:
+;
+;	ASSUME	ARG1 COND ARG2
+;
+; An error will be signalled unless the condition is satisfied.
+; COND may be one of:  EQ,NE,GT,GE,LT,LE,DF,NDF,B,NB,Z,NZ,G,L,
+; but it may not be IDN or DIF.
+;
+.MACRO	ASSUME	ARG1,COND,ARG2
+	.IF	COND	<ARG1>-<ARG2>
+	.IFF
+		.ERROR	;Invalid assumption (ARG1) COND (ARG2)
+	.ENDC
+.ENDM
+
+	.ENABL	LC, GBL
+	.NLIST	CND, BEX
+.IIF	NDF	L$$IST	.ENABL	CRF
+.IIF	NDF	L$$IST	.LIST
+	.end

@@ -1,0 +1,54 @@
+	.title	$$div2	Unsigned divide (Macro only)
+	.ident	/000002/
+;
+;+
+;
+;
+; Internal
+;
+; Index		Unsigned division and modulus
+;
+; Usage
+;
+;	mov	hi_div,r0	;High-order dividend
+;	mov	lo_div,r1	;Low-order  dividend
+;	mov	divisor,r2	;Divisor
+;	jsr	pc,$$div2	;Perform the division
+;	mov	r0,hi_quotient	;High-order quotient
+;	mov	r1,lo_quotient	;Low-order  quotient
+;	mov	r2,remainder	;Remainder
+;	
+;
+; Description
+;
+;	Perform an unsigned double-precision division.
+;	This is needed for one of the library conversion routines.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 23-Jul-80 MM	Initial edit
+; 000002 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+;
+$$div2::
+	mov	#31.,-(sp)	; Set loop count
+	mov	r2,-(sp)	; Put divisor on stack
+	clr	r2		; Clear remainder
+10$:
+	asl	r1		; Double precision
+	rol	r0		; shift
+	rol	r2		; into the remainder
+	cmp	r2,(sp)		; Subtract out divisor?
+	blo	20$		; If lo, then no
+	sub	(sp),r2		; Subtract out divisor
+	inc	r1		; Add in low bit
+20$:
+	dec	2(sp)		; Decrement loop count
+	bpl	10$		; Br if more to do
+	cmp	(sp)+,(sp)+	; Clean up stack
+	rts	pc		; Back to caller
+	.end

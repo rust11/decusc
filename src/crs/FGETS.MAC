@@ -1,0 +1,105 @@
+	.title	fgets	Read a string from a file
+	.ident	/000003/
+;
+;+
+;
+; Index		Read a string from a file
+;
+; Usage
+;
+;	char *
+;	fgets(buffer, maxbytes, iop);
+;	char		*buffer;
+;	int		maxbytes;
+;	FILE		*iop;
+;
+;	char *
+;	fgetss(buffer, maxbytes, iop);
+;	char		*buffer;
+;	int		maxbytes;
+;	FILE		*iop;
+;
+; Description
+;
+;	Fgets() reads a string into the buffer from the indicated file.
+;	Maxbytes is the maximum number of bytes to read.
+;	The string is terminated by a newline character,
+;	which is followed by a null.  Fgets() normally returns buffer.
+;	It returns NULL on end of file or error.  If the line being read
+;	is maxbytes long or longer, no newline is appended.
+;
+;	Fgetss() is identical to fgets() except that the terminating
+;	newline is replaced by a null.  (This is compatible with gets(),
+;	but fgetss() is not present in the Unix standard library.)
+;
+;	Note that fgets keeps the newline, while fgetss() and gets()
+;	delete it. To delete the newline after executing fgets(),
+;	execute the following:
+;
+;		buffer[strlen(buffer) - 1] = 0;
+;
+; Bugs
+;
+;	Note that fgets() returns the next logical text line.
+;	Certain RSX-11 or RMS file formats, such as Runoff output files
+;	or task-builder load maps, often have multiple text lines
+;	packed into one logical record.  Fgets() processes these correctly.
+;	Note, however, that the record location, as returned by
+;	ftell(), is the location of the physical record, as returned
+;	by the operating system.  The "obvious" ftell/fgets sequence,
+;
+;		rfa = ftell(fd);
+;		fgets(text, sizeof text, fd);
+;
+;	will not work properly if multiple text lines are packed
+;	into one RSX-11 record.
+;
+;	These routines do not understand some of the more baroque
+;	RSX-11 file formats, such as "Fortran carriage control"
+;	or VMS print-file format.  The typeout program in the
+;	tools package, T.C, shows an example of complete record
+;	deblocking and "seek to byte" procedure.
+;
+;-
+;
+; Edit history
+; 000001 10-Mar-80 MM	Conversion for the newer library
+; 000002 06-Aug-81 RBD	Terminate long fgets() lines correctly
+; 000003 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+nl	=	12			;Newline
+
+fgets::
+	jsr	r5,csv$			;Link environments
+	mov	#nl,(sp)		;fgets() keeps the newline
+	br	fgets1			;jump to common code.
+
+fgetss::
+	jsr	r5,csv$			;Link environments
+	clr	(sp)			;fgetss() removes the newline.
+
+fgets1:
+	mov	c$pmtr+0(r5),r3		;r3 -> buffer
+	mov	c$pmtr+2(r5),r2		;r2 := max count
+	mov	c$pmtr+4(r5),r4		;Read from this file
+
+10$:
+	dec	r2			;Drop max count
+	ble	40$			;Exit on fullness		;02
+	call	$$getc			;Get a byte
+	cmp	r0,#-1			;End of file?
+	bne	20$			;no, continue
+	clr	r0			;yes, return NULL
+	jmp	cret$			;
+
+20$:	movb	r0,(r3)+		;Out the byte
+	cmp	r0,#nl			;Line feed?
+	bne	10$			;no, continue
+30$:
+	movb	(sp),-1(r3)		;maybe overwrite the newline.	;02
+40$:					;here for full lines		;02
+	clrb	(r3)			;yes, terminate the string
+	mov	c$pmtr+0(r5),r0		;and return buffer
+	jmp	cret$			;
+	.end

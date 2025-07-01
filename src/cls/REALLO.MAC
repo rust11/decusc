@@ -1,0 +1,156 @@
+	.title	realloc	Reallocate memory
+	.ident	/000006/
+;
+;+
+;
+; Index		Reallocate memory
+;
+; Usage
+;
+;	char *
+;	realloc(buff, size);
+;	char		*buff;	/* Buffer from malloc()	*/
+;	unsigned	size;	/* New size for buff	*/	
+;
+; Description
+;
+;	Realloc() changes the size of the block pointed to by buff,
+;	returning a pointer to the (possibly moved) block.  The
+;	contents will be unchanged up to the lesser of the
+;	new and old sizes.
+;
+;	Realloc() also works if buff points to a block freed since the
+;	last call of malloc(), realloc(), or calloc();  thus sequences
+;	of free(), malloc(), and realloc() can exploit the search
+;	strategy of malloc() to do storage compaction.
+;
+;	See also the description of malloc(), calloc() and sbreak().
+;
+;	The following program segment illustrates use of realloc()
+;	to expand and compact storage.
+;
+;		#ifndef	vms
+;		static char *compact_work;
+;		#endif
+;
+;		main() {
+;			/*
+;			 * Initialize work element
+;			 * for compact()
+;			 */
+;		#ifndef	vms
+;			compact_work = malloc(1);
+;		#endif
+;			...
+;		}
+;
+;		char *
+;		compact(old_ptr, new_size)
+;		char	*old_ptr;
+;		int	new_size;
+;		/*
+;		 * Reallocate the area allocated to old_ptr,
+;		 * originally allocated by a call to malloc(),
+;		 * so that it will contain new_size bytes (which
+;		 * may be greater or less than the current size).
+;		 * Return a pointer to the new area.
+;		 * Note:  error handling is not shown.
+;		 */
+;		{
+;			extern char *realloc();
+;
+;			free(old_ptr);
+;		#ifndef	vms
+;			free(compact_work);
+;			compact_work = malloc(1);
+;		#endif
+;			return(realloc(old_ptr, new_size));
+;		}
+;	
+;	compact_work must not be used on the native vax compiler
+;	(Vax-11 C) as the internal free memory buffers are organized
+;	in a different and incompatible manner.
+;
+; Diagnostics
+;
+;	The program will abort if buff is not the address of a buffer
+;	allocated by malloc() or calloc().
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 28-Jul-80 MM	(Complete rewrite of alloc())
+; 000002 05-Aug-80 MM	New header format
+; 000003 13-Aug-80 MM	Bug fixes
+; 000004 17-Dec-81 MM	Bug fix if buffer shrunk and moved
+; 000005 11-Jul-82 JSL	Use .sob
+; 000006 15-Jan-02 BQT	Changed for I/D space
+;
+HDRSIZ	=	2		; Must match with malloc.mac
+
+	.psect	c$code,i,ro
+reallo::								;03
+	jsr	r5,csv$		; Link up
+	mov	C$PMTR+0(r5),r4	; r4 -> old buffer
+	mov	-2(r4),(sp)	; (sp) -> next buffer			;03+
+	bit	#1,(sp)		; Currently busy?
+	beq	5$		; If not, don't free it	
+	bic	#1,(sp)		; Erase BUSY bit
+	mov	r4,r0		; r0 -> old buffer
+	call	$$free		; free it up
+5$:									;03-
+	sub	r4,(sp)		; (sp) := current allocated size
+	mov	C$PMTR+2(r5),r2	; r2 := new size
+	mov	r2,r0		; r0 := new size
+	call	$$aloc		; allocate a new buffer
+	mov	r0,r1		; r1 -> new buffer
+	beq	exit		; no room, return $$aloc's NULL to caller
+	cmp	r1,r4		; Did it move?
+	beq	exit		; No, just return
+;
+; Gotta move the data.  Note that the program knows that all allocations
+; are even.
+;
+	cmp	r2,(sp)		; New size less than old?
+	blo	10$		; Br if so				;03
+	mov	(sp),r2		; Nope, use old size for move
+10$:
+	inc	r2		; Round up:				;05+
+	clc			; Make sure ror shifts in a 0 bit
+	ror	r2		; Make r2 a word count
+	beq	exit		; 0 words don't need to be moved	;05-
+	mov	r4,r3		; Working copy of old buffer start	;04
+20$:
+	mov	(r3)+,(r1)+	; Move another 2 bytes			;04
+	.sob	r2,20$		; Repeat as required			;05
+;
+; If allocating the block wiped out the last word, move it into the	;03+
+; new block from where malloc() hid it away
+;
+;	The following sequence should force this code:
+;		a = malloc(10);
+;		b = malloc(10);
+;		free(a);
+;		c = realloc(b, 15);
+;
+;	Now, realloc() will return the same address that was previously
+;	allocated to "a".
+;
+	cmp	r0,r4		; New allocation < old?
+	bhis	exit		; No, no problems
+	mov	r0,r1		; r1 -> new allocation
+	add	C$PMTR+2(r5),r1	; r1 -> after new allocation
+	inc	r1		; ((bytes + HDRSIZ - 1)/HDRSIZ)*HDRSIZ	;04
+	bic	#1,r1		; This works only if HDRSIZ == 2	;04
+	ASSUME	HDRSIZ eq 2	; The above won't work			;05
+	cmp	r1,r4		; (after new) >= old
+	blo	exit		; No, malloc() didn't trash old
+	sub	r4,r1		; Gotta recover missing piece
+	add	r0,r1		; r1 -> trashed word (last in area)
+	mov	$$alox,(r1)	; Now it's ok				;03-
+
+exit:
+	jmp	cret$		; return
+	.end

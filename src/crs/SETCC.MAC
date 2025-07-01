@@ -1,0 +1,168 @@
+	.title	setcc	Trap Control/C
+	.ident	/000005/
+;
+;+
+;
+; Index		Trap Control/C
+;
+; Usage
+;
+;	extern int function();
+;
+;	setcc(function);
+;
+; Description
+;
+;	The function is defined as a CTRL/C trap routine.  Executing
+;	setcc(0) disables CTRL/C trapping.
+;
+;	Note: If the routine is reentered (because CTRL/C was
+;	typed during the execution of function()), the program aborts.
+;
+;	When the function runs, the only I/O routine it should
+;	call is msg().
+;
+;	The function must return: it may not exit using longjmp().
+;
+;	Note, on RSX-11, the console terminal must be connected
+;	to the standard input device.  The Control/C trap
+;	routine will cancel all pending I/O.
+;
+;-
+; Edit history
+; 000001 19-Feb-80 MM	Original
+; 000002 25-Jun-80 MM	Added to the library
+; 000003 02-Jul-80 MM	Cleared r5 before calling function
+; 000004 08-Nov-83 MM	Added RSX support -- extensive changes
+; 000005 17-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1
+	.globl	$$msg, $$fail	; Fatal error exit routines
+	.globl	stdin,$$luns,$$lune	; Standard input and lun table
+	.psect	c$code,i,ro
+;
+.if ne	rsx
+	.mcall	qiow$c, qiow$s, astx$s
+ccvec	=	24		; Control/C trap vector for RSTS/E
+.TTRST	=	104026		; Cancel CTRL/O on RSTS/E
+;
+setcc::
+	tst	$$rsts		; On RSTS?
+	bne	set20		; Yes, do it the easy way
+	mov	2(sp),subnam	; Store function
+	bne	set10		; Trapping?
+	qiow$c	IO.DET,1,1	; No, detach terminal
+	.psect	c$code,i,ro
+	br	set30
+;
+set10:
+	qiow$c	IO.ATA,1,1,,,,<,,caught>	; RSX Trap Catcher
+	.psect	c$code,i,ro
+	mov	stdin,r0	; Catch stdin if it's a terminal
+	bit	#VF$TTY,V$FLAG(r0)	; check it
+	beq	set30		;	; Exit if not.
+	movb	V$LUN(r0),r0	; Get stdin LUN
+	qiow$s	#IO.ATA,r0,#1,,,,<,,#caught>
+	br	set30		; And exit
+;
+set20:	clr	@#ccvec		; Disable cc traps
+	mov	2(sp),subnam	; If really disabling,
+	beq	set30		; and exit
+	mov	#caught,@#ccvec	; Store our function in ccvec
+set30:	rts	pc		; All we need for rsts/e.
+;
+.iff
+;
+	.mcall	.rctrlo
+;
+setcc::
+	mov	2(sp),r0	; Get routine name
+	beq	10$		; isn't any, disable trapping
+	mov	r0,subnam	; save routine name
+	mov	#caught,r0	; go here on ctrl/c
+	clr	ccseen		; clear looping flag
+10$:
+	emt	362		; enable trapping
+	rts	pc		; that's all for now
+.endc
+;
+; Here on ctrl/c
+;
+caught:				; CTRL/C comes here
+	mov	r0,-(sp)	; Save some registers
+	mov	r1,-(sp)	; Real quickly
+	tst	$$rsts		; On RSTS?
+	beq	10$		; No funny emt's if so
+.if ne	rsx
+	.TTRST			; Reset CTRL/O
+.iff
+	.rctrlo			; reset ctrl/o from ctrl/c
+.endc
+10$:				; After CTRL/O reset
+	tst	ccseen		; been here before?
+	bne	twocc		; oops
+	inc	ccseen		; no, up the flag
+	mov	r2,-(sp)
+	mov	r3,-(sp)
+	mov	r4,-(sp)
+	mov	r5,-(sp)
+	mov	sp,savesp	; save the stack, too
+.if ne	rsx
+	tst	$$rsts		; On RSTS?
+	beq	20$		; No, continue
+	mov	#caught,@#ccvec	; Store our function in ccvec
+	br	50$		; And exit
+;
+; Cancel all pending I/O on RSX.
+;
+20$:	mov	#$$luns-2,r1
+30$:	mov	(r1)+,r0	; Get Lun
+	beq	40$		; None here
+	movb	V$LUN(r0),r0
+	qiow$s	IO.KIL,r0,1	; Cancel pending I/O
+40$:	cmp	r1,#$$lune	; At the end?
+	blo	30$		; Nope, get another
+;
+50$:				; Exit RSX stuff
+.iff
+	mov	#caught,r0	; reenable ctrl/c trapping
+	emt	362		; to grab looping
+.endc
+	clr	r5		; dump C environment pointer	;03
+	jsr	pc,@subnam	; recall the user
+;
+; Return from the user
+;
+	mov	savesp,sp	; grab the stack
+	mov	(sp)+,r5	; and
+	mov	(sp)+,r4	; restore
+	mov	(sp)+,r3	; all
+	mov	(sp)+,r2	; working
+	mov	(sp)+,r1	; registers
+	mov	(sp)+,r0
+	clr	ccseen		; no more ctrl/c
+.if ne	rsx
+	tst	$$rsts		; On RSTS?
+	bne	10$		; Yes, normal return
+	tst	(sp)+		; Pop one word off stack
+	astx$s			; Exit AST
+	CRASH			; Can't happen
+.endc
+	rti			; back to rt11
+;
+; Here if two ctrl/c's typed
+;
+twocc:	mov	#ccmsg,r0
+	call	$$msg
+	jmp	$$fail
+;
+; Data areas
+;
+	.psect	c$data,d,rw
+savesp:	.word	0		; save stack from caller
+subnam:	.word	1		; user ctrl/c handler
+ccseen:	.word	0		; Reentry flag
+	.psect	c$stcn,d,ro
+ccmsg:	.asciz	"?IO-F-Second ctrl/c typed"
+	.end
+

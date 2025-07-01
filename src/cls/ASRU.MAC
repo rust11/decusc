@@ -1,0 +1,50 @@
+	.title	asr$u	Right shift unsigned >> integer
+	.ident	/000003/
+;+
+;
+; Internal
+;
+; Index		right shift unsigned by integer
+;
+; Usage
+;
+;	unsigned
+;	asr$u(u, n)
+;	unsigned	u;
+;	int		n;
+;
+; Description
+;
+;	Performs u >> n for unsigneds.  Note that, if n is negative,
+;	it acts as if (u << (-n)) were executed.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 07-Aug-80 MM	Added test for neg. shift
+; 000003 14-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+asr$u::
+	mov	4(sp),r1	; Shift by 4(sp)			;02+
+	bpl	10$		; Nothing fancy
+	neg	4(sp)		; Force a left shift
+	jmp	asl$i		; Using routine in eis.mac
+
+10$:
+	mov	2(sp),r0	; Shifting 2(sp)
+	br	30$		; Enter loop in the middle
+
+20$:
+	clc			; Propogate 0
+	ror	r0		; Shift it out
+
+30$:
+	dec	r1		; Count (before shifting)
+	bpl	20$		; Br if more to do
+	return			; Return to caller			;02-
+	.end

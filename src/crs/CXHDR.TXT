@@ -1,0 +1,659 @@
+         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                             DECUS C LANGUAGE SYSTEM
+
+
+                         RSX and P/OS Executive Services
+                         and F11ACP C Extensions Library
+
+
+                                       by
+
+                                Robert B.  Denny
+
+                                   Updated by
+
+                                  Kristina Hamm
+
+
+
+
+
+
+
+
+
+
+                         DECUS Structured Languages SIG
+
+                                  Release V2.1
+                                     4-Jun-84
+
+
+           
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                       Copyright (C) 1980,1982,1984 DECUS
+
+             General  permission  to  copy  or  modify, but not for
+             profit, is hereby granted,  provided  that  the  above
+             copyright notice is included and reference made to the
+             fact that  reproduction  privileges  were  granted  by
+             DECUS.  
+
+             The  information in this document is subject to change
+             without notice  and  should  not  be  construed  as  a
+             commitment  by  Digital  Equipment  Corporation  or by
+             DECUS.  
+
+             Neither  Digital Equipment Corporation, DECUS, nor the
+             authors assume  any  responsibility  for  the  use  or
+             reliability   of   this   document  or  the  described
+             software.  
+
+             This  software  is  made available without any support
+             whatsoever.    If   you   are   responsible   for   an
+             implementation  of  this  system, you should expect to
+             have to understand and modify the source code  if  you
+             encounter  any problems in implementing or maintaining
+             the compiler  or  its  run-time  library.   The  DECUS
+             Structured  Languages  SIG  is  the  primary focus for
+             communication among users of this software.  
+
+
+
+
+
+
+
+
+
+
+
+
+        UNIX  is  a  trademark  of  Bell  Telephone  Laboratories.  RSX,
+        RSTS/E,  RT11  and  VMS  are  trademarks  of  Digital  Equipment
+        Corporation.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                    CHAPTER 1
+
+                                  INTRODUCTION
+
+
+
+
+          This  document describes the RSX and P/OS Executive Extensions
+        Library for the DECUS C programming system.  It assumes that the
+        reader  is familiar with the C language and with RSX and/or P/OS
+        executive services.  This manual should be used  in  conjunction
+        with the appropriate Executive Reference Manual.  
+
+          For  the  most  part,  the  routines in this library provide a
+        convenient run-time interface to the Executive's  services  from
+        C.   In keeping with the efforts to baseline and standardize the
+        common C runtime library functions, the  extensions  library  is
+        distributed separately.  
+
+          All  but  3 of the RSX & P/OS executive services are available
+        through the extensions library.  They include:  
+
+                * Indirect command file support
+                * Obtaining system and task information
+                * Timer services
+                * Full AST support in C
+                * Communication between tasks
+                * Program Logical Address Space (PLAS) services
+                * Suspend and resume execution of tasks
+                * Parent-offspring tasking
+                * Alternate CLI support
+                * Direct queueing of I/O requests (QIO's)
+                * Exit services
+                * Logical name services (P/OS only)
+                * P/OS system feature & configuration reports
+
+        The  Connect  To  Interrupt  Vector and the 2 Specify SST Vector
+        Table services are not implemented.  With this comprehensive set
+        of  C-callable  functions,  including  AST service, it should be
+        possible  to  avoid  most   MACRO-11   programming   in   system
+        applications.  
+
+          In  addition,  a  number  of  ".H"  files containing structure
+        definitions, offset definitions  and  I/O  function  and  return
+        value  definitions  have  been  provided  to  facilitate  system
+        programming.  These files are a collection of things that I have
+
+        RSX and P/OS C Extensions Library                               Page 1-2
+        V2.1                June  1984
+
+
+        made   as  needed  and  are  by  no  means  a  complete  set  of
+        definitions.  
+
+          Finally, three new routines have been added which make it very
+        convenient to access files via  direct  communication  with  the
+        Files-11 ACP, given only a filespec string, an FNB somewhere and
+        a free LUN.  
+
+          This library may be built for RSX-11M, RSX-11M PLUS, Micro-RSX
+        or P/OS.  Most of the services  are  the  same,  but  there  are
+        several  services  that  are not present on one or more of these
+        systems.   Furthermore,  their  macro  definitions  may  not  be
+        present   in   the   system  macro  library  on  those  systems.
+        Therefore, when building the library using @CXMAK, you  will  be
+        asked to identify your system.  
+
+
+                                     WARNING
+
+             Some  of  the routines in this library have never been
+             tested.   Be  particularly  suspicious  of   the   new
+             additions  for P/OS and M-PLUS, and of the conditional
+             code which  selectively  assembles  "real"  or  "stub"
+             routines.   If you get a DSW return of IE.SDP (Illegal
+             DIC or unsupported system service) and you  KNOW  that
+             service   is   supported  on  your  system,  then  the
+             conditionals in the library module may be wrong.   Fix
+             the  module,  re-assemble  it  and  replace it in your
+             library.  Sorry.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                    CHAPTER 2
+
+                     USING THE EXTENSIONS LIBRARY FUNCTIONS
+
+
+
+
+          In general, the function calls take a form similar to that for
+        the corresponding system macro call.  In a few  cases,  optional
+        parameters are not accessible from C.  
+
+          All  (but  1) of the C-callable functions are implemented with
+        '$S' form system macro call.  In addition, care has  been  taken
+        to  ensure  that  all  (but  1) of the functions are re-entrant.
+        This means that the extensions library may be implemented  as  a
+        shared library, with one copy of the code in memory being shared
+        by multiple  programs.   The  exception  to  this  is  the  gmcr
+                                                                    ____
+        function.   DEC  provided no way to make this re-entrant, as the
+        command line buffer is in the DPB.  
+
+
+        2.1  ACCESS TO EXTERNAL LABELS AND $DSW 
+             ______ __ ________ ______ ___ ____
+
+
+          DECUS  C  allows identifiers to contain the "$" character.  In
+        addition, the "_" character eventually becomes "." in the object
+        file.   If an identifier is declared external, it is made global
+        in the object file.  This makes it possible to access externally
+        labeled locations.  
+
+          The  file  CX.H  contains  an  "extern int $dsw;" declaration.
+        This makes the RSX-11M Directive Status Word  ($DSW)  accessible
+        from  C.   This file must be #include'ed at the beginning of any
+        program using the Extensions Library.  
+
+
+                                      NOTE
+
+             Be  careful  about  using  global  "equates"  (such as
+             IS.SUC) in C.  These  are  NOT  address  labels.   For
+             example,  if  you  declare  "extern int is_suc", where
+             IS.SUC is externally  equated  to  "1"  and  then  use
+             is_suc  in an expression, you will get the contents of
+                                                        ________ __
+             location 1 (and probably an odd address trap!).  It is
+             ________ _
+             possible  (but  very  tacky)  to  get  around  this by
+             prefixing  the  use  of  the  equated  symbol  in   an
+
+        RSX and P/OS C Extensions Library                               Page 2-2
+        V2.1                June  1984
+
+
+             expression with the "&" operator, since it means "take
+             this literally, not what it points to".   Please  read
+             the next section.  
+
+
+
+
+        2.2  SYSTEM DEFINED SYMBOLS AND STRUCTURES 
+             ______ _______ _______ ___ __________
+
+
+          When  an  executive  service  is  requested  in  MACRO-11, the
+        request is formed by expanding a  pre-defined  macro.   In  many
+        cases,  there are also pre-defined symbolic codes, symbolic data
+        structure offsets, etc.  Since  these  values  are  not  address
+        labels,  but  literal values, there is no semantically clean way
+        to access them globally in C.  
+
+          The  preferred  technique  for  using  system  defined  global
+        literals is to #define them in a  header  file  or  the  program
+        itself.   Several  header files are supplied with the Extensions
+        Library for use with the functions  requiring  global  literals.
+        The  literals are defined per their MACRO-11 definitions (except
+        "." in MACRO is "_" in C).  
+
+          There  is  one  required  header  file,  CX.H,  which contains
+        #define's for all  of  the  DSW  return  codes  and  the  typdef
+        definitions  for  "word", "byte" and "rad50".  This file must be
+        #include'ed before any of the other  extensions  library  header
+        files, since those definitions are used in the other files.  See
+        the example program in appendix A.  
+
+          Notice that most 16 bit quantities are defined as "word" which
+        is typdef'ed as  "unsigned".   This  reflects  their  nature  as
+        unsigned  quantities.   One of the most common pitfalls in doing
+        system work from C is unintended sign extension when  converting
+        8-bit to 16-bit format or from 16-bit to 32-bit form.  Note that
+        there is no unsigned 32 bit type in C.  
+
+          All  of the Extensions Library header file #define's were made
+        by extracting the appropriate system macro from  RSXMAC.SML  and
+        munging it with FASTEXT or TECO into the required #define syntax
+        and numeric radix.  Hopefully, this means that  the  values  are
+        correct.  
+
+
+                                      NOTE
+
+             By  convention,  the  symbols which are #define'ed are
+             capitalized.  
+
+
+
+        RSX and P/OS C Extensions Library                               Page 2-3
+        V2.1                June  1984
+
+
+        2.3  OPTIONAL PARAMETERS 
+             ________ __________
+
+
+          Many  of the system macros have optional parameters.  When the
+        corresponding function is called from C, all parameters must  be
+        present.   However,  a  parameter value of zero is equivalent to
+        omitting the parameter in the macro call.  For example:  
+
+           cmkt(0,t2srv);       /* Cancel mark time served by t2srv() */
+           cmkt(7,0);           /* Cancel mark time using flag 7 */
+           cmkt(7,t2srv);       /* Combination of above 2 */
+           cmkt(0,0);           /* Cancel ALL mark time requests */
+
+
+        2.4  FUNCTION RETURN VALUE 
+             ________ ______ _____
+
+
+          Most  extensions  library  functions  return  the value of the
+        RSX-11M directive status word ($DSW).  A few abort the  task  if
+        they  fail.   The  DSW may be referred to as "$dsw" within the C
+        program also if "extern int $dsw;" is stated,  or  if  the  file
+        CX.H is #include'ed.  The appropriate Executive Reference Manual
+        explains the role of the DSW.  The C header file, CX.H, contains
+        #define's  for all of the codes that may be returned in the DSW.
+        The meanings of these codes are given in the Executive Reference
+        Manual,  appendix  B.   In  addition, the directive descriptions
+        give the codes associated with that directive.  To  include  the
+        definitions  in  your  program,  use  the  following  C compiler
+        directive:  
+
+                #include <cx.h>
+
+
+        2.5  VIRTUAL ADDRESSES IN C 
+             _______ _________ __ _
+
+
+          When  interacting  with  the  RSX-11M  executive  at the level
+        provided by  the  extensions  library,  it  is  inevitable  that
+        virtual  addresses  will  be  manipulated  and used as pointers.
+        This is particularly  true  when  using  the  memory  management
+        functions.   Also,  the  C  storage  allocator  functions return
+        virtual addresses, not C pointers.  It is important to make this
+        distinction,   owing   to   C's   powerful   address  arithmetic
+        capabilities.  See The C Programming Language by  Kernighan  and
+                           ___ _ ___________ ________
+        Ritchie, sections 5.4 and 5.6.  
+
+          It  is  a  kludge  to  define a virtual address as an integer.
+        Since virtual addresses on the PDP-11 are "pointers to bytes (or
+        characters)" it is wise to adopt the convention of defining them
+        as character pointers.  To make things crystal clear,  the  file
+        CX.H   does   a   "typedef  char  *address;",  making  "address"
+        synonymous with "character pointer".  See the file  WDBDF.H  for
+        an  example.   You  might  also  define  the  standard allocator
+        functions as returning a value of type address.  
+
+        RSX and P/OS C Extensions Library                               Page 2-4
+        V2.1                June  1984
+
+
+        2.6  AST SERVICE ROUTINES 
+             ___ _______ ________
+
+
+          The  Extensions  Library provides full AST service capability.
+        Any C function may serve as an AST service routine.  The address
+        of  the  AST  service  routine  is  passed as a function-pointer
+        parameter to the function which supports AST's.   Normally,  the
+        AST  routine  address  is an optional parameter and a zero value
+        has the effect of omitting the AST.  
+
+          It  is  necessary  to  understand  the  details of AST service
+        startup and exit.  When an  AST  occurs,  the  executive  ALWAYS
+        pushes  the task's Event Flag mask word, its PSW, its PC and its
+        DSW (in that order, DSW on  the  top)  onto  the  task's  stack.
+        Consult  the  appropriate  Executive  Reference  Manual  for the
+        details of this.  
+
+          In  addition  to  the  4  task state words just mentioned, the
+        executive MAY  push  additional  parameters,  depending  on  the
+        reason  for  the AST.  These trap-dependent parameters are often
+        needed by the  AST  service  routine.   The  extensions  library
+        contains  a  function,  gtdp,  which allows the C user to access
+                                ____
+        them.  The gtdp function takes as its parameter the word  offset
+                   ____
+        from  the top of the stack as it is shown in the Exec manual and
+        returns the integer value of the word at that  location  on  the
+        stack.  
+
+
+                                      NOTE
+
+             The  normal C environment save routine (csv$) destroys
+             R0.  A slightly larger version of these  routines  are
+             provided   within   the  CX  library,  in  the  module
+             ACSV.MAC.  The csv$ routine in ACSV.MAC preserves  R0.
+             This  version  of csv$ and cret$ will automatically be
+             included in  all  C  programs  which  utilize  the  CX
+             library, whether they actually use ASTs or not.  
+
+
+
+          Normally,  C  routines  do  not save R0 and R1.  This has dire
+        consequences if an  AST  service  routine  modifies  R0  or  R1,
+        destroying  the  interrupted  routine's context.  As just noted,
+        the csv$ routine in the CX library  preserves  R0  and  R1.   In
+        addition,  the AST service routine MUST call the astset function
+                                                         ______
+        immediately upon entry.  This function saves R0 and R1.  An  AST
+        service routine (obviously) cannot pass a function return, since
+        there was no real "caller".  The astx  routine  mentioned  below
+                                         ____
+        restores R0 and R1.  
+
+          Finally,  but  MOST IMPORTANTLY, the trap-dependent parameters
+        must be removed from the stack before the executive AST  service
+        exit  routine  is  called.  A C function which is used as an AST
+        service routine MUST use the extensions library function astx to
+                                                                 ____
+
+        RSX and P/OS C Extensions Library                               Page 2-5
+        V2.1                June  1984
+
+
+        exit  the function.  The astx routine takes an integer parameter
+                                 ____
+        which is the number of words to remove from  the  top  of  stack
+        prior  to entering the executive AST service exit routine.  This
+        parameter must be equal to the number of words of trap-dependent
+        parameters  that  the  exec  pushed when it started the AST.  As
+        mentioned in the previous paragraph, it also restores all of the
+        registers.  
+
+
+                                      NOTE
+
+             It  is very important that care be taken in the use of
+             astx.  A directive  error  causes  an  immediate  task
+             ____
+             abort.   An  incorrect  value  for  the stack cut-back
+             parameter will lead to task failure.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                    CHAPTER 3
+
+                              FUNCTION DESCRIPTIONS
+
+
+
+
+          Each  function  description consists of the function name, the
+        English name, parameter type definitions in C, and the  function
+        call   format  in  C.   The  corresponding  description  in  the
+        appropriate Executive Reference  Manual  should  be  used  as  a
+        primary  reference.   If system symbols are involved, there will
+        be a header file for use with the C function,  and  it  will  be
+        specified in the function description.  
+
+          The  following  is  a list of the executive services and their
+        function calls provided by the extensions library.  
+
+                Abort Task                              abrt
+                Alter task priority                     altp
+                Assign LUN                              alun
+                AST routine setup                       astset**
+                AST service exit                        astx
+                Attach region                           atrg
+                Clear event flag                        clef
+                Cancel mark time requests               cmkt
+                Create logical name string              clog
+                Connect                                 cnct
+                Create address window                   craw
+                Create group global event flags         crgf
+                Create region                           crrg
+                Cancel scheduled requests               csrq
+                Declare significant event               decl
+                Delete logical name                     dlog
+                Disable AST recognition                 dsar
+                Disable checkpointing                   dscp
+                Detach region                           dtrg
+                Eliminate address window                elaw
+                Eliminate group global event flags      elgf
+                Emit status                             emst
+                Enable AST recognition                  enar
+                Enable checkpointing                    encp
+                Exit iff event flag not set             exif
+                Exit                                    exitt <--
+                Exit with status                        exst
+                Extend task                             extk
+
+        RSX and P/OS C Extensions Library                               Page 3-2
+        V2.1                June  1984
+
+
+                Test for specified system feature       feat
+                Get Command for CLI                     gcci
+                Get CLI information                     gcii
+                Get default directory                   gdir
+                Get LUN information                     glun
+                Get MCR command line                    gmcr
+                Get mapping context                     gmcx
+                Get partition parameters                gprt
+                Get region parameters                   greg
+                Get trap-dependent parameters**         gtdp**
+
+          ----------------
+
+          ** Not an RSX-11M executive service
+          !
+                Get time parameters                     gtim
+                Get task parameters                     gtsk
+                Map address window                      map
+                Mark time                               mrkt
+                Queue I/O request                       qio
+                Queue I/O request and wait              qiow
+                Receive data or stop                    rcst
+                Receive data                            rcvd
+                Receive data or exit                    rcvx
+                Read all event flags                    rdaf
+                  Read event flag                         fdef
+                Read extended event flags               rdxf
+                  Request and Pass Offspring Information  rpoi
+                Request task                            rqst
+                Receive by reference                    rref
+                Resume task                             rsum
+                Run task                                run
+                  Specify Command Arrival AST             scaa
+                  Set Command Line Interpreter            scli
+                  Set up  FNB                             setfnb**
+                Send data                               sdat
+                  Setup default directory string          sdir
+                  Send, Request and Connect               sdrc
+                  Send Data, Request and Pass OCB         sdrp
+                Set event flag                          setf
+                Specify FPP exception AST               sfpa
+                  Send Message                            smsg
+                Suspend task                            spnd
+                Spawn task                              spwn
+                Specify receive data AST                srda
+                  Specify Requested Exit AST              srex
+                Send by reference                       sref
+                Specify receive by reference AST        srra
+                  Set System Time                         stim
+                Stop for logical OR of eflags 1-16      stlo0
+                Stop for logical OR of eflags 17-32     stlo1
+                Stop for logical OR of eflags 33-48     stlo2
+                Stop for logical OR of eflags 49-64     stlo3
+                Stop for logical OR of eflags 65-80     stlo4
+
+        RSX and P/OS C Extensions Library                               Page 3-3
+        V2.1                June  1984
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                Stop for logical OR of eflags 81-96     stlo5
+                Stop task                               stop
+                Stop for single event flag              stse
+                  Swtch state                             swst
+                  Translate logical name                  tlog
+                  Unlock Group Global Event Flags         ulgf
+                Unmap address window                    umap
+                Unstop task                             ustp
+                  Variable receive data                   vrcd
+                  Variable receive data or stop           vrcs
+                  Variable receive data or exit           vrcx
+                  Variable send data                      vsda
+                  Variable send, request and connect      vsrc
+                  What's in my proffesional               wimp
+                Wait for significant event              wsig
+                Wait for logical OR of eflags 1-16      wtlo0
+                Wait for logical OR of eflags 17-32     wtlo1
+                Wait for logical OR of eflags 33-48     wtlo2
+                Wait for logical OR of eflags 49-64     wtlo3
+                Wait for logical OR of eflags 65-80     wtlo4
+                Wait for logical OR of eflags 81-96     wtlo5
+                Wait for single event flag              wtse
+

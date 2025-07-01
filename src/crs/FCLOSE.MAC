@@ -1,0 +1,217 @@
+	.title	fclose	Close a currently-open file
+.if ne RMSIO
+	.ident	"RMS018"
+.iff
+	.ident	/000018/
+.endc
+;
+;+
+;
+; Index		Close an open file
+;
+; Usage
+;
+;	fclose(iop);
+;	FILE		*iop;
+;
+; Internal
+;
+;	mov	#iov,r4		;r4 -> i/o vector
+;	mov	<signal>,r0	;r0 == 0 to free i/o vector
+;	call	$$clos		;close file.
+;
+;	mov	#iov,r4		;r4 -> i/o vector
+;	mov	<signal>,r0	;r0 == 0 to free i/o vector
+;	call	$$fcls		;Free buffer space
+;
+; Description
+;
+;	Close the file.  Returns 0 if ok, -1 if an error.
+;	The error code is saved in $$ferr.
+;
+;	Note that stderr is never closed.  On RT11-mode, the
+;	last block of a disk file which was open for output
+;	is filled with nulls.
+;
+; Internal
+;
+;	$$clos is called internally to close a file.
+;
+;	$$fcls is called internally to free buffer space.
+;
+;	After the file has been closed, record buffers (RSX-mode)
+;	and the file-name buffer (RT11-mode) will be freed.
+;
+;	If r0 is zero on entry, the iov and any wild-card buffer will
+;	also be freed.  This flag is set non-zero by freopen() or
+;	fnext() to close a file without freeing the iov.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-May-79 MM	Modified for the new library
+; 000002 10-Mar-80 MM	Modified for the newer library
+; 000003 14-Mar-80 MM	Added $$fcls entry for fmkdl
+; 000004 27-Mar-80 MM	Merged libraries
+; 000005 21-May-80 MM	Added $$clos and iov deletion test
+; 000006 11-Jun-80 MM	Support for fwild
+; 000007 22-Jun-80 MM	RT11 and RSX squished together
+;			Note: edit numbers edited out
+; 000008 26-Jun-80 MM	Added wild-card buffer removal
+; 000009 14-Jul-80 MM	Check for file name buffer
+; 000010 01-Aug-80 MM	Track IOV changes, added $$cflu
+; 000011 14-Oct-81 MM	Split out $$clfu as a separate program
+; 000012 08-Feb-82 MM	Incorporate Unimation changes -- close rsx record
+;			format files in SEEable format.
+; 000013 27-Jun-82 MM	New library.
+; 000014 03-Aug-82 MM	Make edit 12 work on RSTS/RSX
+; 000015 22-Dec-82 RBD	Do not call $$flsh on RT11
+; RMS016 17-Dec-83 RBD	Add conditional support for RMS-11(V2)
+; 000017 17-Jan-02 BQT	Changed for I/D space
+; 000018  1-Feb-04 IJH  Another shot at fixing RT-11 flush (from ARB source)
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if ne	rsx
+.if ne	RMSIO
+	.mcall	$CLOSE	$FETCH	$COMPARE				;16
+.iff
+	.mcall	CLOSE$
+.endc
+.iff
+	.mcall	.CLOSE
+.endc
+
+	.psect	c$code,i,ro
+
+fclose::
+	jsr	r5,csv$		;Get stack frame.
+	mov	#cret$,(sp)	;$$clos returns to caller
+	clr	$$ferr		;No errors.
+	mov	C$PMTR+0(r5),r4	;Pick up ioptr.
+	beq	errxit		;How can I close nothing?
+	clr	r0		;Dump iov signal
+
+$$clos::
+.if ne rsx								;15
+	bit	#VF$WRT,V$FLAG(r4) ;If it's an input file,		;14+
+	beq	5$		;Skip the flush
+	call	$$flsh		;Output file, flush last record
+.endc									;15
+5$:	cmp	r4,stderr	;Stderr never closes
+	beq	done		;Just return to the caller
+	mov	r0,-(sp)	;Save iov signal			;14-
+;
+; Do a quick check to see that it's in the Lun table
+;
+	movb	V$LUN(r4),r0	;Get Lun number
+	asl	r0		;* 2 as an index
+.if ne	rsx
+	cmp	r4,$$luns-4(r0)	;Does it match?
+.iff
+	cmp	r4,$$luns(r0)	;Does it match?
+.iftf
+	beq	10$		;Keep on trucking if so
+	tst	(sp)+		;Pop the stack
+	br	errxit		;and die
+
+10$:
+.ift	; next test kills closedown flush of terminal on RT11	;b1+
+	bit	#VF$FIL,V$FLAG(r4) ;Is it a file		;12+/13/14
+	beq	15$		;Skip see flush if not		;14
+								;b1-
+.iftf
+	bit	#VF$OPN,V$FLAG(r4) ;Is it really open?		;13
+	beq	noclos		;Skip close if not
+	call	$$cflu		;Clean up last record
+15$:
+.ift
+	mov	r4,r0		;RSX	Make r0 point to
+.if ne	RMSIO
+	add	#V$FAB,r0	;RSX	File access block		;16+
+	$CLOSE	r0		;RSX	Close it out
+	$COMPARE #SU$SUC,STS,r0	;RSX	Successful?
+	beq	20$		;RSX	Good exit
+	$FETCH	r0,STV,r0	;RSX	Get error code			;16-
+.iff
+	add	#V$FDB,r0	;RSX	file data block
+	CLOSE$	r0		;RSX	Close it out
+	bcc	20$		;RSX	Good exit
+	movb	F.ERR(r0),r0	;RSX	Get error code (sign extended)
+.endc
+	mov	r0,$$ferr	;RSX	to error global
+20$:
+.iff
+	bit	#VF$TTY,V$FLAG(r4) ;RT11 If it's really a terminal	;13
+	bne	noclos		;RT11	Nothing to close
+	.close	V$LUN(r4)	;RT11	Close the file
+.endc
+
+noclos:
+	mov	(sp)+,r0	;recover iov dump flag
+;
+; Enter at $$fcls to free up space.  r0 is zero to free the iov
+;
+
+$$fcls::
+	mov	r0,-(sp)	;save signal
+.if ne	rsx
+	mov	V$BBUF(r4),r0	;RSX	Block buffer.
+	beq	30$		;RSX	Br if none.
+	call	$$free		;RSX	Free it.
+	clr	V$BBUF(r4)	;RSX	Mark no more
+
+30$:									;13+
+.iftf								;09+
+	mov	V$BASE(r4),r0	;	Record buffer.
+	beq	40$		;	Br if none.
+	bit	#VF$MBUF,V$FLAG(r4) ;	But, do we own it?
+	beq	40$		;	Br if not
+	call	$$free		;	Free it
+	clr	V$BASE(r4)	;	Mark no more
+	bic	#VF$MBUF,V$FLAG(r4) ;	Nothing there now
+40$:
+.iff								;13-
+	mov	V$NAME(r4),r0	;RT11	File name
+	beq	45$		;RT11	If it's there		;09-
+	call	$$free		;RT11	Now it's gone
+
+45$:								;09
+.iftf
+	tst	(sp)+		;	keep the iov?
+	bne	60$		;	br if so		;08+
+.ift
+	mov	V$DNAM(r4),r0	;RSX	Directory name buffer
+	beq	47$		;RSX	Br if none.
+	call	$$free		;RSX	Mark no more
+	clr	V$DNAM(r4)	;RSX	No more
+47$:
+.iftf
+	mov	V$WILD(r4),r0	;	Wild card buffer
+	beq	50$		;	None present
+	call	$$free		;	Really none present
+
+50$:								;08-
+	movb	V$LUN(r4),r0	;	Get the lun
+	asl	r0		;	as an index
+
+.ift
+	clr	$$luns-4(r0)	;RSX	Clear the entry
+.iff
+	clr	$$luns(r0)	;RT11	Clear the entry
+.endc
+	mov	r4,r0		;Free IOV.
+	call	$$free		;				;02
+
+60$:
+	mov	$$ferr,r0	;Return 0 if no errors.		;02
+	beq	done		;Br if all ok.
+
+errxit:
+	mov	#-1,r0		;Urk
+
+done:
+	return			;return to caller		;05
+
+	.end

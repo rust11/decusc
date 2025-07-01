@@ -1,0 +1,72 @@
+	.title	copy	Copy a given number of bytes
+	.ident	/000005/
+;
+;+
+;
+; Index		Copy a given number of bytes
+;
+; Usage
+;
+;	char *
+;	copy(out, in, nbytes)
+;	char		*out;	/* Output vector	*/
+;	char		*in;	/* Input vector		*/
+;	unsigned int	count;	/* Bytes to copy	*/
+;
+; Description
+;
+;	Copy the indicated number of bytes from the input area
+;	to the output area.  Return a pointer to the first free
+;	byte in the output area.
+;
+;	The copying will be faster if out and in are either both
+;	even or both odd addresses.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Original edit
+; 000002 13-May-80 MM	Faster -- no call to csv$
+; 000003  1-Jul-82 JSL	Faster yet -- move by words when possible; use .sob
+; 000004  8-Jul-82 JSL	Handle count as unsigned; can now move 65535 bytes
+; 000005 14-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+copy::
+	mov	r2,-(sp)		;save temp
+	mov	<4+4>(sp),r2		;count
+	beq	210$			;nothing to do			;04
+	mov	<4+2>(sp),r1		;in				;03+
+	mov	<4+0>(sp),r0		;out
+	cmp	r2,#10.			;too small to be worth it?
+	blos	200$			;yup, don't bother		;04
+;
+	bit	#1,r1			;odd "in" address?
+	beq	10$
+	movb	(r1)+,(r0)+		;make it even...
+	dec	r2			;one done
+10$:
+	bit	#1,r0			;odd "out" address?
+	bne	200$			;yup, opposite parity; do the hard way
+	mov	r2,-(sp)		;save for later...
+	clc				;so ror shifts in a 0		;04+
+	ror	r2			;make it a word count		;04-
+20$:
+	mov	(r1)+,(r0)+
+	.sob	r2,20$
+;
+	mov	(sp)+,r2		;original count
+	bic	#177776,r2		;save only the 1's bit
+	beq	210$			;it's clear, we're done
+;					;else, one more to do...
+200$:
+	movb	(r1)+,(r0)+
+	.sob	r2,200$
+;									;03-
+210$:
+	mov	(sp)+,r2		;restore temp
+	return
+	.end

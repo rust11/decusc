@@ -1,0 +1,105 @@
+	.title	delete	Delete a named file
+.if ne RMSIO
+	.ident	/RMS006/
+.iff
+	.ident	/000006/
+.endc;
+;+
+;
+; Index		Delete a named file
+;
+; Usage
+;
+;	delete(filename)
+;	char		*filename;
+;
+; Description
+;
+;
+;	Delete the named file.
+;	Returns 1 on success, 0 on error (such as file not found).
+;	If an error occurs, $$ferr can be checked for the error code.
+;
+;	On RSX modes, the filename as passed need not include an explicit
+;	version number.  If none is provided, file.nam;0 will
+;	be deleted. Note that the filename returned by fgetname()
+;	always includes an explicit version.
+;
+;	On RT modes, the only error ever returned is "File not found".
+;
+; Bugs
+;
+;	On RSX/VMS, the file must be in the user's current ("SET DEFAULT")
+;	directory.
+;
+;	On RSTS, "SY0:" cannot be distinguished from "SY:".
+;
+;-
+;
+; Edit history
+; 000001 28-May-81 MM	Initial edit
+; 000002 27-Jul-81 RBD	Fixed rsx delete
+; 000003 29-Jul-81 MM/JSL Various changes, delete returns 1 if ok, 0 on err
+; 000004 27-Jun-82 MM	For the new library, no substantive changes.
+; RMS005 29-Dec-83 TTC	Added RMS support.
+; 000006 15-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+.if ne RMSIO
+	.mcall	$COMPARE $FETCH $ERASE					;05
+.endc
+	.psect	c$code,i,ro
+
+delete::
+	jsr	r5,csv$		;Linkage.
+	clr	r4		;Go for a lun
+	call	$$flun		; r3 := lun
+.if ne	rsx
+.if ne RMSIO								;05+
+	call	$$fpar		;Parse the file name
+	mov	r4,r0		;r0 -> iov
+	add	#V$FAB,r0	;r0 -> FAB
+	$ERASE	r0
+	$COMPARE #SU$SUC,STS,r0	;Successful?
+	beq	ok		;(Yes)
+	$FETCH	$$ferr,STS,r0	;Error in $$ferr
+				;fall through to error exit		;05-
+.iff
+	call	$$fcsi		;Parse the file name
+	mov	r4,r0		;r0 -> iov
+	add	#V$FDB,r0	;r0 -> fdb
+	mov	r0,r1		;r1 -> fdb				;02+
+	add	#F.FNB,r1	;r1 -> fnb
+	call	.find		;locate the file, filling in version number
+	bcs	10$		;nope					;03
+	call	.dlfnb		;delete the file by file name		;02-
+	bcc	ok		;good					;03+
+10$:
+ 	movb	V$FDB+F.ERR(r4),r0 ;Get error code sign-extended
+	mov	r0,$$ferr	;and store in $$ferr global
+				;fall through to error exit		;03-
+.endc
+.iff
+	.mcall	.csispc, .close, .delete
+
+	sub	#39.*2,sp	;Get a csi area
+	mov	sp,r1		;r1 -> csi area
+	clr	-(sp)		;Get a (fake) default extension
+	mov	sp,r2		;r2 -> default extension
+	.csispc	r1,r2,c$pmtr+0(r5) ;Parse the file name
+	bcs	10$		;Bug if it won't parse			;03
+	mov	r1,r2		;Get another pointer to scratch area
+	add	#<3*5*2>,r2	;r1 -> first input area
+	.delete	r1,r3,r2	;Delete it
+	bcc	ok		;went well				;03+
+10$:
+ 	mov	#E$$FNF,$$ferr	;signal "file not found"
+.endc
+ 	clr	-(sp)		;Signal is "error"
+ 	br	skip
+ok:	mov	#1,-(sp)	;Signal is "all ok"
+skip:	clr	r0		;Delete the iov
+	call	$$fcls		;Do close cleanup
+	mov	(sp)+,r0	;Signal the error or whathaveyou	;03-
+	jmp	cret$		;return to the caller
+	.end

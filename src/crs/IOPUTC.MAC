@@ -1,0 +1,158 @@
+	.title	$$putc	Output one character to a file
+	.ident	/0000014/
+;
+;+
+;
+; Internal
+;
+; Index		Output one character to a file (internal)
+;
+; Usage
+;
+;	mov	#iov,r4		; r4 -> I/O vector
+;	mov	byte,r0		; r0 := byte to output
+;	call	$$putc
+;
+; Description
+;
+;	$$putc is the internal call to write one character to
+;	an indicated file.  On return, all registers are preserved,
+;	even r0.  $$putc will allocate a record buffer if necessary.
+;	If an error is detected, $$putc will return to the original
+;	(C-language) caller.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-Mar-80 MM	Conversion for the new library
+; 000004 23-Jun-80 MM	.ttyout and .print handling for RT11
+; 000005 25-Aug-80 MM	Hack .ttyout of "*"
+; 000006 24-Oct-81 SR	Flush long record flushing
+; 000007 02-Jul-82 MM	Newer library -- many cosmetic changes, too.
+; 000008 28-Jul-82 MM	Don't force newline on long record
+; 000009 29_sep-82 MM	Don't need busy bit
+; 000010 04-Oct-82 MM	Merge all console output to stderr
+; 000011 07-Oct-82 MM	Exit on error from $$flsh
+; 000012 27-Oct-82 RBD	Correctly handle buffer full call to $$flsh
+; 000013 09-Apr-84 TTC	Force ESC to 233 on rsts when outputting to terminal
+; 000014 18-Jan-02 BQT	Changed for I/D space
+; 000015 01-Feb-04 IH   Comment out ref to VF$BZY
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+
+LF	=	12
+CR	=	15
+ESC	=	33
+
+.if ne	rsx							;02
+
+	.psect	c$code,i,ro
+
+$$putc::
+	mov	r4,-(sp)	;Save the IOV				;10
+	mov	r0,-(sp)	;Save the output byte for now		;07+
+	bit	#VF$CMD,V$FLAG(r4) ; Is the console?			;10+
+	beq	5$		; Br if not
+	mov	stderr,r4	; force output to real console
+	tst	$$rsts		; On RSTS?				;13+
+	beq	5$		; (No), don't bother w/ ESC munging
+	cmpb	(sp),#ESC	; If on rsts, then mung ESC to 233
+	bne	5$
+	bis	#200,(sp)						;13-
+5$:				; continuation				;10-
+	mov	V$BPTR(r4),r0	;r0 -> free spot
+	bne	10$		;br if not first time
+	call	$$abuf		;first time, allocate buffer
+	bcs	40$		;Exit on error
+10$:
+	dec	(r4)		;Room in the buffer?
+	bge	30$		;yes, continue
+	inc	(r4)		;no, there are 0 bytes left, not -1	;12
+;;	bit	#VF$NOS,V$FLAG(r4) ;Full buffer.  If it's a stream file	;06+/08+
+;;	bne	20$
+;;	movb	#LF,(r0)+	;Stuff a <LF> and update the buffer pointer
+;;	mov	r0,V$BPTR(r4)	; -- yes, there's room
+;;20$:									;06-/08-
+	call	$$flsh		;Now, flush the buffer
+	mov	V$BPTR(r4),r0	;refresh free spot
+	dec	(r4)		;Count the byte again
+30$:
+	movb	(sp),(r0)+	;Stuff character in the buffer
+	mov	r0,V$BPTR(r4)	;and update the buffer pointer
+	bit	#VF$NOS!VF$STRG,V$FLAG(r4) ;Worrying about newlines?
+	bne	40$		;Br if not
+	cmpb	(sp),#LF	;Well, is it one
+	bne	40$
+	call	$$flsh		;Write it out
+
+40$:	mov	(sp)+,r0	;Restore r0 and do
+	mov	(sp)+,r4	;Restore old IOV pointer	;10
+	return			;Common return
+
+.iff								;02+
+	.mcall	.TTYOUT, .PRINT					;05
+	.psect	c$code,i,ro
+
+$$putc::
+	bit	#VF$NOS!VF$STRG,V$FLAG(r4) ; No line-feed stuff	;07
+	bne	putbyt		; Br if binary file
+;
+; Stream file, hack <cr><lf>
+;
+	tst	r0		; Null byte?
+	beq	10$		; Ignore if so
+	cmpb	r0,#LF		; Not null, line-feed
+	bne	putbyt		; Br if not
+	bit	#VF$TTY,V$FLAG(r4) ; Yes, is it the tty?		;07
+	beq	20$		; Br if not
+	bit	#VF$NBF,V$FLAG(r4) ; Yes, doing single character?	;07
+	bne	20$		; Br if so
+	clr	r0		; Multi-character, force .print "newline"
+	call	putbyt		; Stuff the byte
+	call	$$flsh		; Flush the buffer
+10$:
+	return			; And exit
+20$:
+	mov	#CR,r0		; LF for a file or .ttyout mode
+	call	putbyt		; Carriage return first
+	mov	#LF,r0		; Followed by a line-feed
+;
+; Output this byte
+;
+putbyt:
+	bit	#VF$TTY,V$FLAG(r4) ; Console terminal?			;07
+	beq	10$		; Br if not
+	bit	#VF$NBF,V$FLAG(r4) ; Really special output?		;07
+	beq	10$		; Br if not
+;;??
+;;?? The RT11 emulator under RSTS/E V7 contains a bug such that
+;;?? .ttyout will not output an asterisk.  Thus, we must force
+;;?? output via .print.  The code should be re-reworked when the
+;;?? bug is fixed.
+;;??
+	mov	#100000,-(sp)	; Get a temp <200> in high byte		;05+
+	movb	r0,(sp)		; stuff the byte
+	mov	sp,r0		; r0 -> string <byte><200>
+	.PRINT	r0		; and output it
+	movb	(sp)+,r0	; pop stack, restore r0
+;;??	.TTYOUT			; Yep, couldn't be			;05-
+	return			; simpler
+
+10$:	dec	(r4)		; nunused (V$BCNT)
+	bge	20$		; branch if buffer wasn't full
+	inc	(r4)		; Fix count back to 0			;12
+	call	$$flsh		; Full, flush it -- this will allocate buffers
+	bit	#VF$ERR,V$FLAG(r4) ; Was there an error			;11
+	bne	30$		; Just exit				;11
+	dec	(r4)		; Fix nunused
+20$:
+	movb	r0,@V$BPTR(r4)	; stick byte in buffer
+	inc	V$BPTR(r4)	; and bump free byte pointer
+;	bis	#VF$BZY,V$FLAG(r4) ; Set busy bit			;15
+;
+30$:
+	return
+.endc								;02-
+	.end

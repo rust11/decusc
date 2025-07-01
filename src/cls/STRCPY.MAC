@@ -1,0 +1,41 @@
+	.title	strcpy	String copy
+	.ident	/000002/
+;
+;+
+;
+; Index		Copy a string
+;
+; Usage
+;
+;	char *
+;	strcpy(out, in);
+;	char		*out;
+;	char		*in;
+;
+; Description
+;
+;	Copy "in" to "out".  Return out.
+;
+; Bugs
+;
+;	It might be more useful if it returned out + strlen(in).
+;	(See cpystr()).
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+strcpy::
+	mov	2(sp),r0
+	mov	4(sp),r1
+10$:
+
+	movb	(r1)+,(r0)+
+	bne	10$
+	mov	2(sp),r0		; Return out per Unix v7
+	return
+	.end

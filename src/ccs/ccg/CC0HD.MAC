@@ -1,0 +1,340 @@
+.IIF	NDF	RSX	RSX	=	1	;Assume RSX	;01+
+	.TITLE	CC0HD
+	.ident	/V02.19/	; *** Master patch level
+EDTLVL	==	19.		; *** Master patch level
+	.NLIST	BEX, CND
+	.ENABL	LC, GBL
+	.LIST	MEB
+	.LIST	CND		;Debugging only
+
+;
+; C COMPILER
+; EQUIVALENCES.
+;
+; VERSION X01
+;
+; DAVID G. CONROY	14-NOV-77
+; LAST UPDATED:		03-MAY-79
+;
+; Edit history
+; 01 04-Mar-80 MM	Updated for RT11 support, etc.
+; 02 04-Dec-81 MM	Added "psect"
+; u1 10-Sep-81 CCG	Default for floating point constants is now
+;			FLOAT instead of DOUBLE.  Append letter "D" to
+;			force double.
+; u2 28-Sep-81 CCG	Added code to differentiate between structure
+;			member symbols.
+; 03 08-Feb-82 MM	Incorporated u1/u2 into master source.
+; 04 28-Feb-82 RBD	Changed symbol table to binary tree (whew!)
+; 05 01-Mar-82 RBD	Changed this .IDENT to master version/patch level
+; 06 21-Mar-82 MM/DGC	Redid symbol tables -- again!
+; 07 17-Oct-82 RBD	Added "ident" directive
+; 08 29-Nov-82 MM	Input buffer size is now global.
+; 09, 10		Unknown edits somewhere -- track master patch level
+; 11 01-Aug-84 MM	Fixed # <number> bugs in CC001, CC101, --
+;			tracking master patch level
+; 12 21-Nov-84 MM	Fixed nested #if bug in CC001.MAC, --
+;			tracking master patch level
+; 13 06-Mar-85 MM	Allow "int foo();" as an extern declaration,
+;			trap error with declaration of "foo(a, a)"
+;			predefine c_pos if running on p/os
+;			fixed bug in $$pos test (cc300)
+;			Tracking master patch level
+; 14 16-Mar-85 MM	Added 50 nodes to tree space to compile XLISP
+;			Edit in cc103.mac.  Tracking master patch level.
+; 15 18-Mar-85 MM	Added more nodes to tree space.  Added and removed
+;			a misguided optimization.  Tracking master patch level.
+;			Moved master patch level (EDTLVL) to CC0HD.MAC
+;			and made it global.
+; 16 10-Jan-02 BQT	Merged different patches into a new dist.
+; 17 14-Jan-02 BQT	Changed stack format in call.
+; 18 30-Jan-02 BQT	Added #pragma stuff.
+; 19 30-Jan-02 BQT	Added void type.
+;
+
+SIZ.IB	=	300.		; Input buffer (for macro expansions)	;08
+SIZ.OB	=	80.		; Intermediate file buffer size		;08
+
+;
+; OPERATORS AND SCANNER TOKENS
+; LEAF NODES
+; BINARY OPERATORS
+; UNARY OPERATORS
+; OTHER OPERATORS
+; PUNCTUATION MARKS
+; RESERVED WORDS
+;
+
+OP.EOF	==	0		;END OF FILE
+
+OP.CON	==	1		;CONSTANT (ALL TYPES)
+OP.ID	==	2		;ID (EXTERNALS)
+OP.LID	==	3		;LOCAL ID (STATICS)
+OP.LCN	==	4		;LONG CONSTANT (SCANNER)
+OP.DCN	==	5		;DOUBLE CONSTANT (SCANNER)
+OP.REG	==	6		;REGISTER
+OP.INX	==	7		;XXX(REG)
+OP.AUI	==	10		;(REG)+
+OP.AUD	==	11		;-(REG)
+
+OP.ADD	==	12		;+
+OP.SUB	==	13		;- BINARY
+OP.MUL	==	14		;* BINARY
+OP.DIV	==	15		;/
+OP.MOD	==	16		;%
+OP.ASL	==	17		;<<
+OP.ASR	==	20		;>>
+OP.AND	==	21		;& BINARY
+OP.OR	==	22		;OR
+OP.XOR	==	23		;^
+
+OP.ADA	==	24		;+=
+OP.SBA	==	25		;-=
+OP.MUA	==	26		;*=
+OP.DVA	==	27		;/=
+OP.MOA	==	30		;%=
+OP.ALA	==	31		;<<=
+OP.ARA	==	32		;>>=
+OP.ANA	==	33		;&=
+OP.ORA	==	34		;OR=
+OP.XRA	==	35		;^=
+
+OP.EQ	==	36		;==
+OP.NE	==	37		;!=
+OP.LT	==	40		;<
+OP.LE	==	41		;<=
+OP.GE	==	42		;>=
+OP.GT	==	43		;>
+OP.LTU	==	44		;<  UNSIGNED
+OP.LEU	==	45		;<= UNSIGNED
+OP.GEU	==	46		;>= UNSIGNED
+OP.GTU	==	47		;>  UNSIGNED
+
+OP.AA	==	50		;LOGICAL AND
+OP.OO	==	51		;LOGICAL OR
+OP.INB	==	52		;++ PREFIX
+OP.INA	==	53		;++ POSTFIX
+OP.DEB	==	54		;-- PREFIX
+OP.DEA	==	55		;-- POSTFIX
+OP.ASG	==	56		;ASSIGNMENT
+
+OP.ADR	==	57		;& UNARY
+OP.IND	==	60		;* UNARY
+OP.NEG	==	61		;- UNARY
+OP.COM	==	62		;TILDE
+OP.NOT	==	63		;!
+
+OP.QRY	==	64		;?
+OP.CLN	==	65		;:
+OP.CMA	==	66		;, IN ARGLISTS.
+OP.SEQ	==	67		;SEQUENTIAL EXECUTION
+OP.BIC	==	70		;BIT CLEAR
+OP.BCA	==	71		;ASSIGNED BIT CLEAR
+OP.BIT	==	72		;BIT TEST
+OP.JSR	==	73		;CALL
+OP.CVR	==	74		;CONVERT TO REGISTER
+OP.MLL	==	75		;MULTIPLY INT*INT, LONG RESULT		;u3
+OP.FLD	==	76		;FIELD SPEC.
+OP.COT	==	77		;CAST OF TYPES.
+OP.LOD	==	100		;LOAD
+OP.CST	==	101		;NULL TERMINATED STRING
+OP.NAC	==	102		;NO ARGS CALL
+OP.DLL	==	102		;DIVDE LONG/INT (PASS TWO)		;u3
+OP.SEM	==	103		;SEMICOLON
+OP.DOT	==	104		;.
+OP.ARO	==	105		;->
+OP.LPA	==	106		;(
+OP.RPA	==	107		;)
+OP.LSQ	==	110		;[
+OP.RSQ	==	111		;]
+OP.LBR	==	112		;LEFT BRACE
+OP.RBR	==	113		;RIGHT BRACE
+OP.FCN	==	114		;FLOAT CONSTANT (SCANNER ONLY)		;u1
+				;OP 115 IS NOW UNUSED.
+
+OP.INT	==	116		;INT
+OP.CHR	==	117		;CHAR
+OP.FLT	==	120		;FLOAT
+OP.DBL	==	121		;DOUBLE
+OP.UNS	==	122		;UNSIGNED
+OP.LNG	==	123		;LONG
+OP.STR	==	124		;STRUCT
+OP.AUT	==	125		;AUTO
+OP.STA	==	126		;STATIC
+OP.EXT	==	127		;EXTERN
+OP.GOT	==	130		;GOTO
+OP.RET	==	131		;RETURN
+OP.IF	==	132		;IF
+OP.WHI	==	133		;WHILE
+OP.ELS	==	134		;ELSE
+OP.SWI	==	135		;SWITCH
+OP.CAS	==	136		;CASE
+OP.BRK	==	137		;BREAK
+OP.CTN	==	140		;CONTINUE
+OP.DO	==	141		;DO
+OP.DEF	==	142		;DEFAULT
+OP.FOR	==	143		;FOR
+OP.TYP	==	144		;TYPEDEF
+OP.SIZ	==	145		;SIZEOF
+OP.SHO	==	146		;SHORT
+OP.UNI	==	147		;UNION
+OP.SEC	==	150		;PSECT					;02
+OP.SED	==	151		;DSECT					;02
+OP.IDN	==	152		;IDENT					;07
+OP.S2C	==	153		;pragma psect				;18
+OP.S2D	==	154		;pragma dsect				;18
+OP.I2N	==	155		;pragma ident				;18
+OP.AST	==	156		;pragma ast				;18
+OP.NAS	==	157		;pragma noast				;18
+OP.VOI	==	160		;void
+;
+; TYPES
+; IN ORDER OF 'WIDENESS'
+;
+
+TY.UND	==	0		;UNDEFINED
+TY.CHR	==	2		;CHAR
+TY.INT	==	4		;INT
+TY.UNS	==	6		;UNSIGNED
+TY.PTR	==	10		;POINTER
+TY.VOI	==	12		;VOID
+TY.LNG	==	14		;LONG
+TY.FLT	==	16		;FLOAT
+TY.DBL	==	20		;DOUBLE
+TY.UST	==	22		;UNDEFINED STRUCTURE
+TY.UUN	==	24		;UNDEFINED UNION
+TY.STR	==	26		;STRUCTURE
+TY.UNI	==	30		;UNION
+
+;
+; CLASSES
+; IN NO PARTICULAR ORDER
+;
+
+CL.UND	==	0		;UNDEFINED
+CL.AUT	==	2		;AUTO
+CL.SIN	==	4		;STATIC INTERNAL
+CL.SEX	==	6		;STATIC EXTERNAL
+CL.GBD	==	10		;GLOBAL DEFINITION
+CL.GBR	==	12		;GLOBAL REFERENCE
+CL.REG	==	14		;REGISTER
+CL.DRG	==	16		;DEFINED ARGUMENT IN REGISTER
+CL.ARG	==	20		;ARGUMENT
+CL.DEF	==	22		;DEFINED ARGUMENT
+CL.LAB	==	24		;LABEL
+CL.FOR	==	26		;FORWARD REFERENCED LABEL
+CL.TAG	==	30		;STRUCTURE TAG
+CL.MOS	==	32		;MEMBER OF STRUCTURE
+CL.KEY	==	34		;KEYWORD
+CL.TYP	==	36		;TYPEDEF
+
+;
+; DIMENSION LIST NODES
+; A CHAIN OF DIMENSION LIST NODES  BEGINS AT THE S.DIMP OF
+; EACH SYMBOL. THIS IS COPIED INTO E.DIMP WHEN THAT SYMBOL
+; IS USED IN AN EXPRESSION.
+;
+; USED BY PASS I
+;
+
+D.LINK	==	0		;LINK TO THE NEXT DIMENSION
+D.TYPE	==	2		;DIMENSION TYPE
+D.BOUN	==	4		;ARRAY BOUND
+
+D.LENG	==	6		;SIZE FOR ALLOCATION
+
+DT.FUN	==	0		;FUNCTION
+DT.PTR	==	1		;POINTER
+DT.ARY	==	2		;ARRAY
+
+DT.FLD	==	3		;FIELD	(SYMBOL TABLE)
+DT.END	==	4		;END	(SYMBOL TABLE)
+
+;
+; SYMBOL TABLE NODES
+; The symbol table is organized as a hashed bucket chain.
+;
+; USED BY PASS I ONLY
+;
+
+S.NEXT	==	0		;Next symbol in this chain		;06+
+S.CLAS	==	S.NEXT+2	;CLASS (BYTE)
+S.TYPE	==	S.CLAS+1	;TYPE  (BYTE)
+S.DIMP	==	S.TYPE+1	;POINTER TO DIMENSION LIST
+S.DOPE	==	S.DIMP+2	;POINTER TO STRUCTURE DOPE BLOCK
+S.ADDR	==	S.DOPE+2	;ADDRESS
+S.AUXP	==	S.ADDR+2	;AUX POINTER FOR DOPE
+S.STRC	==	S.AUXP+2	;PARENT STRUCTURE ID, IF MOS		;u2/04
+S.LINE	==	S.STRC+2	;LINE NUMBER WHERE DEFINED		;06
+S.FLAG	==	S.LINE+2	;FLAGS (BYTE)				;06
+S.NLEN	==	S.FLAG+1	;TRUE NAME LENGTH (BYTE)		;06
+S.NAME	==	S.NLEN+1	;NAME: UP TO 8 BYTES + NULL PAD
+				;NOTE: SYMBOLS ARE VARIABLE SIZED
+				;S.NAME MUST BE AT S.NLEN + 1
+
+S.FLD	==	S.DOPE		;FIELD INFO (OVERLAYS S.DOPE)
+S.WIDE	==	S.DOPE		;WIDTH
+S.BOFS	==	S.WIDE+1	;BIT OFFSET
+
+;
+; These bits may be set in S.FLAG (note: this is now a byte field)
+;
+SF.MOS	==	000001		;NAME IS IN MOS SYMBOL TABLE
+SF.PRM	==	000002		;PERM. SYMBOL, DON'T DELETE
+SF.RUP	==	000004		;ROUND UP IN STRUCT BEFORE THIS MEMBER
+SF.FLD	==	000010		;FIELD
+SF.USE	==	000020		;SET WHEN LOCAL VARIABLE IS USED	;06-
+;
+; STRUCTURE DOPE NODE
+; THE DOPE BLOCK IS USED TO INITIALISE A STRUCTURE (MAINLY).
+; IT IS A VARIABLE SIZE NODE POINTED TO BY THE S.DOPE  FIELD
+; OF THE SYMBOL TABLE NODE.
+;
+; USED BY PASS I
+;
+
+S.REFC	==	0		;REFERENCE COUNT
+S.SSIZ	==	2		;STRUCTURE SIZE (BYTES)
+S.STID	==	4		;ID OF THIS STRUCTURE			;u2
+S.MEMB	==	6		;START OF MEMBERS			;u2
+
+;
+; EXPRESSION TREE NODES
+; LOTS OF DIFFERENT TYPES. THE FIRST PART IS THE SAME FOR ALL
+; TYPES; THE SECOND PART IS VARIABLE. THE SYMBOL OF THE  FORM
+; ES.XXX IS THE SIZE OF THE NODE, FOR ALLOCATION.
+;
+
+E.OP	==	0		;OP
+E.CLAS	==	2		;CLASS (BYTE)
+E.TYPE	==	3		;TYPE  (BYTE)
+E.DIMP	==	4		;POINTER TO DIMENSION LIST (I)
+E.DOPE	==	6		;STRUCTURE DOPE VECTOR (I)		;u2
+E.HFPR	==	4		;HIGHEST FLOATING POINT REG. (II)
+E.HGPR	==	6		;HIGHEST GENERAL REG. (II)
+
+E.LOP	==	10		;LEFT OPERAND
+E.ROP	==	12		;RIGHT OPERAND
+ES.OP	==	14		;SIZE FOR ALLOCATION
+
+E.WIDE	==	14		;EXTENSION FOR OP.FLD
+E.BOFS	==	15		;OFFSET
+ES.FLD	==	16		;SIZE FOR ALLOCATION
+
+E.VAL	==	10		;8 BYTE CONSTANT VALUE
+ES.CON	==	20		;SIZE FOR ALLOCATION
+
+E.OFFS	==	10		;OFFSET
+E.REG	==	12		;REGISTER NUMBER
+ES.REG	==	14		;SIZE FOR ALLOCATION
+
+
+E.OFFS	==	10		;OFFSET
+E.NAME	==	12		;8 BYTE NAME + NULL + PAD
+ES.ID	==	24		;SIZE FOR ALLOCATION
+
+E.OFFS	==	10		;OFFSET
+E.LAB	==	12		;LOCAL ID LABEL
+ES.LID	==	14		;SIZE FOR ALLOCATION
+
+	.END

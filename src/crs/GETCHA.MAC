@@ -1,0 +1,52 @@
+	.title	getchar	Get characters
+	.ident	/000006/
+;
+;+
+;
+; Index		Get one character from a file
+;
+; Usage
+;
+;	getchar();
+;
+;	getc(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;	Getchar() reads one character from the standard input file.
+;	getc() reads one character from the indicated input file.
+;
+;	Both return EOF on error or end of file.
+;
+;	To continue reading from a terminal after EOF, the program
+;	may execute:
+;
+;		clearerr(iop);
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000002 13-Aug-79 MM	Default read from fin.
+; 000003 21-Sep-79 MM	CRLF typo fixed
+; 000004 28-Mar-80 MM	For the new library
+; 000005 22-May-80 MM	No more fin.
+; 000006 18-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+getcha::
+	jsr	r5,csv$
+	mov	stdin,r4	;Get standard input			;05
+	br	getc1		;
+ 
+getc::
+	jsr	r5,csv$
+	mov	C$PMTR+0(r5),r4	;Get user IOV
+
+getc1:
+	call	$$getc		;Get the character
+	jmp	cret$		;
+	.end

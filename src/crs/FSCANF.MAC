@@ -1,0 +1,47 @@
+	.title	fscanf	Formatted input conversion
+	.ident	/000004/
+;+
+;
+; Index		Formatted input conversion
+;
+; Usage
+;
+;	fscanf(fd, fmt, pointer(s))
+;	FILE		*fd;	/* Input file pointer	*/
+;	char		*fmt;	/* Format string	*/
+;
+; Description
+;
+;	Fscanf() parses the input file according to the indicated
+;	format descriptor, storing the results in the pointer arguments.
+;	It returns the number of successfully assigned input items.
+;
+;	See the description of scanf() for further documentation.
+;
+; Diagnostics
+;
+;	Fscanf() returns -1 if an end of file condition
+;	exists and no data was stored.  It returns -2 if a palpably
+;	incorrect format, such as "%" is encountered.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 02-Jul-82 MM		Split out from scanf.
+; 000002 ??			renamed $$scan
+; 000002 09-Nov-82 MM		Ought to try debugging someday
+; 000003 17-Jan-02 BQT		Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+fscanf::
+	jsr	r5,csv$			; Link routines
+	mov	C$PMTR+0(r5),-(sp)	; Setup for _doscan, iov	;03
+	mov	#C$PMTR+4,-(sp)		; arg offset
+	add	r5,(sp)			; -> args
+	mov	C$PMTR+2(r5),-(sp)	; format
+	call	$$scan			; do it				;02
+	jmp	cret$			; and exit
+	.end

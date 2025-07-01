@@ -1,0 +1,31 @@
+	.title	wrapup	Dummy routine called on exit
+	.ident	/000002/	; 24-Jul-79
+;
+;+
+;
+; Index		Dummy routine called on exit
+;
+; Usage
+;
+;	wrapup()
+;
+; Description
+;
+;	This routine (which does nothing) is called on exit if the user's
+;	program does not provide a wrapup() routine.
+;
+;	Wrapup will be called only once.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+wrapup::
+	return
+	.end

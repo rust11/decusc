@@ -1,0 +1,52 @@
+	.title	irand	Random number modulus argument
+	.ident	/000002/
+;
+;+
+;
+; Index		Random number generator
+;
+; Usage
+;
+;	int
+;	irand(arg)
+;	int		arg;
+;
+; Description
+;
+;	Generate a pseudorandom number in the range 0 .. (arg-1).
+;	If arg is zero, generate a number in the range 0 .. 32767.
+;
+;	Note that the algorithm is prone to nonrandom sequences when
+;	considering the next pseudorandom number.
+;
+;	irand is equivalent to the following sequence:
+;
+;		extern long	rand;
+;
+;		if (arg == 0) arg = 32767;
+;		return(((rand() >> 8) & 32767) % arg);
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001	07-Oct-81 MM	Split rand into two routines
+; 000002	14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+irand::
+	jsr	r5,csv$			; Link environments
+	call	rand			; Get 32 bit random number
+	mov	r1,(sp)			; Do an 8-bit right shift
+	movb	r0,(sp)			;
+	mov	(sp),r0			;
+	swab	r0			;
+	bic	#100000,r0		; Force it positive
+	mov	C$PMTR+0(r5),(sp)	; Look at max
+	beq	10$			; If max == 0, nothing more
+	mov	r0,-(sp)		; Nonzero,
+	call	mod$i			; return number mod max.
+10$:
+	jmp	cret$			; exit
+	.end

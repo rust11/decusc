@@ -1,0 +1,270 @@
+	.title	$$main	Start of C programs
+	.ident	/000014/
+;
+;+
+;
+; Index		C main program
+; Index		C library global variables
+; Index		Operating-system unique variables
+; Index		$$opsy -- Operating system id.
+; Index		$$rsts -- Test if RSTS/E
+; Index		$$vms -- Test if VMS emulation
+; Index		$$pos -- Test if P/OS (Professional)
+; Index		$$uic -- RSX-11M default UIC
+; Index		$$stnd -- Stack end point
+; Index		$$scca -- RT-11 Ctrl/C flag
+; Index		$$task -- RSX-11M task name
+; Index		$$tick -- Clock interrupt rate
+;
+; Usage
+;
+;	$$main::		/* Start of C programs	*/
+;
+;	extern int   $$opsy;	/* Operating system	*/
+;	extern int   $$rsts;	/* Non-zero if RSTS/E	*/
+;	extern int   $$vms;	/* Non-zero if VMS	*/
+;	extern int   $$pos;	/* Non-zero if P/OS	*/
+;	extern int   $$uic;	/* RSX: Default uic	*/
+;	extern int   $$stnd;	/* Stack end point	*/
+;	extern int   $$scca;	/* RT11: .scca control	*/
+;	extern char  $$task[];	/* RSX: task name	*/
+;	extern int   $$tick;	/* Clock interrupt rate	*/
+;
+; Internal
+;
+;	extern int   (*$$pptr)();  /* Profile printer	*/
+;	extern int   $$argc;	/* Argument count	*/
+;	extern int   *$$argv[];	/* Argument list ptr.	*/
+;	extern char  *$$mtop;	/* Free memory start	*/
+;	extern char  *$$mend;	/* Free memory end	*/
+;
+; Description
+;
+;	This module contains the run-time startoff for C programs.
+;	It intializes the C environment and calls the main() subroutine.
+;	On return from the main program, exit() is called to close
+;	all files and return to the operating system.
+;
+;	The following globals are defined in this module:
+;
+;		$$opsy	Operating  system  unique  value.   This
+;			value  is  7 on RT11, and set as per the
+;			GTSK$ directive	on RSX-based systems:
+;				RSX11-D		0
+;				RSX11-M		1
+;				RSX11-S		2
+;				IAS		3
+;				RSTS/E V7	4
+;				VMS		5
+;				RSX-11M+	6
+;				RT11		7
+;				P/OS		9
+;
+;		$$rsts	This value is non-zero if the program is
+;			running  on  RSTS/E.   It is zero if the
+;			program is running native RSX,  RT11  or
+;			VMS compatibility mode.
+;
+;		$$vms	This value is non-zero if the program is
+;			running  (in  compatibility mode) on Vax
+;			VMS.  It  is  zero  if  the  program  is
+;			running native RSX, RT11 or on RSTS/E.
+;
+;		$$pos	This value is non-zero if the program is
+;			running on the Professional P/OS.  It is
+;			zero if the program  is  running  native
+;			RSX, RT11, or on RSTS/E or VMS.
+;
+;		$$stnd	The (top) end of the stack on entrance.
+;
+;		$$scca	On RT11, the .scca control  word.   This
+;			is  needed  to  allow RSTS/E programs to
+;			trap end of file.
+;
+;		$$task	On RSX, the task name in Ascii.
+;
+;		$$tick	The clock interrupt rate.  This  is  set
+;			at  initialization  on  RT11  and on the
+;			first call to time() or ftime() on RSX.
+;
+;		$$uic	On RSX, the default UIC word from GTSK$.
+;
+; Internal
+;
+;	All $$ values are for internal communication among runtime
+;	library routines.  I.e., let them alone.
+;
+; Diagnostics
+;
+;	On RSX, the task aborts with a BPT if the standard error file
+;	did not open.  Otherwise, explanatory error messages are printed.
+;
+; Bugs
+;
+;-
+;
+; Run time startoff.
+;
+; Edit history:
+; 000001 22-May-80 MM	Redone from scratch
+; 000002 26-Jun-80 MM	Added wild card slot in erriov
+; 000003 27-Jun-80 MM	Moved file stuff to iov.mac
+; 000004 21-Jul-80 MM	Added $$tick
+; 000005 29-Jul-80 MM	Added $$mtop, $$mfree
+; 000006 10-Dec-80 MM	Added $$vms
+; 000007 01-Mar-82 MM	$$tick on both systems now
+; 000008 22-Jun-82 MM	No environment (for now)
+; 000009 02-Jul-82 MM	Newer library
+; 000010 ????????? ???? Dean Elsner found this version
+;			Suspect "Added $$pos"
+; 00010a 10-Jun-85 DLE	Put a RETURN into c$code .psect so I/D tasks work
+; 00011a 10-Jun-85 DLE	Try to make this source match DOB'ed object with
+;			.ident /000011/. Not having correct sources makes
+;			life exciting. Good practice for those idle hours
+;			we all spend trashing DECVAX or CASTOR/POLLAX.
+; 000012 17-Jan-87 JMC  Change psect names and types.
+; 000013 19-Jan-02 BQT	Changed for I/D space.
+; 000014 25-Feb-04 IJH	SUPORT.OBJ now in CLIB for RT-11. No code changes.
+;
+.iif	ndf	rsx	rsx	=	1
+;
+; NOTE:  This module may not depend on the value of C$$EIS
+;
+; $$main is the entrance to C programs.  CSV$ refers to this
+; global to pull support.obj from the RSX library.  As main programs
+; cannot be loaded from a library on RT11, suport.obj must
+; be named explicitly on all RT11 link commands.
+;
+; Note: Later versions of RT-11 allowed main programs to be loaded
+;	from libraries. See edit 000014 above.
+
+.if ne	rsx
+;
+; RSX-specific equivalences
+;
+MAXMCR	=	80.		;Mcr command line size -- same as $$init
+.endc
+
+;
+; Global data.
+; The '$' symbols are for internal use.
+; The '.' symbols are set by the loader.
+;
+	.psect	c$data,d,rw						;12
+$$pptr::
+	.word	retn		;Ptr to profile printer			;10a
+	.psect	c$code,i,ro						;10a
+retn:	return			;Just hop back
+	.psect	c$data,d,rw						;12/10a
+
+$$opsy::
+	.word	7		;Gets op sys unique value
+				;	RSX11-D		 0
+				;	RSX11-M		 1
+				;	RSX11-S		 2
+				;	IAS		 3
+				;	RSTS/E V7	 4
+				;	VMS		 5
+				;	RSX-11M+	 6
+				;	RT11		 7
+				;	P/OS		11
+
+$$rsts::
+	.word	0		;Set non-zero on RSTS/E	
+$$vms::									;06
+	.word	0		;Set non-zero on VMS			;06
+$$pos::
+	.word	0		;Set non-zero on P/OS			;10
+$$tick::								;07+
+	.word	60.		;Set to 50 (on RT11) by $$init if
+				;necessary.  Reset on calls to time()
+				;and ftime() on RSX			;07-
+$$stnd::
+	.blkw	1		;High-point of stack
+$$argc::
+	.word	0		;Number of command args
+$$argv::
+	.word	0		;-> argv[]
+$$mend::								;05+
+	.word	0		; End of untouched memory
+$$mlim::
+	.limit			; Memory limits
+$$mtop	==	$$mlim+2	; We need first byte unused		;05-
+
+
+.if ne rsx
+;
+; RSX-specific global data.
+;
+$$uic::
+	.blkw	1		;Task default uic from GTSK$
+
+$$task::
+	.ascii	"??????"	;Gets the task name
+	.byte	0		;Null terminated.
+	.even
+.iff
+;
+; RT11-specific global data.
+;
+
+$$scca::
+	.word	0		;Set non-zero if CTRL/C typed
+.endc
+
+								;11a+
+;
+; Here is a list of (at least one) things to do before we start up.
+;
+	.psect	$init,d,ro	; list of subroutines to call.
+				; add to it from any module.
+				; yes, you can set up this psect from
+				; a C module and avoid $$init (with its
+				; nasty GMCR$ you can't turn off in RSX).
+todo:	.word	$$init		; $$init() is the first initializer
+	.psect	$init$,d,ro	; The list itself
+	.psect	$init.,d,ro	; tells us where list ends.
+theend:
+
+; For people who really must avoid all C sickness at runtime, you can
+; always define your own $$main, because (on RSX,  **NOT** RT) this
+; is just another library module. However, to maintain portability to
+; RT, I suggest you use the things-to-do method outlined above.
+; Portable, structured bugs are much more fun.
+
+								;11a-
+
+	.psect	c$code,i,ro
+;
+; Run time startoff.
+; Called from the operating system
+;
+
+.if eq	rsx
+	nop			;Dummy reenter address
+.endc
+$$main::
+	mov	sp,$$stnd	;Save end of stack
+	clr	r5		;No environment linkage yet
+
+
+									;11a+
+;	call	$$init		;Initialize everything
+
+	mov	#todo,r2	; (R2) -> next thing to do
+5$:	call	@(r2)+		; assume at least one thing to do
+	cmp	r2,#theend	; all done?
+	bcs	5$		; LO: no, so loop back
+
+									;11a-
+
+
+	clr	-(sp)		;No environment				;08
+	mov	$$argv,-(sp)	;Arg. vector
+	mov	$$argc,-(sp)	;Arg. count
+	call	main		;Call user program
+	mov	#E$$XOK,-(sp)	;Normal exit				;09
+	call	exit		;Normal exit				;09
+	crash			;Can't happen				;09
+
+.end	$$main

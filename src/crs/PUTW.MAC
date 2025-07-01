@@ -1,0 +1,42 @@
+	.title	putw	Output a binary integer to a file
+	.ident	/000003/
+;
+;+
+;
+; Index		Output a binary integer to a file
+;
+; Usage
+;
+;	putw(word, iop);
+;	int		word;
+;	FILE		*iop;
+;
+; Description
+;
+;	putw() writes one word to the indicated file.
+;	It returns EOF on error, 0 on success
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-Mar-80 MM	Conversion for the new library
+; 000002 02-Jul-82 MM	Newer library
+; 000003 19-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+putw::
+	jsr	r5,csv$
+	mov	C$PMTR+2(r5),r4	;Get user's IOV.
+	mov	C$PMTR+0(r5),r0	;Get the word to output
+	call	$$putc		;Do it
+	swab	r0		;and then
+	call	$$putc		;do the other
+	clr	r0		;Assume ok
+	bit	#VF$ERR,V$FLAG(r4) ;Any errors?				;02
+	beq	10$		;Br if yes
+	dec	r0		;Return EOF
+10$:	jmp	cret$
+	.end

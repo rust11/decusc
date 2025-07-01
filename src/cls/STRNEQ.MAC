@@ -1,0 +1,56 @@
+	.title	strneq	String Equality Test With Count
+	.ident	/000002/
+;
+;+
+;
+; Index		Test string equality, with count
+;
+; Usage
+;
+;	int
+;	strneq(s1, s2, count);
+;	char		*s1;
+;	char		*s2;
+;	unsigned int	count;
+;
+; Description
+;
+;	Compare at most count bytes between two strings, returning TRUE
+;	if the the strings are equal.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001  9-Jul-82 JSL	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+strneq::
+	mov	r3,-(sp)		; Get a temp
+	mov	r2,-(sp)		; Get another
+	mov	#1,r0			; Assume equality
+	mov	6+4(sp),r2		; Get count
+	beq	equal			; Zero limit - equal
+	mov	2+4(sp),r3		; r3 -> string 1
+	mov	4+4(sp),r1		; r1 -> string 2
+
+10$:
+	cmpb	(r3)+,(r1)		; Compare one byte
+	bne	unequal			; Not equal exit
+	tstb	(r1)+			; Still equal, at end?
+	beq	equal			; Equal 'till the bitter end.
+	.sob	r2,10$			; Continue if more
+	br	equal			; Equal up to limit
+
+unequal:
+	clr	r0			; They disagree
+	.br	equal			; Fall through
+	
+equal:	
+	mov	(sp)+,r2		; Restore temp
+	mov	(sp)+,r3		; Restore other temp
+	return
+	.end

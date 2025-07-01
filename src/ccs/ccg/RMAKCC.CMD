@@ -1,0 +1,88 @@
+SWITCH BASIC
+! RMAKCC.CMD	Run using ATPK or Batch
+!
+! Edit History
+! 10-Feb-82 MM		Added CC202A, delete .obj's after success
+!
+! Build Dave Conroy's Decus C compiler -- RSTS/E RT11 flavor
+!
+! NOTE: If this command file is unmodified, C programs will require
+! hardware EIS.  If this is not desired, edit this command file to
+! change all references to "RT11.EIS" to "RT11.MAC".
+!
+! See the source of RT11.MAC (or RT11.EIS) for other changes that
+! may be required.
+!
+! You must be logged in under a privileged account in order to
+! do cross-account creates.
+!
+! File assignments:
+!	The following are used here:
+!	[this]	task image map (also objects)
+! SR:	[5,3]	Compiler and command file sources
+! LS:	[5,2]	Listing output
+! OU:	[5,2]	Compiler library and task image output
+!
+$ALLOW WARNING ERRORS
+DEASSIGN
+ASSIGN SY:[5,3] SR
+ASSIGN NL:	LS
+ASSIGN C:	OU
+!
+PRINT DATE$(0), TIME$(0)
+!
+! Assemble the Compiler
+!
+RUN $MACRO
+SY:CC0HD,LS:CC0HD/C=SR:RT11.EIS,SR:CC0HD
+SY:CC0RT,LS:CC0RT/C=SR:RT11.EIS,SR:CC0RT
+SY:CC0GB,LS:CC0GB/C=SR:RT11.EIS,SR:CC0GB
+SY:CC000,LS:CC000/C=SR:RT11.EIS,SR:CC000
+SY:CC001,LS:CC001/C=SR:RT11.EIS,SR:CC001
+SY:CC002,LS:CC002/C=SR:RT11.EIS,SR:CC002
+SY:CC1GB,LS:CC1GB/C=SR:RT11.EIS,SR:CC1GB
+SY:CC100,LS:CC100/C=SR:RT11.EIS,SR:CC100
+SY:CC101,LS:CC101/C=SR:RT11.EIS,SR:CC101
+SY:CC102,LS:CC102/C=SR:RT11.EIS,SR:CC102
+SY:CC103,LS:CC103/C=SR:RT11.EIS,SR:CC103
+SY:CC104,LS:CC104/C=SR:RT11.EIS,SR:CC104
+SY:CC105,LS:CC105/C=SR:RT11.EIS,SR:CC105
+SY:CC2GB,LS:CC2GB/C=SR:RT11.EIS,SR:CC2GB
+SY:CC200,LS:CC200/C=SR:RT11.EIS,SR:CC200
+SY:CC201,LS:CC201/C=SR:RT11.EIS,SR:CC201
+SY:CC202,LS:CC202/C=SR:RT11.EIS,SR:CC202
+SY:CC202A,LS:CC202A/C=SR:RT11.EIS,SR:CC202A
+SY:CC203,LS:CC203/C=SR:RT11.EIS,SR:CC203
+SY:CC204,LS:CC204/C=SR:RT11.EIS,SR:CC204
+SY:CC205,LS:CC205/C=SR:RT11.EIS,SR:CC205
+SY:CC206,LS:CC206/C=SR:RT11.EIS,SR:CC206
+SY:CC207,LS:CC207/C=SR:RT11.EIS,SR:CC207
+SY:CC300,LS:CC300/C=SR:RT11.EIS,SR:CC300
+^Z
+!
+PRINT DATE$(0), TIME$(0)
+!
+! Assemble the library
+!
+$@SY:[5,3]RCOMLB.CMD
+!
+PRINT DATE$(0), TIME$(0)
+!
+! Link the compiler
+!
+$@SY:[5,3]RCCBLD.CMD
+!
+PIP CC0HD.OBJ,CC0RT.OBJ/DE
+PIP CC0GB.OBJ,CC1GB.OBJ,CC2GB.OBJ/DE
+PIP CC000.OBJ,CC001.OBJ,CC002.OBJ/DE
+PIP CC100.OBJ,CC101.OBJ,CC102.OBJ/DE
+PIP CC103.OBJ,CC104.OBJ,CC105.OBJ/DE
+PIP CC200.OBJ,CC201.OBJ,CC202.OBJ,CC202A.OBJ,CC203.OBJ/DE
+PIP CC204.OBJ,CC205.OBJ,CC206.OBJ,CC207.OBJ/DE
+PIP CC300.OBJ/DE
+!
+PRINT DATE$(0), TIME$(0)
+!
+! Compiler build complete
+!
+DEASSIGN

@@ -1,0 +1,5039 @@
+         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                             DECUS C LANGUAGE SYSTEM
+
+
+                                  Tool Library
+                                Reference Manual
+
+
+                                       by
+
+                                  Martin Minow
+
+
+
+
+
+
+
+        This  document  describes a number of tools, written in C.  Most
+        of these do not require any knowlege of,  or  interest  in,  the
+        language C itself.  
+
+
+                         DECUS Structured Languages SIG
+
+                              Version of 11-Nov-83
+
+
+                                      NOTE
+
+             This  software  is  made available without any support
+             whatsoever.    The   person   responsible    for    an
+
+             implementation of this system should expect to have to
+             understand and modify the source code if any  problems
+             are  encountered  in  implementing  or maintaining the
+             compiler  or  its   run-time   library.    The   DECUS
+             'Structured  Languages  Special Interest Group' is the
+             primary focus for communication among  users  of  this
+             software.  
+
+
+
+        UNIX  is  a  trademark  of  Bell  Telephone  Laboratories.  RSX,
+        RSTS/E,  RT11  and  VMS  are  trademarks  of  Digital  Equipment
+        Corporation.  
+
+
+
+        1.0  General Considerations 
+
+        With few exceptions, all Decus C tools use a Unix-like method of
+        passing parameters to the program, allowing for  redirection  of
+        the  "standard"  input-output  devices.   This section describes
+        overall tool installation and the parameter passing mechanism.  
+
+
+        1.1  Installing the Tools 
+
+        The  tools  are compiled and linked with the C run-time library.
+        The resulting executable program (.TSK, .SAV, or  .EXE)  may  be
+        copied to a convenient directory.  The following conventions are
+        used:  
+
+              o  On RSTS/E, the tools are copied to the account named in
+                 the system-wide logical "PUB:".  In order  to  use  the
+                 supplied  command  files  without  editing,  the system
+                 manager  must  have   defined   this   account   as   a
+                 "system-wide logical".  
+
+                 Decus  C  programs  can be run using the RSTS/E consise
+                 command (CCL) facility.  If the system manager does not
+                 wish  to install all programs as CCL commands, the CRUN
+                 program, written in  Basic-Plus  may  be  compiled  and
+                 installed.   You  may  then  run a tool (or any Decus C
+                 program) by a command such as 
+
+                        CRUN Disk:[P,Pn]file argument list 
+
+                 where "Disk[P,Pn]" indicates the disk and account where
+                 the executable program is stored.  CRUN chains  to  the
+                 program,  passing  the  argument list in a common area.
+                 It is very specific to RSTS/E.  
+
+              o  On  VMS,  the  tool build process writes the executable
+                 image to the user-defined logical  "BIN:".   Tools  are
+                 "installed" by the foreign command definition:  
+
+                        $ TOOLNAME :== $BIN:TOOL.EXE 
+
+
+              o  On  RSX, tools may be installed as known images.  There
+                 is  no  equivalent  of  the  CRUN   program   currently
+                 available.  
+
+              o  On RT11, tools are RUN.  There is no (supported) way to
+                 pass a command line to C programs.  
+
+        When  specifically  RUN  (rather  than  executed via a command),
+        (most) tools will prompt for a command line, using a prompt such
+        as:  
+
+                Argv> 
+
+        The  user  types  the command line which is parsed and passed to
+        the tool's main program.  The specific prompt varies from system
+        to system.  If known, the name of the tool will be used.  
+
+
+        1.2  Argument Lists 
+
+        If a tool is invoked using an argument list as in:  
+
+                tool arg1 arg2 "argument three" 
+
+        the  main  program  will receive the arguments as strings.  Note
+        the following:  
+
+              o  Non-quoted arguments are converted to lower-case.  This
+                 is compatible with Vax-11 C.  
+
+              o  Argument  strings  may  be quoted using "..." or '...'.
+                 Within a quoted string, the other quote  character  may
+                 be used.  
+
+              o  Within  an  argument,  the backslash '\' character will
+                 quote the next character:  
+
+                        tool don\'t ...  
+
+
+              o  As will be described, the '<' and '>' characters may be
+                 used to specify I/O redirection.  
+
+
+
+        1.3  I/O Redirection 
+
+        Normally,  tools  read  from  and  write  to  the user's command
+        terminal.  Most tools allow the specific file to  be  redefined,
+        allowing  tools  to  be  combined  into  larger  entities.   I/O
+        redirection is done as follows:  
+
+              o  If  any  (non-quoted)  argument  begins  with  the  '<'
+                 character, the argument will define a file to  be  used
+                 for command input.  
+
+
+              o  If  any  (non-quoted)  argument  begins  with  the  '>'
+                 character, the argument will define a file  to  receive
+                 normal  output.   If  the  argument  begins  with '>>',
+                 output will be appended to the file  (if  supported  by
+                 the operating system).  
+
+        Note  that  I/O  redirection  is  not  supported by the Vax-11 C
+        run-time library.   A  few  tools,  though  not  all,  implement
+        redirection as described above.  
+
+        2.0  text file archiver 
+             ____ ____ ________
+
+
+
+                                    ********
+                                    * arch *
+                                    ********
+
+
+
+        NAME:   arch -- text file archiver 
+
+        SYNOPSIS:  arch [-options] [-z logfile] archive_name file[s] 
+
+        DESCRIPTION:  
+
+                Arch  manages  archives  (libraries)  of  source  files,
+                allowing a large number of  small  files  to  be  stored
+                without using excessive system resources.  The following
+                options may be specified:  
+
+                c       Force creation of new archive 
+
+                d       Delete file from archive.  
+
+                i       Insert, same as update 
+
+                p       Print files on standard output 
+
+                r       Replace, same as update 
+
+                l       List archive contents (directory) 
+
+                u       Update, same as replace 
+
+                x       Extract named files 
+
+                v       Verbose 
+
+                z       Write verbose log to indicated file 
+
+                The   file  name  arguments  may  contain  '*'  and  '?'
+                wildcards, where '*' matches any string  of  characters,
+                and  '?'  matches  one character.  ('%' may be used as a
+                synonym  for  '?'.)  There  is  a  slight,   but   suble
+                difference  in  the way wild cards are processed for the
+                various commands:  
+
+                directory, delete, and extract 
+
+                        Match  ('*'  and  '?')  against the files in the
+                        archive, performing the operation on  all  files
+                        that  match.   Except  for delete, "no argument"
+                        matches all files in the archive.  
+
+                insert, replace, and update 
+
+                        Expand the wild-card arguments against the files
+
+        Tool Library Reference Manual                                     Page 6
+        arch    text file archiver
+
+
+                        stored on the operating  system  --  eliminating
+                        all   wild   cards.   Then,  match  against  the
+                        archived files.  Those that match  are  replaced
+                        by  the  file  on  the  operating system.  After
+                        replacement, any additional files  are  appended
+                        to  the  archive.  Files in the archive that are
+                        not in the directory are unchanged.  
+
+                        Currently,  insert, replace, and update work the
+                        same.  If it seems reasonable, the  program  may
+                        be extended as follows:  
+
+                        insert  Add files new only 
+
+                                Adds  new  files  (not  present  in  the
+                                archive)  but  does  not  modify   files
+                                currently  in  the archive.  It would be
+                                an error to try  modifying  a  currently
+                                archived file.  
+
+                        replace Modify existing files only 
+
+                                Modify files present in the archive, but
+                                do not add new files to the archive.  
+
+                        update  Modify existing, add new 
+
+                        This  is  simple  to  do, but would seem to be a
+                        rich source of user error.  
+
+        NOTE:  
+
+                Arch  has  been  superseded  for  most  uses by the much
+                simpler,  but  functionally  similar,  archc  and  archx
+                programs.  
+
+        ARCHIVE FILE FORMAT:  
+
+                Archive  files  are  standard  text files.  Each archive
+                element is preceeded by a line of the format:  
+
+                -h-     file.name       date    true_name
+
+                Note  that  there  is no line or byte count.  To prevent
+                problems, a '-' at the beginning of a  record  within  a
+                user  file  or  embedded  archive  will  be  "quoted" by
+                doubling it.  The date  and  true  filename  fields  are
+                ignored.   On Dec operating systems, file.name is forced
+                to lowercase.  
+
+        DIAGNOSTICS:  
+
+                Diagnostic messages should be self-explanatory 
+
+
+        Tool Library Reference Manual                                     Page 7
+        arch    text file archiver
+
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+                Arch  used  to  be  called  ar.  The name was changed to
+                avoid conflict with the Unix tool.  
+
+
+        Tool Library Reference Manual                                     Page 8
+        archc   text file archive creation
+
+
+        3.0  text file archive creation 
+             ____ ____ _______ ________
+
+
+
+                                    *********
+                                    * archc *
+                                    *********
+
+
+
+        NAME:   archc -- text file archive creation 
+
+        SYNOPSIS:  
+
+                archc file[s] >archive 
+
+        DESCRIPTION:  
+
+                Archc  manages  archives  (libraries)  of  source files,
+                allowing a large number of  small  files  to  be  stored
+                without using excessive system resources.  It copies the
+                set of named files to standard output in archive format. 
+
+                The  archx  program  will  recreate  the  files  from an
+                archive.  
+
+                Note:   there  are  no  checks  against  the  same  file
+                appearing twice in an archive.  
+
+        ARCHIVE FILE FORMAT:  
+
+                Archive  files  are  standard  text files.  Each archive
+                element is preceeded by a line of the format:  
+
+                -h-     file.name       date    true_path_name
+
+                Note  that  there  is no line or byte count.  To prevent
+                problems, a '-' at the beginning of a  record  within  a
+                user  file  or  embedded  archive  will  be  "quoted" by
+                doubling it.  The date  and  true  filename  fields  are
+                ignored.   On Dec operating systems, file.name is forced
+                to lowercase.  Certain  bytes  at  the  beginning  of  a
+                record  are also prefixed by '-' to prevent mailers from
+                treating them as commands.  
+
+        DIAGNOSTICS:  
+
+                Diagnostic messages should be self-explanatory 
+
+        AUTHOR:  
+
+                Martin Minow 
+
+
+        Tool Library Reference Manual                                     Page 9
+        archx   text file archiver extraction
+
+
+        4.0  text file archiver extraction 
+             ____ ____ ________ __________
+
+
+
+                                    *********
+                                    * archx *
+                                    *********
+
+
+
+        NAME:   archx -- text file archiver extraction 
+
+        SYNOPSIS:  
+
+                archx archive_files 
+
+        DESCRIPTION:  
+
+                Archx  manages  archives  (libraries)  of  source files,
+                allowing a large number of  small  files  to  be  stored
+                without   using   excessive   system  resources.   Archx
+                extracts all files from an archive.  
+
+                If  no archive_name file is given, the standard input is
+                read.  Archive header records are echoed to the standard
+                output.  
+
+        ARCHIVE FILE FORMAT:  
+
+                Archive  files  are  standard  text files.  Each archive
+                element is preceeded by a line of the format:  
+
+                -h-     file.name       date    true_name
+
+                Note  that  there  is no line or byte count.  To prevent
+                problems, a '-' at the beginning of a  record  within  a
+                user  file  or  embedded  archive  will  be  "quoted" by
+                doubling it.  The date  and  true  filename  fields  are
+                ignored.  On some operating systems, file.name is forced
+                to lowercase.  The archive builder  (archc)  may  prefix
+                other characters by '-'.  
+
+                If  the  first  non-blank line of an input file does not
+                begin  with  "-h",  the  text  will   be   appended   to
+                "archx.tmp"  This  is needed if archives are distributed
+                by mail and arrive  with  initial  routing  and  subject
+                information.  
+
+        DIAGNOSTICS:  
+
+                Diagnostic messages should be self-explanatory 
+
+        AUTHOR:  
+
+
+        Tool Library Reference Manual                                    Page 10
+        archx   text file archiver extraction
+
+
+                Martin Minow 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 11
+        build   Build compilation command files
+
+
+        5.0  Build compilation command files 
+             _____ ___________ _______ _____
+
+
+
+                                    *********
+                                    * build *
+                                    *********
+
+
+
+        NAME:   build -- Build compilation command files 
+
+        SYNOPSIS:  
+
+                build -options files 
+
+        DESCRIPTION:  
+
+                Build is used to create command files for C programs and
+                libraries.   It  reads  the  program  source  files   to
+                determine dependencies and writes a command file for the
+                operating system indirect command processor.  
+
+                The following options are defined:  
+
+                -a              Set  protection codes on the output file
+                                (program or library) so that  all  users
+                                may access the file.  
+
+                -b              Build   (as   a  program)  even  if  the
+                                "/*)BUILD" comment is not seen.  
+
+                -d              Do not delete .OBJ files after build.  
+
+                -h  header       A  header command file is copied to the
+                                output file before all processing.  
+
+                -l  library      An  object  library  of  C  programs is
+                                built.  library is the (fully-qualified)
+                                name of the output file.  (Note that the
+                                $(BIN)  model  is  not  appended).    If
+                                unspecified,  the  filetype will be .OBJ
+                                for  RT11  and  .OLB  for  RSX  and  VAX
+                                libraries.   Note  that,  on VAX/VMS, if
+                                you  build  both  the  RSX  and   native
+                                library,   you   must  select  different
+                                library names  as  they  will  generally
+                                have  the  same  filetype.   This is not
+                                available for unix.  
+
+                -m  modelfile    Command  files  are  built by expanding
+                                macros in built-in model  strings.   The
+                                model  file  allows  the user to specify
+                                default definitions for model strings.  
+
+        Tool Library Reference Manual                                    Page 12
+        build   Build compilation command files
+
+
+
+                -o  output       The  output  file  is  be  changed from
+                                stdout to this file.  
+
+                -s  source       This string is pre-pended to all source
+                                file  references   (and   include   copy
+                                operations are not commented out).  
+
+                -t  trailer      A trailer command file is copied to the
+                                output file after all processing.  
+
+                -v              Verbose   --   log  files  as  they  are
+                                processed.  
+
+                -x  system       Specify  the  operating system on which
+                                the command file is to be run.   If  not
+                                specified, your current operating system
+                                is used.  
+
+                If  the -x option is not specified, the output file will
+                be  built  for  the  current  operating   system.    The
+                following operating systems are known:  
+
+                vaxnative, vaxrsx, vax 
+                                Vaxnative  generates a command file that
+                                uses the Vax-11 C compiler only;  vaxrsx
+                                (and vax) uses Decus-C only.  
+
+                rstsrt11, rstsrsx, rsts 
+                                RSTS defaults to rstsrt11.  
+
+                rsxnative rt11native 
+                                These  are native-mode command files and
+                                may  be  abbreviated  "rsx"  and  "rt11"
+                                respectively.  
+
+                unix 
+                                This  generates a crude "makefile" using
+                                the $(FILE) and $(INCLUDE)  definitions.
+                                Most  of  the  capabilities of make (and
+                                build) are unavailable.  This file  will
+                                probably have to be edited before it can
+                                be used.  
+
+                When  specifing  an  operating  system,  a non-ambiguous
+                string is required.  Thus, "rstsrt11" may be abbreviated
+                to "rstsrt".  
+
+                For example, note the following examples:  
+
+                    build -l c:cu -s src: *.c >vxcubl.com
+                    build *.c -x rt11 >ttool.com
+
+                The  first  builds  the  utility library for the current
+
+        Tool Library Reference Manual                                    Page 13
+        build   Build compilation command files
+
+
+                operating system, while the second builds tools for rt11
+                native mode.  
+
+        HEADER AND TRAILER FILE FORMAT:  
+
+                These  files  are  written  to  the  output  file before
+                (header)  and  after  (trailer)  the  generated  command
+                files.   They  may  be  used  to  establish  compilation
+                defaults.  
+
+        C SOURCE FILE FORMAT:  
+
+                To  generate  the  command file, build reads each source
+                file, searching for a build command.  This appears as  a
+                comment (beginning in column 1) in the C source:  
+
+                    /*)BUILD
+                        arguments
+                    */
+
+                If   a  library  is  being  built,  build  searches  for
+                "/*)LIBRARY".  Thus libraries and programs  may  coexist
+                in the same directory.  
+
+                Note  that  "/*)BUILD"  or  "/*)LIBRARY"  must appear in
+                upper-case at  the  beginning  of  a  line.   Also,  the
+                terminating  "*/"  must  be  the  first  non white-space
+                characters on a line.  
+
+                A '#' outside of a model argument will cause the rest of
+                the source line to  be  ignored,  allowing  comments  in
+                model strings.  
+
+                If  no  build arguments are given, the current file will
+                be compiled.  
+
+                Arguments  may  be given to override model (or built-in)
+                definitions.  The format for an argument is as follows: 
+
+                        $X = Y
+
+                where  X  may  be  either  a  single  letter or a string
+                enclosed in either parentheses or braces and  Y  may  be
+                either  a  single  word  or  a string (which may contain
+                blanks, newlines, etc.) bounded by braces.  For example: 
+
+                    /*)BUILD
+                        $(PROGRAM) = kwik
+                        $(STACK) = 2000
+                        $(FILES) = { kwik sortc }
+                    */
+
+                Within  model  definitions, the '$' character may appear
+                as itself if it is doubled "$$" or followed by  a  blank
+
+        Tool Library Reference Manual                                    Page 14
+        build   Build compilation command files
+
+
+                "$ ".  
+
+                The  following  may  be  specified in build arguments or
+                model files:  
+
+                $(DTOA)         This program requires the floating-point
+                                double-to-Ascii   conversion    routine.
+                                This should be written as:  
+
+                                    $(DTOA) = 1
+
+                                $(DTOA) is ignored if unix or vax-native
+                                output is desired.  
+
+                $(ATOF)         This program requires the floating-point
+                                Ascii-to-double   conversion    routine.
+                                This should be written as:  
+
+                                    $(ATOF) = 1
+
+                                $(ATOF) is ingored if unix or vax-native
+                                output is desired.  
+
+                $(SRC)          The account where the sources are.  This
+                                overrides any -s option value.  
+
+                $(BIN)          The account where the image goes.  
+
+                $(FILES)        The  list  of files to be built.  If not
+                                specified,  the  current  file  name  is
+                                used.   $(FILES)  may  be  specified for
+                                programs and libraries.  
+
+                $(CPP)          To  preprocess  program  source files by
+                                the CPP macro pre-processor, define this
+                                as:  
+
+                                    $(CPP) = 1
+
+                                As  the CPP preprocessor does not have a
+                                default filetype, the build command will
+                                append ".C" to any source file that does
+                                not have an explicit filetype.  This may
+                                be  overridden by providing the filetype
+                                in the $(FILES) command:  
+
+                                    $(FILES) = { prog.txt }
+
+                                Note:   the  $(MPP)  directive  is still
+                                available, however it too uses the newer
+                                cpp preprocessor.  
+
+                $(INCLUDE)      The  list  of  files to be included.  If
+                                not specified, no include files will  be
+
+        Tool Library Reference Manual                                    Page 15
+        build   Build compilation command files
+
+
+                                copied.    The   copy  is  supressed  if
+                                neither $(SRC) nor  $(COPYINCLUDE)  have
+                                been  redefined  as  the  file  would be
+                                copied from the current disk/account  to
+                                itself.   These  files  are  not deleted
+                                after compilation,  even  if  they  were
+                                copied.  $(INCLUDE) may be specified for
+                                programs or libraries.  
+
+                $(PROGRAM)      The  name  of  the  program  image to be
+                                generated.  
+
+                $(STACK)        A  value  for  the  RT11  /B[OTTOM] link
+                                specifier.  If not specified,  "$(STACK)
+                                = 2000" will be used.  Note that the RSX
+                                task-builder STACK option  is  specified
+                                by the $(TKBOPTIONS) specifier below.  
+
+                $(TKBOPTIONS)   RSX  task builder options (stack, units,
+                                task name, etc.) are specified  by  this
+                                argument as follows:  
+
+                                    $(TKBOPTIONS) = {
+                                        STACK   = 1500
+                                        TASK    = ...FOO
+                                        ; ... etc
+                                    }
+
+                $(OBJS)         A string naming the actual object files.
+                                If specified, it overrides  the  default
+                                use of the files just compiled.  
+
+                $(LIBS)         A  string naming additional libraries to
+                                be  searched  (before  searching  the  C
+                                runtime library).  
+
+                $(UTLIB)        A    user-specified   utility   library;
+                                appended  to  all  link   strings,   but
+                                unspecified by BUILD.  
+
+                $(DECUSLIB)     On    native    Vax-11C,   the   library
+                                "C:VAXLIB/LIB" which contains  interface
+                                routines for Decus-C tools.  
+
+                $(SUPORT)       The   RT11   runtime   support  routine:
+                                "C:SUPORT.OBJ".  
+
+                $(??LIB)        The C runtime library:  
+
+                    $(VXLIB)    The  VAX/VMS  native runtime library, by
+                                default  "SYS$LIBRARY:VAXCRTL/LIB"  (VMS
+                                Version 4, VaxC Version 2).  
+
+                    $(RXLIB)    The  RSX  runtime  library.  The default
+
+        Tool Library Reference Manual                                    Page 16
+        build   Build compilation command files
+
+
+                                depends on  the  operating  system:   on
+                                VAX/VMS  and RSTS, it is "C:C/LB", while
+                                on native RSX-11M, it is "LB:[1,1]C/LB". 
+
+                    $(RTLIB)    The  RT11  runtime library.  The default
+                                is "C:SUPORT,C:CLIB".  
+
+                $(ODL)   =   {...}  An   RSX  overlay  description.   If
+                                specified,  a  temporary  file  will  be
+                                created   (and   subsequently   deleted)
+                                containing a  configured  overlay  file.
+                                Note   that  you  should  reference  the
+                                run-time library by  using  $(RXLIB)  to
+                                obtain  the correct library designation.
+                                If  $(ODL)  is  specified,  $(OBJS)   is
+                                ignored and $(LIBS) and $(RXLIB) will be
+                                processed only if present in the  $(ODL)
+                                model.  For example:  
+
+                                $(ODL) = {
+                                       .ROOT
+                                MAIN1-MAIN2-$(RXLIB)-*(OV1,OV2)
+                                ;   OV1:  .FCTR SUB1-SUB1L SUB1L:  .FCTR
+                                $(RXLIB):FWILD:FGETNA:RTIME   ;     OV2:
+                                .FCTR     SUB2-SUB2L    SUB2L:     .FCTR
+                                $(RXLIB):ASL$$LI # (asl$li) ;  
+                                       .END
+                                } 
+
+                                Note  the  use of $(RXLIB):XXX to select
+                                modules  from  the  C  library  and  the
+                                doubling    of    '$'   in   referencing
+                                subroutine ASL$LI.  
+
+                $(OVR)   =   {...}  An  RT11  overlay  description.   If
+                                specified,  $(OBJS)  is  ignored.    For
+                                example:  
+
+                                    $(OVR) = {
+                                        root1,root2,$(SUPORT),$(RTLIB)
+                                        over1/o:1
+                                        over2/o:2
+                                    }
+
+                $(COMMENT)      A  string  that  will  comment a command
+                                line for the target operating system.  
+
+                $(PREFIX)       This  model  is expanded at the start of
+                                every compilation.   The  default  is  a
+                                comment  in  a  format  suitable for the
+                                particular operating system.  
+
+                $(POSTFIX)      This   model  is  expanded  after  every
+                                program build.  On VAX/VMS, the  default
+
+        Tool Library Reference Manual                                    Page 17
+        build   Build compilation command files
+
+
+                                defines   the  program  as  an  external
+                                command.  On other systems, the  default
+                                does nothing.  
+
+                $(FIRST)        This  model is expanded before the first
+                                program is built.  By default,  it  does
+                                nothing.    It   may  be  defined  by  a
+                                user-specified model file.  
+
+                $(LAST)         This  model  is  expanded after the last
+                                program is built.  By default,  it  does
+                                nothing.    It   may  be  defined  by  a
+                                user-specified model file.  
+
+                For example, 
+
+                /*)BUILD
+                */
+
+                This  is  a  "normal"  build  for  e.g.,  grep  or echo,
+                signalling build that this file  is  a  program,  rather
+                than a subroutine.  
+
+                    /*)BUILD
+                        $(PROGRAM)      = xrf
+                        $(INCLUDE)      = xrf.h
+                        $(FILES)        =
+                                { xrf0 xrf1 xrf2 xrf3 xrfi xrfd }
+                        $(TKBOPTIONS)   = {
+                                TASK    = ...XRF
+                        }
+                        $(ODL)          = {
+                        .ROOT   XRF0-XRF2-XRFD-$(RXLIB)-*(X1,X2,X3)
+                        ;
+                        X1:     .FCTR   XRFI-X1L
+                        X1L:    .FCTR   $(RXLIB):CONCAT:CTIME:FWILD
+                        ;
+                        X2:     .FCTR   XRF1-X2L
+                        X2L:    .FCTR   $(RXLIB):ASL$$I
+                        ;
+                        X3:     .FCTR   XRF3
+                                .END
+                        }
+                        $(OVR)          = {
+                                xrf0,xrf2,xrfd,c:suport,c:clib
+                                xrfi,c:clib/o:1
+                                xrf1,c:clib/o:1
+                                xrf3,c:clib/o:1
+                        }
+                    */
+
+                This  slightly more complex build shows specification of
+                an include file, the creation of a program whose name is
+                different   from   its   component  files,  task-builder
+
+        Tool Library Reference Manual                                    Page 18
+        build   Build compilation command files
+
+
+                options, and overlay  files,  including  library  module
+                selection.  
+
+                    /*)LIBRARY
+                        $(INCLUDE) = chrtab.h
+                    */
+
+                This  library  build file shows the naming of an include
+                file.  
+
+        MODEL FILE FORMAT:  
+
+                Model  files  consist  of  strings  of  macros and their
+                definitions.  Each definition is  separated  by  one  or
+                more  blanks, tabs, or newlines.  Definitions are in the
+                same format as their )BUILD parameter  counterparts.   A
+                model  will  (re)define  defaults  for the entire build.
+                For example, the model file:  
+
+                        $(SRC) = DK1:[6,1]      # source files
+                        $(BIN) = SY:[1,3]       # image output
+
+                Causes all program source to be taken from DK1:[6,1] and
+                all compiled programs to be written to SY:[1,3].  
+
+                Model file definitions replace operating-system specific
+                defaults.  Anything more elaborate than redefinition of,
+                say,   $(SRC)   or   $(BIN),   will   probably   require
+                understanding of the inner logic of the  build  program.
+                You  should be especially cautious of changing a link or
+                library build string.  
+
+        BUGS:  
+
+                It  will  never  replace  make.   It's  not supposed to,
+                anyways.  The problem that build was written to solve is
+                the  extraordinary  proliferation  of tiny files -- each
+                tool program requiring five or six command  files:   one
+                or two for each operating system.  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+
+        Tool Library Reference Manual                                    Page 19
+        comm    Compare Files for Equality
+
+
+        6.0  Compare Files for Equality 
+             _______ _____ ___ ________
+
+
+
+                                    ********
+                                    * comm *
+                                    ********
+
+
+
+        NAME:   comm -- Compare Files for Equality 
+
+        SYNOPSIS:  
+
+                comm [- [123]] file_1 file_2 [out_file] 
+
+        DESCRIPTION:  
+
+                Comm  prints lines which are common to two files.  Lines
+                which are only in file 1 are  printed  in  the  leftmost
+                column;   those  which  are  only  in file 2 are printed
+                indented by one tab;  those in both  files  are  printed
+                indented by two tabs.  
+
+                Specifying  flags  1,  2, or 3 will suppress printing of
+                the indicated column:  
+
+                    comm -12    prints only lines common to both files. 
+
+                    comm  -23    prints lines present in the first file,
+                                but not in the second.  
+
+                    comm -123   does nothing.  
+
+                If  the  output  file argument is not present, output is
+                written to the standard output.  
+
+        DIAGNOSTICS:  
+
+
+                No argument 
+
+                Unknown flag 
+
+                Two input files needed 
+
+                Cannot open input file 
+
+        AUTHOR:  Martin Minow 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 20
+        cpp     C Pre-Processor
+
+
+        7.0  C Pre-Processor 
+             _ _____________
+
+
+
+                                     *******
+                                     * cpp *
+                                     *******
+
+
+
+        NAME:   cpp -- C Pre-Processor 
+
+        SYNOPSIS:  
+
+                cpp [-options] [infile [outfile]]
+
+        DESCRIPTION:  
+
+                CPP  reads  a  C source file, expands macros and include
+                files, and writes an input file for the C compiler.   If
+                no  file  arguments  are given, CPP reads from stdin and
+                writes to stdout.  If one file  argument  is  given,  it
+                will  define  the  input  file, while two file arguments
+                define both input and output files.  The file  name  "-"
+                is a synonym for stdin or stdout as appropriate.  
+
+                The  following  options  are  supported.  Options may be
+                given in either case.  
+
+                -C              If set, source-file comments are written
+                                to the output  file.   This  allows  the
+                                output of CPP to be used as the input to
+                                a program, such as  lint,  that  expects
+                                commands embedded in specially-formatted
+                                comments.  
+
+                -Dname=value    Define  the  name  as  if the programmer
+                                wrote 
+
+                                    #define name value
+
+                                at  the  start  of  the  first file.  If
+                                "=value" is not given, a  value  of  "1"
+                                will be used.  
+
+                                On non-unix systems, all alphabetic text
+                                will be forced to upper-case.  
+
+                -E              Always return "success" to the operating
+                                system, even if  errors  were  detected.
+                                Note  that  some fatal errors, such as a
+                                missing #include  file,  will  terminate
+                                CPP,  returning "failure" even if the -E
+                                option is given.  
+
+        Tool Library Reference Manual                                    Page 21
+        cpp     C Pre-Processor
+
+
+                -Idirectory     Add   this  directory  to  the  list  of
+                                directories searched for #include  "..."
+                                and  #include <...> commands.  Note that
+                                there is no space between the  "-I"  and
+                                the  directory string.  More than one -I
+                                command  is  permitted.    On   non-Unix
+                                systems   "directory"   is   forced   to
+                                upper-case.  
+
+                -N              CPP  normally  predefines  some  symbols
+                                defining   the   target   computer   and
+                                operating  system.   If -N is specified,
+                                no symbols will be predefined.  If -N -N
+                                is   specified,   the  "always  present"
+                                symbols,   __LINE__,    __FILE__,    and
+                                __DATE__ are not defined.  
+
+                -P              CPP  normally  writes  lines of the form
+                                #line <number> <file.name> to the output
+                                file  so the compiler can print the line
+                                number and name of the  original  source
+                                file  for  diagnostic  messages.  The -P
+                                option will suppress this output.  
+
+                -Stext          CPP  normally  assumes  that the size of
+                                the  target  computer's  basic  variable
+                                types  is  the same as the size of these
+                                types of the host computer.   (This  can
+                                be  overridden  when  CPP  is  compiled,
+                                however.) The -S option  allows  dynamic
+                                respecification of these values.  "text"
+                                is a string  of  numbers,  separated  by
+                                commas,  that  specifies  correct sizes.
+                                The sizes must be specified in the exact
+                                order:  
+
+                                    char short int long float double
+
+                                If  you specify the option as "-S*text",
+                                pointers  to   these   types   will   be
+                                specified.   -S*  takes  one  additional
+                                argument for pointer to  function  (e.g.
+                                int (*)()) 
+
+                                For    example,    to    specify   sizes
+                                appropriate  for  a  PDP-11,  you  would
+                                write:  
+
+                                       c s i l f d func
+                                     -S1,2,2,2,4,8,
+                                    -S*2,2,2,2,2,2,2
+
+                                Note that all values must be specified. 
+
+
+        Tool Library Reference Manual                                    Page 22
+        cpp     C Pre-Processor
+
+
+                -Tnumber        Enable  (number = 1) or disable trigraph
+                                recognition.  (If no  number  is  given,
+                                the   default  state  is  reversed.)  If
+                                enabled,  the   sequence   "??"   is   a
+                                character-escape    to   allow   certain
+                                characters  to  be  entered  on  systems
+                                where  the normal representation is used
+                                for     national     letters.       This
+                                implementation   "merely"  converts  the
+                                trigraph to the internal representation,
+                                and   thus  is  probably  incorrect.   A
+                                correct  implementation  would  seem  to
+                                require   recognition   of  Ansi  escape
+                                sequences in the input stream.   Someone
+                                else can write that routine.  
+
+                -Uname          Undefine the name as if 
+
+                                    #undef name
+
+                                were given.  On non-Unix systems, "name"
+                                will be forced to upper-case.  
+
+                -Xnumber        Enable  debugging  code.  If no value is
+                                given, a value of 1 will be used.   (For
+                                maintenence of CPP only.) 
+
+
+        PRE-DEFINED VARIABLES:  
+
+                When CPP begins processing, the following variables will
+                have been defined (unless the -N option is specified):  
+
+                Target computer (as appropriate):  
+
+                    pdp11, vax, M68000 m68000 m68k
+
+                Target operating system (as appropriate):  
+
+                    rsx, rt11, vms, unix
+
+                Target compiler (as appropriate):  
+
+                    decus, vax11c
+
+                The  implementor  may add definitions to this list.  The
+                default definitions match the  definition  of  the  host
+                computer, operating system, and C compiler.  
+
+                The  following are always available unless undefined (or
+                -N was specified twice):  
+
+
+        Tool Library Reference Manual                                    Page 23
+        cpp     C Pre-Processor
+
+
+                    __FILE__    The   input  (or  #include)  file  being
+                                compiled (as a quoted string).  
+
+                    __LINE__    The line number being compiled.  
+
+                    __DATE__    The  date  and  time of compilation as a
+                                Unix ctime quoted string  (the  trailing
+                                newline is removed).  Thus, 
+
+                                    printf("Bug at line %s,", __LINE__);
+                                    printf(" source file %s", __FILE__);
+                                    printf(" compiled on %s", __DATE__);
+
+
+        DRAFT PROPOSED ANSI STANDARD CONSIDERATIONS:  
+
+                The  current  version  of  the  Draft  Proposed Standard
+                explicitly states that "readers  are  requested  not  to
+                specify or claim conformance to this draft." Readers and
+                users of Decus CPP should  not  assume  that  Decus  CPP
+                conforms to the standard, or that it will conform to the
+                actual C Language Standard.  
+
+                When  CPP is itself compiled, many features of the Draft
+                Proposed Standard that are  incompatible  with  existing
+                preprocessors  may  be  disabled.   See  the comments in
+                CPP's source for details.  
+
+                The  latest  version  of the Draft Proposed Standard (as
+                reflected in Decus CPP) is dated November 12,  1984.   A
+                few things from later drafts are included.  
+
+                Comments  are  removed from the input text.  The comment
+                is replaced by a single space character.  The -C  option
+                preserves comments, writing them to the output file.  
+
+                The '$' character is considered to be a letter.  This is
+                a permitted extension.  
+
+                The following new features of C are processed by CPP:  
+
+                    #elif expression (#else #if) 
+                    '\xNNN' (Hexadecimal constant) 
+                    '\a' (Ascii BELL) 
+                    '\v' (Ascii Vertical Tab) 
+                    #if defined NAME 1 if defined, 0 if not 
+                    #if defined (NAME) 1 if defined, 0 if not 
+                    #if sizeof (basic type) 
+                    unary + 
+                    123U, 123LU Unsigned ints and longs.  
+                    12.3L Long double numbers 
+                    #token Stringize token 
+                    token##token Token concatenation 
+                    #include token Expands to filename 
+
+        Tool Library Reference Manual                                    Page 24
+        cpp     C Pre-Processor
+
+
+
+                The  proposed  national  replacement  letter  fallbacks,
+                using "??", have not been implemented.  
+
+                The  Draft  Proposed  Standard  has extended C, adding a
+                constant string concatenation operator, where 
+
+                    "foo" "bar"
+
+                is  regarded  as the single string "foobar".  (This does
+                not affect CPP's processing but does  permit  a  limited
+                form of macro argument substitution into strings as will
+                be discussed.) 
+
+                The  Standard Committee plans to add token concatenation
+                to #define command lines.  One suggested  implementation
+                is as follows:  the sequence "Token1##Token2" is treated
+                as if the programmer wrote "Token1Token2".   This  could
+                be used as follows:  
+
+                    #line 123
+                    #define ATLINE foo##__LINE__
+
+                ATLINE would be defined as foo123.  
+
+                Note  that  "Token2"  must  either have the format of an
+                identifier or be a string of digits.  Thus, the string 
+
+                    #define ATLINE foo##1x3
+
+                generates two tokens:  "foo1" and "x3".  
+
+                If  the  tokens T1 and T2 are concatenated into T3, this
+                implementation operates as follows:  
+
+                  1. Expand T1 if it is a macro.
+                  2. Expand T2 if it is a macro.
+                  3. Join the tokens, forming T3.
+                  4. Output T3 (without reexpansion).
+
+                As  implemented here, ## left-associates.  I.e., a##b##c
+                is effectively (a##b)##c.  Cpp can be compiled so as  to
+                re-expand the constructed macro.  
+
+                A  macro  formal  parameter  will  be substituted into a
+                string or character constant if  it  is  preceded  by  a
+                single #.  
+
+                    #define VECSIZE 123
+                    #define vprint(name, size) \
+                      printf("name" "[" #size "] = {\n")
+                      ... vprint(vector, VECSIZE);
+
+                expands (effectively) to 
+
+        Tool Library Reference Manual                                    Page 25
+        cpp     C Pre-Processor
+
+
+
+                      vprint("vector[123] = {\n");
+
+                Note  that  this  will  be  useful  if  your  C compiler
+                supports the new string  concatenation  operation  noted
+                above.  
+
+        ERROR MESSAGES:  
+
+                Many.   CPP  prints warning or error messages if you try
+                to     use     multiple-byte     character     constants
+                (non-transportable)  if you #undef a symbol that was not
+                defined, or  if  your  program  has  potentially  nested
+                comments.  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+                The  #if expression processor uses signed integers only.
+                I.e, #if 0xFFFFu < 0 may be TRUE.  
+
+                A / at the end of a macro expansion will not introduce a
+                comment:  
+
+                    #define foo /
+                        foo* this is not a comment */
+
+
+        Tool Library Reference Manual                                    Page 26
+        detab   Replace tabs by blanks
+
+
+        8.0  Replace tabs by blanks
+             _______ ____ __ ______
+
+
+
+                                    *********
+                                    * detab *
+                                    *********
+
+
+
+        NAME:   detab -- Replace tabs by blanks
+
+        SYNOPSIS:  
+
+                detab infile outfile 
+
+        DESCRIPTION:  
+
+                Copies input to output, replacing sequences of tabs by a
+                string  of  blanks  (presupposing   tabstops   every   8
+                columns).   Trailing  blanks  are  removed.  If the file
+                arguments are missing, the standard input and output are
+                used.  
+
+        DIAGNOSTICS:  
+
+                None 
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+        BUGS:  
+
+                Tabs occur every eight column only.  
+
+                On  VMS,  a  file  produced when an explicit output file
+                spec is  provided  will  be  in  "C  format"  (STREAM_LF
+                records).   If  you  use redirection, the output will be
+                variable-length records with implied carriage control  -
+                which is more easily dealt with in many cases.  
+
+
+        Tool Library Reference Manual                                    Page 27
+        diff    Differential File Comparison
+
+
+        9.0  Differential File Comparison 
+             ____________ ____ __________
+
+
+
+                                    ********
+                                    * diff *
+                                    ********
+
+
+
+        NAME:   diff -- Differential File Comparison 
+
+        SYNOPSIS:  
+
+                diff [option] file1 file2 
+
+        DESCRIPTION:  
+
+                Diff compares two files, showing what must be changed to
+                make them identical.  Either file1  or  file2  (but  not
+                both)  may refer to directories.  If that is the case, a
+                file in the directory whose name  is  the  same  as  the
+                other  file  argument  will be used.  The standard input
+                may be used for  one  of  the  files  by  replacing  the
+                argument  by  "-".   Except for the standard input, both
+                files must be on disk devices.  
+
+                Options:  
+
+                -b      Remove trailing whitespace (blanks and tabs) and
+                        compress all other strings of  whitespace  to  a
+                        single blank.  
+
+                -c      Print  some context -- matching lines before and
+                        after the non-match section.   Mark  non-matched
+                        sections with "|".  
+
+                -i      Ignore lower/upper case distinctions.  
+
+                -e      Output  is in an "editor script" format which is
+                        compatible with the Unix 'ed' editor.  
+
+                All   information   needed   to  compare  the  files  is
+                maintained in main memory.  This means that  very  large
+                files (or fairly large files with many differences) will
+                cause the program  to  abort  with  an  "out  of  space"
+                message.    Main  memory  requirements  (in  words)  are
+                approximately:  
+
+                        2 * (length of file1 + length of file2)
+                        + 3 * (number of changes)
+
+                (Where  "length"  is the number of lines of data in each
+                file.) 
+
+        Tool Library Reference Manual                                    Page 28
+        diff    Differential File Comparison
+
+
+
+                The  algorithm reads each file twice, once to build hash
+                tables and once to check  for  fortuitous  matches  (two
+                lines  that  are  in  fact different, but which have the
+                same hash value).  CPU time requirements include sorting
+                the hash tables and randomly searching memory tables for
+                equivalence classes.   For  example,  on  a  time-shared
+                VAX-11/780, comparing two 1000 line files required about
+                30 seconds (elapsed clock time) and about  10,000  bytes
+                of  working  storage.  About 90 per-cent of the time was
+                taken up by file I/O.  
+
+        DIAGNOSTICS:  
+
+
+                Warning, bad option 'x' 
+
+                        The option is ignored.  
+
+                Usage ...  
+
+                        Two input files were not specified.  
+
+                Can't open input file "filename".  Can't continue.  
+
+                Out of space 
+
+                        The  program  ran  out of memory while comparing
+                        the two files.  
+
+                Can't read line nnn at xxx in file[A/B] 
+
+                        This  indicates an I/O error when seeking to the
+                        specific line.  It should not happen.  
+
+                Spurious match, output is not optimal.  
+
+                        Two  lines  that were different yielded the same
+                        hash value.  This is harmless  except  that  the
+                        difference  output  is  not  the  minimum set of
+                        differences between the two files.  For example,
+                        instead of the output:  
+
+                                lines 1 to 5 were changed to ...
+
+                        the program will print 
+
+                                lines 1 to 3 were changed to ...
+                                lines 4 to 5 were changed to ...
+
+                        The   program  uses  a  CRC16  hash  code.   The
+                        likelihood of this error is quite small.  
+
+        AUTHOR:  
+
+        Tool Library Reference Manual                                    Page 29
+        diff    Differential File Comparison
+
+
+
+                The  diff algorithm was developed by J.  W.  Hunt and M.
+                D.  McIlroy, using a central algorithm defined by H.  S.
+                Stone.  It was published in:  
+
+                    Hunt, J. W., and McIlroy, M. D.,
+                    An Algorithm for Differential File Comparison,
+                    Computing Science Technical Report #41,
+                    Bell Laboratories, Murray Hill, NJ  07974
+
+
+        BUGS:  
+
+                On  RSX and DECUS C on VMS systems, diff may fail if the
+                both files are not  "variable-length,  implied  carriage
+                control"  format.   The  scopy  program  can  be used to
+                convert files to this format if problems arise.  
+
+                When  compiled under VAX C, diff handles STREAM_LF files
+                properly (in addition to the  canonical  variable-length
+                implied   carriage  control  files).   Other  variations
+                should work, but have not been tested.  
+
+                When  compiled  under  VAX  C,  diff  is  quite slow for
+                unknown reasons which ought to be investigated.  On  the
+                other  hand,  it  has  access  to  effectively unlimited
+                memory.  
+
+                Output in a form suitable for ed - the -e option - seems
+                rather pointless;  the analogue on DEC  systems  is  SLP
+                (SUMSLP   on  VMS).   It  would  be  simple  to  provide
+                SLP-compatible output.  The question is,  why  bother  -
+                since  the various DEC file comparison utilities already
+                produce it.  
+
+
+        Tool Library Reference Manual                                    Page 30
+        echo    Echo Arguments to Standard Output
+
+
+        10.0  Echo Arguments to Standard Output 
+              ____ _________ __ ________ ______
+
+
+
+                                    ********
+                                    * echo *
+                                    ********
+
+
+
+        NAME:   echo -- Echo Arguments to Standard Output 
+
+        SYNOPSIS:  
+
+                echo [argument list] 
+
+        DESCRIPTION:  
+
+                Echo  writes  its arguments on the standard output file.
+                It is primarily used to debug the Decus library.  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+                Except as a test of the library, or to write information
+                to a batch log file, echo is not useful.  
+
+
+        Tool Library Reference Manual                                    Page 31
+        entab   Replace blanks by tabs and blanks
+
+
+        11.0  Replace blanks by tabs and blanks 
+              _______ ______ __ ____ ___ ______
+
+
+
+                                    *********
+                                    * entab *
+                                    *********
+
+
+
+        NAME:   entab -- Replace blanks by tabs and blanks 
+
+        SYNOPSIS:  
+
+                entab [-t] infile outfile
+
+        DESCRIPTION:  
+
+                Copies  input  to  output, replacing sequences of blanks
+                and tabs by  the  minimum  number  of  tabs  and  blanks
+                required to give the same visual effect.  
+
+                Trailing blank/tabs are removed.  
+
+                <Return> overstrikes are handled.  
+
+                If  -t  is given, a single blank will be output as <TAB>
+                if valid.  For example, if the string:  
+
+                        1234567 8
+
+                is  given, the program will output a space following the
+                '7'.  If -t is given, the program will output a <TAB>.  
+
+        DIAGNOSTICS:  
+
+                None 
+
+        AUTHOR:  
+
+                Martin Minow 
+
+                (Taken from Kernighan and Plauger, Software Tools) 
+
+        BUGS:  
+
+                Tabs occur every eight column only.  
+
+                On  VMS,  a  file  produced when an explicit output file
+                spec is  provided  will  be  in  "C  format"  (STREAM_LF
+                records).   If  you  use redirection, the output will be
+                variable-length records with implied carriage control  -
+                which is more easily dealt with in many cases.  
+
+
+        Tool Library Reference Manual                                    Page 32
+        field   Select Fields or Columns from a File
+
+
+        12.0  Select Fields or Columns from a File 
+              ______ ______ __ _______ ____ _ ____
+
+
+
+                                    *********
+                                    * field *
+                                    *********
+
+
+
+        NAME:   field -- Select Fields or Columns from a File 
+
+        SYNOPSIS:  
+
+                field [-tc] [-ic] [ n ] ...  
+
+        DESCRIPTION:  
+
+                The  field  command copies selected, delimiter-separated
+                fields from the standard input to the  standard  output.
+                Fields  are numbered from 1 and a field may be requested
+                more than once.  
+
+                The  default delimiter is a tab.  This can be changed to
+                character c with the option -tc.  If  the  form  -ic  is
+                used,  the  delimiter c is used on input, but the output
+                is still separated by tabs.  You can also  specify  both
+                separators, but they must be in the order listed above: 
+
+                    field -t/ -i=
+
+                sets the output separator to '/' and the input separator
+                to '='.  
+
+        EXAMPLE:  
+
+                The following command extracts the login names, user and
+                group numbers from a Unix password file:  
+
+                    field -t: 1 3 4 </etc/passwd
+
+        BUGS:  
+
+                The  number of input or output fields may not exceed 256
+                and the maximum line length is 4096 characters.  
+
+        AUTHORS:  
+
+                Taken from "The Unix System" by S.  R.  Bourne.  
+
+                Modifications by William Silvert.  
+
+                Rewritten by Martin Minow.  
+
+
+        Tool Library Reference Manual                                    Page 33
+        fixdoc  Fix runoff output files
+
+
+        13.0  Fix runoff output files 
+              ___ ______ ______ _____
+
+
+
+                                   **********
+                                   * fixdoc *
+                                   **********
+
+
+
+        NAME:   fixdoc -- Fix runoff output files 
+
+        SYNOPSIS:  
+
+                fixdoc <infile >outfile 
+
+        DESCRIPTION:  
+
+                Because  of  bugs  in  RSTS/E  RNO.TSK and VMS "Standard
+                Runoff", this  filter  must  be  applied  to  C  library
+                documentation.  It is executed as 
+
+                        fixdoc <infile >outfile
+
+                It  is  specific  to the Decus C documentation standards
+                (left margin 8, right margin 72, page size 80 columns). 
+
+                On VMS, the title lines are output "<FF>text...".  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+
+        Tool Library Reference Manual                                    Page 34
+        fixrno  Fix table file for Runoff
+
+
+        14.0  Fix table file for Runoff 
+              ___ _____ ____ ___ ______
+
+
+
+                                   **********
+                                   * fixrno *
+                                   **********
+
+
+
+        NAME:   fixrno -- Fix table file for Runoff 
+
+        SYNOPSIS:  
+
+                fixrno <input.fil >output.fil 
+
+        DESCRIPTION:  
+
+                fixrno  is  used to scan the output of getkwk or similar
+                programs that build tables  for  input  to  runoff.   It
+                scans  the  input  text,  marking  all runoff formatting
+                characters.  
+
+        BUGS:  
+
+        DIAGNOSTICS:  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+
+        Tool Library Reference Manual                                    Page 35
+        getcmd  Build command files for Decus C
+
+
+        15.0  Build command files for Decus C 
+              _____ _______ _____ ___ _____ _
+
+
+
+                                   **********
+                                   * getcmd *
+                                   **********
+
+
+
+        NAME:   getcmd -- Build command files for Decus C 
+
+        SYNOPSIS:  
+
+                getcmd >result -options pattern file_list 
+
+        DESCRIPTION:  
+
+                Getcmd  was  written  to  aid in maintaining the Decus C
+                compiler.  It is used  to  generate  command  files  for
+                building  the  run-time  library,  for  example.   It is
+                probably of limited use in other areas.  
+
+                The following options are defined:  
+
+                -c              Macro   command   file,   (for  run-time
+                                library build.  This prevents  compiling
+                                RSX.MAC and RT11.MAC.  
+
+                -d              Enable debug code.  
+
+                -m   model        "model"  replaces  '?'  in  a  pattern
+                                string.  
+
+                -r              For  RT11,  preface the output file with
+                                "R MACRO" and end it with "^C".  
+
+                If   no  pattern  is  present,  patterns  and  wild-card
+                descriptions will be read from the standard input.   The
+                input format is:  
+
+                        output_file pattern input_spec.
+
+                If   the  pattern  begins  with  a  blank,  the  current
+                output_file (or stdout) will be used.   If  the  pattern
+                contains blanks, enclose it in quotes.  
+
+                If  no  input_spec is present, the line is copied to the
+                output with no changes other than substitution  for  the
+                model string.  
+
+                Within  a  pattern,  the  following strings have special
+                meaning:  
+
+
+        Tool Library Reference Manual                                    Page 36
+        getcmd  Build command files for Decus C
+
+
+                ?       Replaced by the last model string 
+
+                *.*     Replaced by the filename + extension 
+
+                *       Replaced by the filename only 
+
+                Note that the disk and [UIC,PPN] is never output.  
+
+                Unflagged arguments are wild-card file specifications.  
+
+                For example:  
+
+                getcmd >rilbas.cmd -c OBJ:*,LST:*=SRC:RT11,SRC:* *.MAC 
+
+                The  above command line builds the assembly command file
+                for the I/O library in RT11 mode.  
+
+                getcmd >tov.cmd VAX::[C.OTSIO]*.*/VA=[5,5]*.* [5,5]*.* 
+
+                The above command generates an indirect command file for
+                RSTS/E DECnet.  
+
+        BUGS:  
+
+                getcmd  was  written  to  aid in maintaining the Decus C
+                run-time  library.   It  is  fairly  useless  in   other
+                situations.   The  build  program  may be more generally
+                useful.  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+
+        Tool Library Reference Manual                                    Page 37
+        getkwk  Build Keyword Index
+
+
+        16.0  Build Keyword Index 
+              _____ _______ _____
+
+
+
+                                   **********
+                                   * getkwk *
+                                   **********
+
+
+
+        NAME:   getkwk -- Build Keyword Index 
+
+        SYNOPSIS:  
+
+                getkwk [-w -c] >output.fil file_list 
+
+        DESCRIPTION:  
+
+                Getkwk scans library (macro) files for ";  index" lines,
+                building the input to kwik.  It runs only on  the  decus
+                compiler.   The format of the library files is described
+                in getrno.c.  
+
+                The -w and -c options are as described for getrno:  
+
+                -w      Wizard 
+
+                -c      C source, rather than Macro 
+
+                To  build  an  index  to  the Decus C runtime library on
+                RSTS/E:  
+
+                        getkwk >index.tmp [5,4]*.mac [5,5]*.mac
+                        kwik -t 16 -w 64 <index.tmp >index.tm1
+                        rnoidx <index.tm1 >index.tm2
+                        pip index.rno=indhed.rno,index.tm2/fa
+                        rno index=index
+                        pip index.tmp,index.tm1,index.tm2/de
+
+
+        AUTHOR:  
+
+                Martin Minow 
+
+
+        Tool Library Reference Manual                                    Page 38
+        getrno  Build Documentation Source
+
+
+        17.0  Build Documentation Source 
+              _____ _____________ ______
+
+
+
+                                   **********
+                                   * getrno *
+                                   **********
+
+
+
+        NAME:   getrno -- Build Documentation Source 
+
+        SYNOPSIS:  
+
+                getrno [-options] -o output -h header input_files 
+
+        DESCRIPTION:  
+
+                getrno  reads  a  list  of  files, compiling comments to
+                runoff source.  Switches are:  
+
+                -d      Debugging 
+
+                -b      Blank lines in C source become .s 
+
+                -c      C source files (default) 
+
+                -m      Macro source files 
+
+                -r      RSTS/E title hack flag;  see below 
+
+                -u      Usage  --  output  an  abbreviated documentation
+                        containing only the information between  "Usage"
+                        and "Description".  (Note:  ignored if -c option
+                        selected.) 
+
+                -w      Wizard:  output package internal calls, too.  
+
+                -o file Write output to "file", rather than stdout.  
+
+                -h  file Process  "file" as a header file and prepend to
+                        the output.  
+
+                There  is  an  error in the RSTS/E V7.0 runoff (RNO.TSK)
+                such that title lines do not get correct  page  numbers.
+                If  the  -r  flag is set, .t lines in the header program
+                will be marked for the fixdoc.c program.   Note,  for  a
+                title to be recognized, it must have the exact form:  
+
+                        .t Anything  (or .t ########Anything)
+
+                Getrno will change it to:  
+
+                        .t [[Anything]]
+
+        Tool Library Reference Manual                                    Page 39
+        getrno  Build Documentation Source
+
+
+
+                and fixdoc.c will look for same for post processing.  
+
+        C SOURCE FILE FORMAT:  
+
+                C source must have the following format:  
+
+                        #ifdef  DOCUMENTATION
+                        title   tool_name       header_text
+                        index   index text
+                        section_head
+                                text for the section
+                        #endif
+
+                Note that the comment leadin must be 
+
+                        #ifdef<tab>DOCUMENTATION
+
+                In  order  to  define a uniform environment, getrno will
+                insert the following commands at the  beginning  of  the
+                output file:  
+
+                        .no autosubtitle .style headers 3,0,0
+                        .pg.uc.ps 58,80.lm 8.rm 72
+                        .hd
+                        .hd mixed
+                        .head mixed
+
+                (Various  flavors  of  runoff  will  flag one or more of
+                these commands as errors, none of them fatal.) 
+
+                Getrno  inserts  the following commands between the data
+                from each pair of files scanned:  
+
+                        .lm 8.rm 72.nhy
+
+                Within  the body of the documentation, lines are handled
+                depending on what column  their  text  starts  in  (i.e.
+                where the first non-<space>, non-<tab> character falls);
+                a <tab> is always assumed to put the next  character  at
+                column 8.  (And you thought card images were dead!) 
+
+                An empty line becomes a .space command.  
+
+                Section   heads   begin  in  column  1.   They  will  be
+                left-justified and printed in upper case with a trailing
+                ":".  The only section heads with any special meaning to
+                getrno are "title", "index", and "internal";   they  are
+                recognized regardless of case.  "Title" and "index" must
+                come first, as shown in the example.   "Internal"  flags
+                the  beginning  of  data  that  is output only if the -w
+                switch  was  used;   the  next  section  head  ends  the
+                "wizards  only"  data.   However,  if "internal" appears
+                before any other section head  (not  counting  "index"),
+
+        Tool Library Reference Manual                                    Page 40
+        getrno  Build Documentation Source
+
+
+                nothing  at  all  will be output for this file unless -w
+                appears.  
+
+                Normal  text  starts  in column 8 with a character other
+                than a <tab> or  <space>;   it  will  be  justified  and
+                filled,  and  will start in column 16 on the paper.  The
+                <space>'s and <tab>'s that filled the  first  7  columns
+                are stripped.  
+
+                A  line  that has a <space> or <tab> in column 8 will be
+                output with the <space>'s and <tab>'s  that  filled  the
+                first  7 columns stripped, and with runoff set to nofill
+                mode.  
+
+                A  line  that  starts with a <space> but has a non-blank
+                before column 8 will have the leading <space>'s stripped
+                and  will  be  output with a leading ".i -8;".  Lines of
+                this form are normally used between  ".lm  +8"/".lm  -8"
+                pairs, as shown in the example below.  
+
+                A  line  whose  first  character AFTER stripping leading
+                blanks as defined above is  a  "."  has  leading  runoff
+                commands.    It   is  your  responsibility  to  maintain
+                alignment and to  quote  runoff-specific  characters  on
+                such  lines;   in all other cases, getrno will do it for
+                you.  For example:  
+
+                        diagnostics
+                                .lm +8
+                                .s.i-8;bad file _& other stuff
+                                .s.i-8;something else
+                                .lm -8
+                                .s
+                        author
+                                etc...
+
+                Avoid  manipulating  fill  mode  directly.  Getrno keeps
+                track of whether it has set runoff  to  fill  or  nofill
+                mode,  and  can  get  confused if you shift modes on it.
+                Hence, the results may then not be as you expect.  
+
+                Note  that  the above example can be more easily handled
+                as:  
+
+                        diagnostics
+                                .lm +8
+
+                         bad file & other stuff
+
+                         something else
+                                .lm -8
+
+                        author
+                                etc...
+
+        Tool Library Reference Manual                                    Page 41
+        getrno  Build Documentation Source
+
+
+
+        MACRO SOURCE FILE FORMAT:  
+
+                The Macro input must have the following syntax:  
+
+                        .title  name    Title line
+                 ;
+                 ;+                             (Start of commentary)
+                 ;
+                 ; Index                Short description for kwik index
+                 ; Index                (Another short description)
+                 ;
+                 ; Usage                (Start of usage information)
+                 ;
+                 ;      Usage information, output, starting in column 1
+                 ;      exactly as it is written (rno .nf mode).  The
+                 ;      leading semicolon is not output, but the tab (or
+                 ;      spaces) is.
+                 ;
+                 ; Description
+                 ;
+                 ;      Description, output, starting in column 8 in
+                 ;      runoff .fill mode, except that any line starting
+                 ;      with ";<tab><TAB or SPACE>" will be output in
+                 ;      .no fill mode.  The leading ";<tab>" will not be
+                 ;      output.
+                 ;
+                 ;      A line consisting of just ";" will generate a
+                 ;      runoff .space while a line consisting of
+                 ;      ";<SPACE>text" will generate ".indent -8 ;text".
+                 ;
+                 ;-     (End of commentary)
+
+                If  the  wizard  flag  (-w) is not given, a Macro source
+                line of the format:  
+
+                ;  Internal 
+
+                may  be  used  to  signal  the start of package-internal
+                information.   If  "Internal"   preceeds   "Usage",   no
+                information will be output for this file.  If it follows
+                "Usage" or "Description", text following (up to the next
+                section initiator) will not be output.  
+
+        HEADER FILE FORMAT:  
+
+                The  header  file is assumed to be in runoff format.  It
+                should start as follows:  
+
+                        .comment Set top-of-form at 4 lines
+                        .comment below perforation.
+                        .ps 58,80       ! 58 lines per page, 80 columns.
+                        .lm 8           ! left margin at 8
+                        .rm 72          ! right margin at 72
+
+        Tool Library Reference Manual                                    Page 42
+        getrno  Build Documentation Source
+
+
+                        .hd Mixed       ! Mixed case headings
+
+                Because  the  left  margin  is  set  to  8,  titles  and
+                subtitles should be written as:  
+
+                        .t  ########Title
+                        .st ########Subtitle
+
+                The  wizard  flag  may  be  used  to select parts of the
+                header file:  
+
+                        .comment wizard
+                                *** For wizards only ***
+                        .comment else
+                                *** For non-wizards only ***
+                        .comment mundane
+                                *** Exit wizard section ***
+
+                A  line  indicating  the date on which the documentation
+                was built, and optionally some other information, can be
+                inserted by:  
+
+                        .comment date[ info]
+
+                The  optional  info  will  be included on the date line,
+                which is centered.  A single <space> must  appear  after
+                "date"  if  info  appears;  it is not part of info.  The
+                format of the date line is:  
+
+                        Document compiled <today's date><space>[info]
+
+                The  date  inserted is in the format returned by ctime()
+                (so it's actually the date and time).  
+
+                The    format   of   all   the   comments   is   EXACTLY
+                ".comment<space>argument" - one space only.  
+
+        WORKFILE FORMAT:  
+
+                Each  file  builds  one  or  more records (lines) in the
+                workfile.  The first has the  title  line,  (information
+                following  .title).   To  allow  building an index, this
+                should be in the format:  
+
+                        name<tab>Title information
+
+                Following this are lines containing .rno text.  The last
+                line is followed by a  record  containing  "!!"  in  the
+                first two bytes.  
+
+                Records  with  "!"  in  the  first  byte  may be used to
+                communicate information between passes:   they  are  not
+                written  to  the  output.   This  allows  writing  Usage
+                information as a separate file.  
+
+        Tool Library Reference Manual                                    Page 43
+        getrno  Build Documentation Source
+
+
+
+                Note that there is a bug in the RSTS RNO (as distributed
+                with Version 7.0).  Consequently, if your runoff  source
+                has  chapter  headings,  you  should  not  have explicit
+                titles, or have page numbers.  
+
+        BUGS:  
+
+                Getrno  was  written  to  aid in documenting the Decus C
+                libraries.  (I.e., getrno and the library  documentation
+                are  interdependent.)  An  attempt has been made to make
+                the   C-style   processing   generally   useful;     the
+                Macro-style  processing  is  more  closely  tied  to the
+                library documentation and is probably  of  less  general
+                interest.   Further,  the program, particularly in Macro
+                mode, is very sensitive  to  the  exact  format  of  the
+                input;  minor variations can produce unexpected results.
+                Some attempt has been made  to  avoid  this  in  C-style
+                processing;  in Macro mode, you are on your own.  
+
+                Due  to the size of the files involved, the usage option
+                (-u)   is   no   longer   used   in   building   library
+                documentation,  and is not supported in C-mode.  Perhaps
+                it should be.  
+
+                There  should  be  a way to pass a "#" through to runoff
+                within a line that is otherwise processed normally.  
+
+                All  files  are processed in the same mode.  It might be
+                useful to allow mixed-mode processing so that  libraries
+                consisting of both Macro and C modules could be handled. 
+
+        DIAGNOSTICS:  
+
+                A warning message is printed if a file does not have any
+                documentation.  
+
+                There     are    many    other    messages,    hopefully
+                self-explanatory.  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+
+        Tool Library Reference Manual                                    Page 44
+        grep    Get Regular Expression and Print
+
+
+        18.0  Get Regular Expression and Print 
+              ___ _______ __________ ___ _____
+
+
+
+                                    ********
+                                    * grep *
+                                    ********
+
+
+
+        NAME:   grep -- Get Regular Expression and Print 
+
+        SYNOPSIS:  
+
+                grep  [options]  regular_expression  {bool {!}expr ...}[
+                file ...] 
+
+        DESCRIPTION:  
+
+                Grep   searches   each   specified  file  (if  none  are
+                specified, it reads stdin) for lines matching the  given
+                pattern expression.  Grep allows wild-card file names in
+                the file list.  The following options are recognized:  
+
+                    -c  Only print a count of matching lines.  
+
+                    -f  Print file name option, see below.  
+
+                    -n  Preceed each line by its line number.  
+
+                    -u  Set upper and lower case distinctive.  
+
+                    -v  Print non-matching lines.  
+
+                    -s  Match on "SOUNDEX" value of string.  
+
+                    -i  Reverse video on match string (word).  
+
+                    -q  Quit switch..  Aborts search with any keystroke 
+
+                The  file name is normally printed if more than one file
+                argument is given, or  if  a  wild-card  file  name  was
+                specified.   The  "-f"  flag reverses this action (print
+                name if one file, not if more).  
+
+                The  regular_expression  defines patterns to search for.
+                Multiple expressions can  be  logically  combined  using
+                boolian  operators:  and (&,+), or (|), xor (~), not (!)
+                and  can  be  factored   using   parenthesis.    Boolian
+                operators  must  be  seperated from expression by spaces
+                and evaluate left to right to control line selection.  
+
+                Upper-  and  lower-case  are  not  distinguished by grep
+                unless requested with '-u'.  Blank  lines  never  match.
+
+        Tool Library Reference Manual                                    Page 45
+        grep    Get Regular Expression and Print
+
+
+                The regular_expression should usually be quoted.  
+
+                The  regular_expression  is  built  out of the following
+                elements:  
+
+                  x     An  ordinary  character  (not  mentioned  below)
+                        matches that character.  
+
+                  '\'   The   backslash   quotes  any  character.   "\$"
+                        matches a dollar-sign.  
+
+                  '^'   A  circumflex  at the beginning of an expression
+                        matches the beginning of a line.  
+
+                  '$'   A  dollar-sign  at  the  end  of  an  expression
+                        matches the end of a line.  
+
+                  '.'   A    period   matches   any   character   except
+                        "new-line".  
+
+                  ':a'  A colon matches a class of characters  described 
+                  ':d'  by  the  following  character.  ":a" matches any 
+                  ':n'  alphabetic, ":d" matches  digits.  ":n"  matches 
+                  ': '  alphanumerics, and ": " matches spaces tabs, and 
+                        other control characters, such as newline.  
+
+                  '*'   An  expression  followed  by an asterisk matches
+                        zero or more  occurrances  of  that  expression:
+                        "fo*" matches "f", "fo" "foo", etc.  
+
+                  '+'   An  expression  followed  by a plus sign matches
+                        one or  more  occurrances  of  that  expression:
+                        "fo+" matches "fo", etc.  
+
+                  '-'   An   expression   followed   by   a  minus  sign
+                        optionally matches the expression.  
+
+                  '[]'  A string enclosed in square brackets matches any
+                        character in that string, but no others.  If the
+                        first  character  in the string is a circumflex,
+                        the  expression  matches  any  character  except
+                        "new-line" and the characters in the string.  
+
+                        For   example,  "A[xyz]+B"  matches  "AxxB"  and
+                        "AxyzzyB", while "A[^xyz]+B" matches "AbcB"  but
+                        not   "AxB".   A  range  of  characters  may  be
+                        specified by two characters  separated  by  "-".
+                        Note that [a-z] matches alphabetics, while [z-a]
+                        never matches.  
+
+                The    concatenation   of   regular_expressions   is   a
+                regular_expression.  
+
+        DIAGNOSTICS:  
+
+        Tool Library Reference Manual                                    Page 46
+        grep    Get Regular Expression and Print
+
+
+
+
+                No arguments 
+
+                Unknown flag 
+
+                No pattern 
+
+                "file_name":  cannot open 
+
+                Illegal occurrence operator ...  
+
+                        An  operator  was  found  in an illegal context.
+                        For example, the pattern "*foo"  is  illegal  as
+                        the   '*'  operator  must  modify  a  previously
+                        specified pattern element.  
+
+                No :  type 
+
+                        A colon was followed by an unknown modifier.  
+
+                Class terminates badly 
+
+                        A   character   class  "[...]"  was  incorrectly
+                        terminated.  For example, "[A-]" is incorrect.  
+
+                Unterminated class 
+
+                        Character classes must be terminated by ']'.  
+
+                Class too large 
+
+                        An internal buffer filled.  
+
+                Empty class 
+
+                        A  character  class  must  designate  something:
+                        "[]" is illegal.  
+
+                Pattern too complex 
+
+                        An internal buffer filled.  
+
+        Ill formed expression 
+
+                The   boolian   combination   of   select   patterns  is
+                semantically incorrect,  i.e.   missing  parenthesis  or
+                trailing operator.  
+
+        ACKNOWLEDGEMENTS:  
+
+                The Soundex algorithm was invented by Margaret K.  Odell
+                and Robert C.  Russell.  U.S.   patents  1261167  (1918)
+                and  1435663 (1922).  The version used here was modified
+
+        Tool Library Reference Manual                                    Page 47
+        grep    Get Regular Expression and Print
+
+
+                from  one  described  in  Donald  Knuth,   Sorting   and
+                Searching.  
+
+        AUTHOR:  
+
+                David Conroy, Martin Minow.  
+
+        MODIFIED:  
+
+                Mike Fraser 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 48
+        grep    Get Regular Expression and Print
+
+
+        19.0  Get Regular Expression and Print 
+              ___ _______ __________ ___ _____
+
+
+
+                                    ********
+                                    * grep *
+                                    ********
+
+
+
+        NAME:   grep -- Get Regular Expression and Print 
+
+        SYNOPSIS:  
+
+                grep [options] regular_expression [ file ...] 
+
+        DESCRIPTION:  
+
+                Grep   searches   each   specified  file  (if  none  are
+                specified, it reads stdin) for lines matching the  given
+                pattern.   Grep  allows wild-card file names in the file
+                list.  The following options are recognized:  
+
+                    -c  Only print a count of matching lines.  
+
+                    -f  Print file name option, see below.  
+
+                    -n  Preceed each line by its line number.  
+
+                    -v  Print non-matching lines.  
+
+                The  file name is normally printed if more than one file
+                argument is given, or  if  a  wild-card  file  name  was
+                specified.   The  "-f"  flag reverses this action (print
+                name if one file, not if more).  
+
+                The  regular_expression  defines  the  pattern to search
+                for.  Upper- and lower-case  are  not  distinguished  by
+                grep.   Blank lines never match.  The regular_expression
+                should be quoted.  
+
+                The  regular_expression  is  built  out of the following
+                elements:  
+
+                  x     An  ordinary  character  (not  mentioned  below)
+                        matches that character.  
+
+                  '\'   The   backslash   quotes  any  character.   "\$"
+                        matches a dollar-sign.  
+
+                  '^'   A  circumflex  at the beginning of an expression
+                        matches the beginning of a line.  
+
+                  '$'   A  dollar-sign  at  the  end  of  an  expression
+
+        Tool Library Reference Manual                                    Page 49
+        grep    Get Regular Expression and Print
+
+
+                        matches the end of a line.  
+
+                  '.'   A    period   matches   any   character   except
+                        "new-line".  
+
+                  ':a'  A colon matches a class of characters  described 
+                  ':d'  by  the  following  character.  ":a" matches any 
+                  ':n'  alphabetic, ":d" matches  digits.  ":n"  matches 
+                  ': '  alphanumerics, and ": " matches spaces tabs, and 
+                        other control characters, such as newline.  
+
+                  '*'   An  expression  followed  by an asterisk matches
+                        zero or more  occurrances  of  that  expression:
+                        "fo*" matches "f", "fo" "foo", etc.  
+
+                  '+'   An  expression  followed  by a plus sign matches
+                        one or  more  occurrances  of  that  expression:
+                        "fo+" matches "fo", etc.  
+
+                  '-'   An   expression   followed   by   a  minus  sign
+                        optionally matches the expression.  
+
+                  '[]'  A string enclosed in square brackets matches any
+                        character in that string, but no others.  If the
+                        first  character  in the string is a circumflex,
+                        the  expression  matches  any  character  except
+                        "new-line" and the characters in the string.  
+
+                        For   example,  "A[xyz]+B"  matches  "AxxB"  and
+                        "AxyzzyB", while "A[^xyz]+B" matches "AbcB"  but
+                        not   "AxB".   A  range  of  characters  may  be
+                        specified by two characters  separated  by  "-".
+                        Note that [a-z] matches alphabetics, while [z-a]
+                        never matches.  
+
+                The  concatenation  of  regular expressions is a regular
+                expression.  
+
+        DIAGNOSTICS:  
+
+
+                No arguments 
+
+                Unknown flag 
+
+                No pattern 
+
+                "file_name":  cannot open 
+
+                Illegal occurrence operator ...  
+
+                        An  operator  was  found  in an illegal context.
+                        For example, the pattern "*foo"  is  illegal  as
+                        the   '*'  operator  must  modify  a  previously
+
+        Tool Library Reference Manual                                    Page 50
+        grep    Get Regular Expression and Print
+
+
+                        specified pattern element.  
+
+                No :  type 
+
+                        A colon was followed by an unknown modifier.  
+
+                Class terminates badly 
+
+                        A   character   class  "[...]"  was  incorrectly
+                        terminated.  For example, "[A-]" is incorrect.  
+
+                Unterminated class 
+
+                        Character classes must be terminated by ']'.  
+
+                Class too large 
+
+                        An internal buffer filled.  
+
+                Empty class 
+
+                        A  character  class  must  designate  something:
+                        "[]" is illegal.  
+
+                Pattern too complex 
+
+                        An internal buffer filled.  
+
+        AUTHOR:  
+
+                David Conroy, Martin Minow.  
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 51
+        kwik    Keyword in Context Index
+
+
+        20.0  Keyword in Context Index 
+              _______ __ _______ _____
+
+
+
+                                    ********
+                                    * kwik *
+                                    ********
+
+
+
+        NAME:   kwik -- Keyword in Context Index 
+
+        SYNOPSIS:  
+
+                kwik [options] [file ...] 
+
+        DESCRIPTION:  
+
+                Kwik  constructs a keyword in context (kwik) index using
+                the data in the named files, writing the resulting index
+                to  the  standard output.  The standard input is read if
+                no files are specified;  kwik may be used as  a  filter.
+                The following options are defined:  
+
+                -s              The  kwik index normally excludes common
+                                (stop) words.  Specifing the '-s' option
+                                empties  the  stop  list, thus including
+                                the following words:  
+
+                                        a       by      in      to
+                                        an      for     of      the
+                                        and     from    on      with
+                                        at
+
+
+                -r              Make  the  index  in  reverse alphabetic
+                                order.  
+
+                -t offset       This is used to build index tables.  The
+                                input  is  entered  in   the   following
+                                format:  
+
+                                        name<TAB>index text
+
+                                The  kwik  index will be output with the
+                                name  in  the  left  hand  column.   The
+                                kwik'ed  text  then  follows.   The '-t'
+                                option takes a mandatory argument:   the
+                                column  at  which  the first byte of the
+                                kwik'ed  text  should  be  placed.   For
+                                example, the index for the Decus library
+                                documentation  was   produced   by   the
+                                following command:  
+
+
+        Tool Library Reference Manual                                    Page 52
+        kwik    Keyword in Context Index
+
+
+                                    kwik -t 16 -w 64 <infile >outfile
+
+                -x file_name    The named file contains a user-specified
+                                exclusion  (stopword)  list.   The  '-x'
+                                option   may  be  repeated  if  multiple
+                                exclusion lists are needed.   Note  that
+                                the  order  of the '-s' and '-x' options
+                                is important:  
+
+                                kwik -x file 
+
+                                    The file contains an exclusion list,
+                                    one  word  per  line.   Append   the
+                                    contents  of the file to the default
+                                    list.  
+
+                                kwik -s -x file 
+
+                                    Replace  the default stoplist by the
+                                    contents of the named file.  
+
+                                kwik -x file -s 
+
+                                    After  reading  the  exclusion file,
+                                    the  entire  stop  list  is  erased.
+                                    (This is not a useful procedure.) 
+
+                -w  width        The  output  line  width is normally 80
+                                characters.  The '-w' option changes  it
+                                to a user-specified value.  
+
+        DIAGNOSTICS:  
+
+
+                Usage ...  
+
+                        Illegal   options   cause  an  extensive  "help"
+                        message to be printed.  
+
+                Bad (width | offset) ...  
+
+                        An illegal or out-of-range number was given as a
+                        parameter to a '-w' or '-t' option.  
+
+                Can't open exclude file 
+
+                Illegal exclusion 
+
+                        An   exclude   file   text  line  began  with  a
+                        non-printing character.  The line is ignored.  
+
+                Out of space in saveexclude 
+
+                        The program ran out of main memory when building
+
+        Tool Library Reference Manual                                    Page 53
+        kwik    Keyword in Context Index
+
+
+                        the stop list.  
+
+                No index for ...  
+
+                        Kwik  was  invoked in '-t' mode.  Unfortunately,
+                        the  indicated  line  was  not  in  the   format
+                        "name#<TAB>#text".  The line is ignored.  
+
+                Cannot create temp file 
+
+                        The sorts subroutine could not create its file. 
+
+                Out of space 
+
+                        The  sorts  subroutine filled the available disk
+                        space.  
+
+        AUTHOR:  
+
+                David Conroy, Martin Minow 
+
+        IMPLEMENTATION:  
+
+                Kwik is linked together with sorts.obj.  
+
+                The  program  must  be  linked with a large enough stack
+                space so that the sorts routine can  operate  correctly.
+                The following seems to work correctly:  
+
+                    tkb
+                    kwik=kwik,sorts,c:c/lb
+                    /
+                    stack = 2048
+                    //
+
+        BUGS:   If  an  index  line  is  too long to fit (in the kwik'ed
+                part), the program overlays text on  the  line,  logging
+                the break showing where the beginning of the line was.  
+
+
+        Tool Library Reference Manual                                    Page 54
+        lex     A Lexical Analyser Generator
+
+
+        21.0  A Lexical Analyser Generator 
+              _ _______ ________ _________
+
+
+
+                                     *******
+                                     * lex *
+                                     *******
+
+
+
+        NAME:   lex -- A Lexical Analyser Generator 
+
+        SYNOPSIS:  
+
+                lex [-options] [-i grammar] [-o outfile] [-t table] 
+
+        DESCRIPTION:  
+
+                Lex  compiles  a  lexical  analyser  from  a grammar and
+                description of actions.  It is described more  fully  in
+                lex.doc:    only  usage  is  described.   The  following
+                options are available:  
+
+                -a              Disable    recognition    of   non-ASCII
+                                characters  (codes  >  177  octal)   for
+                                exception  character  classes  (form  [^
+                                ...]).  
+
+                -d              Enable   debugging   code   within  lex.
+                                Normally needed only for debugging lex. 
+
+                -e              "Easy"     command     line.      Saying
+                                "lex -e name" is the same as saying:  
+
+                                    "lex -i name.lxi -o name.c -t name" 
+
+                                Do  not  include devices or an extension
+                                on "name"  or  make  it  longer  than  8
+                                characters,  or you'll get several error
+                                messages.  
+
+                -i file         Read the grammar from the file.  If "-i"
+                                is not specified,  input  will  be  read
+                                from the standard input.  
+
+                -m              Enable  state  minimization.   Currently
+                                not implemented, switch is a no-op.  
+
+                -o  file         Write  the output to the file.  If "-o"
+                                is not specified, output will be written
+                                to file "lextab.c".  
+
+                -s              "Stand-alone"   switch.   Supresses  the
+                                line   "#include   <stdio.h>"   normally
+
+        Tool Library Reference Manual                                    Page 55
+        lex     A Lexical Analyser Generator
+
+
+                                generated  in  the lex output.  Use this
+                                if LEX is generating a module to be used
+                                in  a  program  which  does  not use the
+                                "standard I/O" package.  
+
+                -t  table        Name  the recognizer "table" instead of
+                                the default  "lextab".   If  -o  is  not
+                                given,  output  will  be written to file
+                                "table.c".  
+
+                -v  [file]       Verify  -- write internal tables to the
+                                indicated  file.   If  "-v"   is   given
+                                without  a  file  name  argument, tables
+                                will be written to "lex.out".  
+
+        DIAGNOSTICS:  
+
+                The  following  error  messages may occur on invocation.
+                See lex documentation  for  information  on  compilation
+                errors.  
+
+                Can't create ...  
+
+                Cannot open ...  
+
+                Illegal option.  
+
+                Illegal switch combination.  
+
+                        "-i", "-o" or "-t" given with "-e" or vice-versa 
+
+                Table name too long.  
+
+                        The  table  name  (argument to "-t") must not be
+                        longer than 8 bytes.  
+
+                Missing table name.  
+
+                Missing input file.  
+
+                Missing output file.  
+
+                Missing name.  
+
+        AUTHOR:  
+
+                Charles Forsyth Modified by Bob Denny 
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 56
+        linepr  Print files with line numbers and headers
+
+
+        22.0  Print files with line numbers and headers 
+              _____ _____ ____ ____ _______ ___ _______
+
+
+
+                                   **********
+                                   * linepr *
+                                   **********
+
+
+
+        NAME:   linepr -- Print files with line numbers and headers 
+
+        SYNOPSIS:  
+
+                linepr [-options] [-o outfile] [file ...] 
+
+        DESCRIPTION:  
+
+                linepr prepares a listing for text files.  The following
+                options are defined:  
+
+                -s      Spool  output  to the default line printer.  (On
+                        RSX modes only).  
+
+                -o  file Write output to the named file.  The default is
+                        the first input file encountered with a filetype
+                        (extension) of ".x".  
+
+                linepr accepts wild-card file input.  
+
+        DIAGNOSTICS:  
+
+
+                Cannot open "file" 
+
+                Cannot open listing file "file" 
+
+                Usage ...  
+
+        AUTHOR:  
+
+                Robert B.  Denny, Martin Minow 
+
+        BUGS:  
+
+        Tool Library Reference Manual                                    Page 57
+        lzcomp  File Compression
+
+
+        23.0  File Compression 
+              ____ ___________
+
+
+
+                                   **********
+                                   * lzcomp *
+                                   **********
+
+
+
+        NAME:   lzcomp -- File Compression 
+
+        SYNOPSIS:  
+
+                lzcomp [-options] [infile [outfile]]
+
+        DESCRIPTION:  
+
+                lzcomp   implements   the  Lempel-Ziv  file  compression
+                algorithm.  (Files compressed by lzcomp are uncompressed
+                by lzdcmp.) It operates by finding common substrings and
+                replaces  them  with  a  variable-size  code.   This  is
+                deterministic,  and  can be done with a single pass over
+                the file.  Thus, the decompression  procedure  needs  no
+                input table, but can track the way the table was built. 
+
+                Options may be given in either case.  
+
+                -B      Input  file  is  "binary",  not  "human readable
+                        text".   This  is  necessary  on  Dec  operating
+                        systems,  such  as  VMS  and RSX-11M, that treat
+                        these  files  differently.   (Note  that  binary
+                        support is rudamentary and probably insufficient
+                        as yet.) (On VMS  version  4,  this  is  ignored
+                        unless  the  -x option is specified or the input
+                        file is record-oriented.) 
+
+                -M  bits Write using the specified number of bits in the
+                        code -- necessary for big machines making  files
+                        for    little   machines.    For   example,   if
+                        compressing a file on VMS which is to be read on
+                        a PDP-11, you should select -M 12.  
+
+                -V  [n]  Verbose if specified.  If a value is specified,
+                        it will enable debugging code (if compiled in). 
+
+                -X [n]  "Export" -- write a file format that can be read
+                        by other operating systems.  Only the  bytes  in
+                        the  file  are  copied;  file attributes are not
+                        preserved.  If specified, the  value  determines
+                        the level of compatiblity.  If not specified, or
+                        specified with an explicit value  of  zero,  and
+                        lzcomp  is  running  on  Vax/VMS version 4 under
+                        VaxC and the input file is  a  disk  or  magtape
+
+        Tool Library Reference Manual                                    Page 58
+        lzcomp  File Compression
+
+
+                        file   (block-oriented),  a  VMS-private  output
+                        format is used which is  incompatible  with  the
+                        Unix  compress  utility, but which preserves VMS
+                        file attributes.  -X may take on  the  following
+                        values:  
+
+                         0  Choose VMS private format.  See restrictions
+                            below.  
+                         1  Compatible  with  Unix compress version 3.0:
+                            this is the default if -x is given without a
+                            value.  
+                         2  As above, but supress "block compression" 
+                         3  Supress  block compression and do not output
+                            a  compress  header  block.   This  is   for
+                            compatiblity  with  a quite early version of
+                            Unix      compress       (and       requires
+                            conditional-compilation to use).  
+
+                        Note  that  the  -B  (binary)  option is ignored
+                        unless the input file is "record-oriented", such
+                        as a terminal or mailbox.  
+
+                The  other  two  arguments  are  the  input  and  output
+                filenames  respectively.   Redirection   is   supported,
+                however, the output must be a disk/tape file.  
+
+                The  file format is almost identical to the current Unix
+                implementation of compress  (V4.0).   Files  written  by
+                Unix  compress  should  be  readable  by  lzdcmp.  Files
+                written by lzcomp in export (-x) format will be readable
+                by Unix compress (except that lzcomp outputs two "clear"
+                codes  to  mark  EOF.   A  patch  to  Unix  compress  is
+                available.) 
+
+        VMS RESTRICTIONS:  
+
+                VMS  Private mode stores the true name and attributes of
+                the input file  into  the  compressed  file  and  lzdcmp
+                restores  the  attributes  (and  filename if requested).
+                The following restrictions apply -- they may  be  lifted
+                in  the future as they are primarily due to the author's
+                lack of understanding of the intricacies of of VMS I/O: 
+
+                    All files must be stored on disk.
+                    The lzcomp output file must be specified directly.
+
+                Also,  for all usage on VMS, the compressed file must be
+                written to, and read from disk.  
+
+        LZW COMPRESSION ALGORITHM:  
+
+                This  section  is  abstracted from Terry Welch's article
+                referenced  below.   The  algorithm  builds   a   string
+                translation table that maps substrings in the input into
+
+        Tool Library Reference Manual                                    Page 59
+        lzcomp  File Compression
+
+
+                fixed-length  codes.   The  compress  algorithm  may  be
+                described as follows:  
+
+                  1. Initialize table to contain single-character
+                     strings.
+                  2. Read the first character.  Set <w> (the prefix
+                     string) to that character.
+                  3. (step): Read next input character, K.
+                  4. If at end of file, output code(<w>); exit.
+                  5. If <w>K is in the string table:
+                        Set <w> to <w>K; goto step 3.
+                  6. Else <w>K is not in the string table.
+                        Output code(<w>);
+                        Put <w>K into the string table;
+                        Set <w> to K; Goto step 3.
+
+                "At each execution of the basic step an acceptable input
+                string <w> has been parsed off.  The next character K is
+                read and the extended string <w>K is tested to see if it
+                exists in the string table.  If it is  there,  then  the
+                extended  string  becomes  the parsed string <w> and the
+                step is repeated.  If <w>K is not in the  string  table,
+                then it is entered, the code for the successfully parsed
+                string <w> is put out as comprssed data, the character K
+                becomes  the  beginning of the next string, and the step
+                is repeated." 
+
+                The  decompression  algorithm  translates  each received
+                code  into  a  prefix  string  and  extension   [suffix]
+                character.   The  extension  character  is  stored (in a
+                push-down stack), and the prefix translated again, until
+                the  prefix  is  a  single  character,  which  completes
+                decompression of this code.  The  entire  code  is  then
+                output by popping the stack.  
+
+                "An  update  to  the  string table is made for each code
+                received (except the first one).  When a code  has  been
+                translated, its final character is used as the extension
+                character, combined with the prior string, to add a  new
+                string to the string table.  This new string is assigned
+                a unique code value, which is the  same  code  that  the
+                compressor  assigned  to  that string.  In this way, the
+                decompressor incrementally reconstructs the same  string
+                table  that the decompressor used....  Unfortunately ...
+                [the algorithm] does not work for an abnormal case.  
+
+                The  abnormal  case  occurs  whenever an input character
+                string  contains  the  sequence  K<w>K<w>K,  where  K<w>
+                already appears in the compressor string table." 
+
+                The  decompression  algorithm,  augmented  to handle the
+                abnormal case, is as follows:  
+
+                  1. Read first input code;
+
+        Tool Library Reference Manual                                    Page 60
+        lzcomp  File Compression
+
+
+                     Store in CODE and OLDcode;
+                     With CODE = code(K), output(K);  FINchar = K;
+                  2. Read next code to CODE; INcode = CODE;
+                     If at end of file, exit;
+                  3. If CODE not in string table (special case) then
+                        Output(FINchar);
+                        CODE = OLDcode;
+                        INcode = code(OLDcode, FINchar);
+
+                  4. If CODE == code(<w>K) then
+                        Push K onto the stack;
+                        CODE == code(<w>);
+                        Goto 4.
+
+                  5. If CODE == code(K) then
+                        Output K;
+                        FINchar = K;
+
+                  6. While stack not empty
+                        Output top of stack;
+                        Pop stack;
+
+                  7. Put OLDcode,K into the string table.
+                     OLDcode = INcode;
+                     Goto 2.
+
+                The   algorithm   as  implemented  here  introduces  two
+                additional complications.  
+
+                The actual codes are transmitted using a variable-length
+                encoding.  The lowest-level routines increase the number
+                of  bits  in  the code when the largest possible code is
+                transmitted.  
+
+                Periodically,  the  algorithm checks that compression is
+                still increasing.  If the ratio of input bytes to output
+                bytes  decreases, the entire process is reset.  This can
+                happen if the characteristics of the input file change. 
+
+        VMS PRIVATE FILE STRUCTURE:  
+
+                In VMS Private mode, the compressed data file contains a
+                variable-length (but compressed) file  header  with  the
+                file  "attributes"  needed  by  the  operating system to
+                construct  the  file.   This  allows  the  decompression
+                program  to  recreate  the  file in its original format,
+                which is essential if ISAM databases are compressed.  
+
+                The overall file format is as follows:  
+
+                LZ_SOH  "start  of  header"  signal  (this  value cannot
+                        appear in user data).  
+
+                        A   variable-length  data  record  (maximum  256
+
+        Tool Library Reference Manual                                    Page 61
+        lzcomp  File Compression
+
+
+                        bytes) containing the header name,  followed  by
+                        whitespace,    followed    by    header-specific
+                        information.  In this case, the name record will
+                        contain  the string "vms$attributes" followed by
+                        the number of bytes in the attribute data block.
+                        (I assume that the name record will consist of a
+                        facility name, such  as  "vms",  followed  by  a
+                        dollar   sign,  followed  by  a  facility-unique
+                        word.) 
+
+                LZ_EOR  Signals "end of record".  
+
+                        This is followed by a VMS file attributes record
+                        (generated  by  a   VMS   system   library
+                                routine).  
+
+                LZ_ETX  Signals "end of segment".  
+
+                ST_STX  Signals  "start  of  text"  (i.e., start of data
+                        file).  
+
+                        This is followed by the user data file.  
+
+                LZ_ETX  Signals "end of segment" 
+
+                LZ_ETX  Two in a row signals "end of file".  
+
+                Note  that this format can easily be extended to include
+                trailer records (with file counts and checksums)  and/or
+                multiple data files in one compressed file.  
+
+                Note  also  that the LZ_CLEAR code may appear in headers
+                or data files to  cause  the  decompression  program  to
+                "readapt"  to  the  characteristics  of  the input data.
+                LZ_STX  and  LZ_SOH  reset  the  compression  algorithm.
+                LZ_EOR does not.  
+
+        AUTHORS:  
+
+                The  algorithm is from "A Technique for High Performance
+                Data Compression." Terry A.  Welch.  IEEE  Computer  Vol
+                17, No.  6 (June 1984), pp 8-19.  
+
+                This revision is by Martin Minow.  
+
+                Unix Compress authors are as follows:  
+
+                Spencer W. Thomas
+                        (decvax!harpo!utah-cs!utah-gr!thomas)
+                Jim McKie               (decvax!mcvax!jim)
+                Steve Davies            (decvax!vax135!petsd!peora!srd)
+                Ken Turkowski           (decvax!decwrl!turtlevax!ken)
+                James A. Woods          (decvax!ihnp4!ames!jaw)
+                Joe Orost               (decvax!vax135!petsd!joe)
+
+        Tool Library Reference Manual                                    Page 62
+        lzcomp  File Compression
+
+
+
+
+
+        Tool Library Reference Manual                                    Page 63
+        lzdcmp  File Decompression
+
+
+        24.0  File Decompression 
+              ____ _____________
+
+
+
+                                   **********
+                                   * lzdcmp *
+                                   **********
+
+
+
+        NAME:   lzdcmp -- File Decompression 
+
+        SYNOPSIS:  
+
+                lzdcmp [-options] [infile [outfile]]
+
+        DESCRIPTION:  
+
+                lzdcmp  decompresses  files  compressed  by lzcomp.  The
+                documentation  for  lzcomp  describes  the  process   in
+                greater detail.  
+
+                Options may be given in either case.  
+
+                -B      Output  file is "binary", not text.  (Ignored in
+                        VMS private mode.) 
+
+                -X  3    To read files compressed by an old Unix version
+                        that doesn't generate header records.  
+
+                -V  val  Verbose  (print  status  messages and debugging
+                        information).  The value selects the  amount  of
+                        verbosity.  
+
+                AUTHOR:  
+
+                        This  version  by  Martin Minow.  See lzcomp for
+                        more details.  
+
+
+        Tool Library Reference Manual                                    Page 64
+        mc      Convert One or More Files To Multi-column Format
+
+
+        25.0  Convert One or More Files To Multi-column Format 
+              _______ ___ __ ____ _____ __ ____________ ______
+
+
+
+                                     ******
+                                     * mc *
+                                     ******
+
+
+
+        NAME:   mc -- Convert One or More Files To Multi-column Format 
+
+        SYNOPSIS:  
+
+                mc [-t] [-c columns] [-h height] [-g gutter] [-w width] 
+                        [filespec | aliasspec]...
+
+        DESCRIPTION:  
+
+                mc reads one or more files and converts them to a single
+                multi-column file that it writes to the standard output. 
+
+                Each  line of each input file will occupy one row-column
+                position in the output file.  If an item is too wide for
+                its  column, it is truncated with no message.  The items
+                from any one file are  placed  in  order  going  down  a
+                column,  and  then  across  columns.   Thus,  consider a
+                simple case first:  
+
+                        mc a -c 2 -h 10
+
+                produces a file whose first page looks like this:  
+
+                        a1              a11
+                        a2              a12
+                        :               :
+                        :               :
+                        a10             a20
+
+                ("-c  2"  requests  two  columns;   "-h 10" requests ten
+                lines per page).  
+
+        FILE SPECIFICATIONS:  
+
+                The  mc  command  line  may  contain  more than one file
+                specification;  however, the specifications may  not  be
+                wild-carded.  
+
+                When  there  are  multiple  files, each column will come
+                from a single file:  
+
+
+        Tool Library Reference Manual                                    Page 65
+        mc      Convert One or More Files To Multi-column Format
+
+
+                        mc a b -c 2 -h 10
+
+                produces:  
+
+                        a1      b1
+                        a2      b2
+                        :       :
+                        :       :
+                        a10     b10
+
+                Columns  are  filled  by  consecutive files, in rotating
+                order:  
+
+                        mc a b -c 4 -h 10
+
+                produces:  
+
+                        a1      b1      a11     b11
+                        a2      b2      a12     b12
+                        :       :       :       :
+                        :       :       :       :
+                        a10     b10     a20     b20
+
+                If  there  is  more  than  one  file,  and the number of
+                columns does not evenly  divide  the  number  of  files,
+                successive pages will be different.  
+
+                If  a  file  reaches EOF while there is still data to be
+                read from other files, the ended file's columns will  be
+                blank from that point on.  
+
+                The  use  of  "-"  as  a  file  specification causes the
+                standard input to be read.  If mc  is  invoked  with  no
+                file  arguments at all, it reads the standard input file
+                once.  
+
+        ALIAS SPECIFICATIONS:  
+
+                Alias  specifications  provide  a method for controlling
+                the placement of file data.  An alias specification is a
+                reference  to  another  file  (or  alias) specification.
+                File and alias specifications are numbered, starting  at
+                one  for the left-most such specification;  switches and
+                their arguments do not affect the numbering.  The  alias
+                specification  #n  indicates that the n'th specification
+                is to be repeated.  Such a specification is  legal  only
+                if  it  refers to an earlier specification;  i.e.  #n is
+                only legal as the n+1'st, n+2'nd,  etc.   specification.
+                Thus:  
+
+
+        Tool Library Reference Manual                                    Page 66
+        mc      Convert One or More Files To Multi-column Format
+
+
+                        mc a #1 b #3 -c 4 -h 10
+
+                produces:  
+
+                        a1      a11     b1      b11
+                        a2      a12     b2      b12
+                        :       :       :       :
+                        :       :       :       :
+                        a10     a20     b10     b20
+
+                This should be compared with:  
+
+                        mc a a b b -c 4 -h 10
+
+                which  opens  each of a and b twice and reads the copies
+                in parallel, placing two copies  of  each  item  on  the
+                page.  
+
+        LAST-PAGE HANDLING:  
+
+                mc  will attempt to make the columns on the last page of
+                output as close  in  length  as  possible,  rather  than
+                simply  filling  some  columns all the way to the bottom
+                and leaving others  empty.   This  special  handling  is
+                enabled  only  when  mc  is  given no more than one file
+                specification.  
+
+        SWITCHES:  
+
+                The following switches are available:  
+
+                -c      Next argument is the number of columns 
+                -h      Next argument is the height, in lines, of a page 
+                -g      Next  argument  is  the  gutter width (the space
+                        between columns) 
+                -w      Next  argument is the width, in characters, of a
+                        page 
+                -t      Terminal  mode;   sets  default  height  to  23,
+                        default width to 80,  and,  if  stdout  is  your
+                        terminal, pauses after each page 
+                -d      Debug (conditionally-compiled code) 
+
+
+        DEFAULTS:  
+
+                Height  58,  width  132, no terminal mode;  note that -t
+                alters        all        three.         Gutter        1,
+                max(number-of-file-and-alias-specs,2) columns.  
+
+        CONTROL CHARACTER HANDLING:  
+
+                mc  is  designed  to  operate  on text files, not binary
+                files.  It sets columns up based on how they  will  look
+                when  displayed.  Hence, it processes control characters
+
+        Tool Library Reference Manual                                    Page 67
+        mc      Convert One or More Files To Multi-column Format
+
+
+                (anything that isprint() returns FALSE to) as follows:  
+
+                        <TAB>  ("\t")  is  expanded  into the equivalent
+                        number of spaces.  mc always assumes that  there
+                        are tab stops every 8 character positions.  
+
+                        <BS>  ("\b")  subtracts  one  from  the  current
+                        cursor  position.   Any   printable   characters
+                        received  when  the  current  cursor position is
+                        over a previously read character  is  ignored  -
+                        i.e.   overstruck  combinations  retain only the
+                        first character read.  However, if the character
+                        being  overstruck  is  a  space or an underscore
+                        ("_"), the overstriking character  replaces  the
+                        current character.  
+
+                        <BS>  when  the  current cursor position is over
+                        the first character in the line is ignored.  
+
+                        <CR>  ("\r")  resets the current cursor position
+                        to the first character of the line.  
+
+                        <LF> ("\n") ends the current input item.  
+
+                        All other control characters are discarded.  
+
+        FILE LIMITS:  
+
+                Different  systems impose different limits on the number
+                of files mc may simultaneously have open.  
+
+                On  RT-based  systems,  this  limit  is totally dynamic;
+                opening too many files is most likely to cause an  error
+                due  to  insufficient  memory, rather than a file system
+                error per se.  
+
+                On  RSX-based  systems,  the  absolute  limit  is set at
+                task-build time.  The  distributed  source,  when  built
+                with  BUILD,  will  allow  for 10 open files.  Note that
+                this total includes at least  one  file  for  stdin  and
+                stdout  (two if either is redirected).  Of course, it is
+                possible to run into memory limitations even under  this
+                limit.  
+
+                Aliases  do  not  count  against  this limit, since they
+                refer  to  already-opened  files.   Similarly,   a   "-"
+                argument,  implying  stdin,  does  not  count,  as it is
+                simply a reference to the already-open  standard  input.
+                If  you  are  right  at  the  limit,  be sure to use the
+                standard input as one of your files;  you are paying for
+                it to be open whether you use it or not.  
+
+                mc  itself  imposes  another  limit,  which does include
+                aliases.  In the distributed code, this limit is set  to
+
+        Tool Library Reference Manual                                    Page 68
+        mc      Convert One or More Files To Multi-column Format
+
+
+                a total of 20 file and alias arguments.  
+
+        OTHER LIMITS:  
+
+                No   column   can   contain  more  than  256  characters
+                (compile-time constant).  
+
+        DIAGNOSTICS:  
+
+                Insufficient memory - sorry 
+
+                Too many file and alias arguments 
+
+                Unreasonable -c/-g/-w combination 
+                        -- for example, c > w
+
+                <value>:  Bad <what> specification 
+                        -- Invalid value for something like -h
+
+                <filespec>:  Can't open:  <why> 
+
+        SUGGESTED IMPROVEMENTS:  
+
+                Anyone  interested  in improving this program might want
+                to consider the following suggestions.  Be  warned  that
+                they are not as easy to implement as they look!  
+
+                Make  the  last-page  cleanup  algorithm  work  for  the
+                multiple-files case.  
+
+                Add the ability to fold long items to the next entry for
+                this file (probably indented) rather than just  chopping
+                them  off.   (This only gets hard when you consider both
+                overstrike handling and multiple files!) 
+
+                Allow  the automatic printing of the file name above the
+                appropriate columns at the top of each page.  
+
+                The   techniques   used   are  wasteful  of  space;   in
+                particular, the gutters should not be taking up space in
+                the data array!  
+
+        BUGS:  
+
+        AUTHOR:  
+
+                Original  author unknown;  extensively modified by Jerry
+                Leichter 
+
+
+        Tool Library Reference Manual                                    Page 69
+        nm      Print Object Module Symbol Names
+
+
+        26.0  Print Object Module Symbol Names 
+              _____ ______ ______ ______ _____
+
+
+
+                                     ******
+                                     * nm *
+                                     ******
+
+
+
+        NAME:   nm -- Print Object Module Symbol Names 
+
+        SYNOPSIS:  
+
+                nm [-options] file[.obj] 
+
+        DESCRIPTION:  
+
+                nm  (NameList)  reads  through  an  object file or a TKB
+                symbol table and prints a list of  all  the  symbols  it
+                finds.   This  is  a reasonable alternative to load maps
+                and is useful in determining  what  global  symbols  are
+                defined or referenced by an object module.  
+
+                It has dozens of options.  They are:  
+
+                -1      Output  names  in  one  column,  default is four
+                        columns per line.  
+
+                -b      Include  RSX-11M  control  block symbols.  These
+                        are of the form  "x.xxxx",  "x$xxxx",  "xx.xxx",
+                        and  "xx$xxx".  Normally, these are supressed by
+                        nm.  Note that -b  is  appropriate  if  you  are
+                        examining objects produced by C compilers.  
+
+                -c      Include  C  compiler  internal  symbols.   These
+                        begin  with  a  "."  and  contain  only  digits.
+                        Normally supressed.  
+
+                -d      Differences.   The  symbol  table  is  sorted by
+                        address and the  symbol  value  printed  is  the
+                        difference between it and the next symbol.  This
+                        may be used to see how large each module is.  
+
+                -f      Print   symbols  in  file  order.   No  sort  is
+                        performed.  
+
+                -g      Print  only  global  symbols.  The default is to
+                        print both globals and internals.  
+
+                -m      Map Radix-50 "." to underscore for C symbols.  
+
+                -r      Reverse the direction of the sort.  
+
+
+        Tool Library Reference Manual                                    Page 70
+        nm      Print Object Module Symbol Names
+
+
+                -u      Print  undefined  symbols.   These  are normally
+                        supressed.  
+
+                -v      Sort by value;  the default is sort by name.  
+
+                -x      Print  an  inter-module  cross reference list of
+                        all symbols defined in all input files.   Forces
+                        -b and -g.  
+
+                nm accepts multiple input file names.  Names may contain
+                wildcards.   Note  that,  if  compiled  under  RT11,  nm
+                accepts  only  "RT11-style"  object  modules,  while, if
+                compiled under RSX, nm accepts only  "RSX-style"  object
+                modules.   Vax  native  has never been tested;  it might
+                read RSX (compatiblity) modules, however.  
+
+        DIAGNOSTICS:  
+
+
+                "file name":  cannot open 
+
+                "Usage:  ..." 
+
+                        This  message  is  printed  on  illegal flags or
+                        other command errors.  
+
+                "file name":  bad file format 
+
+                        The   input   file  was  not  in  the  necessary
+                        object-module format.  This could mean that  the
+                        program  was  compiled  by  the  wrong operating
+                        system.  
+
+                Too many symbols 
+
+                Too many sections 
+
+                All errors are fatal.  
+
+        AUTHOR:  
+
+                David Conroy, Martin Minow 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 71
+        od      Octal Dump
+
+
+        27.0  Octal Dump 
+              _____ ____
+
+
+
+                                     ******
+                                     * od *
+                                     ******
+
+
+
+        NAME:   od -- Octal Dump 
+
+        SYNOPSIS:  
+
+                od [-options] [-f blocknumber] [-l blocknumber] file 
+
+        DESCRIPTION:  
+
+                od  dumps  binary  files  in human-readable format.  The
+                following options are defined:  
+
+                -a      Dump ASCII characters 
+
+                -b      Dump octal bytes 
+
+                -f #    Set first record, default is 0 
+
+                -l #    Set last record, default is EOF 
+
+                -u      Dump by block, even if record-oriented 
+
+                -w      Dump octal words 
+
+                -x      Dump hexadecimal bytes 
+
+                -5      Dump radix 50 words.  
+
+                If  no  format options are selected, od dumps records by
+                words "-w".  
+
+                On  RSX,  od  defaults to record mode dumps.  Use the -u
+                switch to force a block mode dump.  
+
+        DIAGNOSTICS:  
+
+
+                "File name":  Cannot open 
+
+                Usage ...  
+
+        BUGS:  
+
+                od  is  heavily dependent on Decus C libraries.  It will
+                not run correctly on vax-11 C.   If  compiled  with  the
+
+        Tool Library Reference Manual                                    Page 72
+        od      Octal Dump
+
+
+                RT11  library,  it  cannot  read  "attributed"  files on
+                RSTS/E.  
+
+        AUTHOR:  
+
+                David Conroy 
+
+
+        Tool Library Reference Manual                                    Page 73
+        pr      Print File With Line Numbers
+
+
+        28.0  Print File With Line Numbers 
+              _____ ____ ____ ____ _______
+
+
+
+                                     ******
+                                     * pr *
+                                     ******
+
+
+
+        NAME:   pr -- Print File With Line Numbers 
+
+        SYNOPSIS:  
+
+                pr file_list 
+
+        DESCRIPTION:  
+
+                Each  file  in  the argument is written to stdout.  Each
+                line of the output is numbered.  
+
+        DIAGNOSTICS:  
+
+
+                Couldn't open "file name" 
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 74
+        scat    Concatenate Files
+
+
+        29.0  Concatenate Files 
+              ___________ _____
+
+
+
+                                    ********
+                                    * scat *
+                                    ********
+
+
+
+        NAME:   scat -- Concatenate Files 
+
+        SYNOPSIS:  
+
+                scat file_list 
+
+        DESCRIPTION:  
+
+                Scat  performs  a  wild-card  lookup on all files in the
+                argument list.  It sorts these on ascending  file  name,
+                copying them, in that order, to stdout.  
+
+                Scat  removes  trailing  blanks, tabs, and other control
+                characters from the end of each line.  
+
+        DIAGNOSTICS:  
+
+
+                Unknown switch - ...  
+
+                Illegal file name ...  
+
+                Can't reopen file ...  
+
+                Bad file name ...  
+
+                Duplicate file name ...  
+
+                Too many files ...  
+
+                        After  wild-card expansion, the file name buffer
+                        filled.  
+
+                No room 
+
+                        The  program ran out of memory for the file name
+                        strings.  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 75
+        scat    Concatenate Files
+
+
+                All files must be on the current network node.  
+
+
+        Tool Library Reference Manual                                    Page 76
+        scopy   Make file standard RMS
+
+
+        30.0  Make file standard RMS 
+              ____ ____ ________ ___
+
+
+
+                                    *********
+                                    * scopy *
+                                    *********
+
+
+
+        NAME:   scopy -- Make file standard RMS 
+
+        SYNOPSIS:  
+
+                scopy [options] file_list 
+
+        DESCRIPTION:  
+
+                Scopy creates an identical copy of the named input files
+                (the file_list may contain wild cards), creating  output
+                files  with  standard  file  attributes  (record  type =
+                variable  length,  record  format  =  implied   carriage
+                control).  
+
+                If  there are no arguments, scopy prompts for the option
+                and then for each file.  
+
+                Options:  
+
+                -a      Cleanup  random  ASCII,  removing  NUL, DEL, and
+                        other junk.  
+
+                        -b      Binary,  don't remove anything (not even
+                        NUL bytes).  This option is not  recommended  as
+                        scopy doesn't preserve attributes.  
+
+                        -p      Remove the 8'th "parity" bit.  
+                If  no option is given, data is 8-bit, but NUL bytes are
+                removed.  Also, <cr><lf> is mapped to <nl>.  
+
+        DIAGNOSTICS:  
+
+                Scopy  does  not  run  on  RSTS,  RT11, or Unix as these
+                operating systems do not support  multiple  versions  of
+                the same file.  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 77
+        sort    Sort Data Files
+
+
+        31.0  Sort Data Files 
+              ____ ____ _____
+
+
+
+                                    ********
+                                    * sort *
+                                    ********
+
+
+
+        NAME:   sort -- Sort Data Files 
+
+        SYNOPSIS:  
+
+                sortc [-options] [-oOUTFILE] [file ...] 
+
+        DESCRIPTION:  
+
+                Sortc  sorts  all of the named files together and writes
+                the result to the standard output or to the  file  named
+                in  the  -o  option.  The standard input is sorted if no
+                file names are supplied;  sort may thus  be  used  as  a
+                filter.  
+
+                The  output  file  may  be  the same as one of the input
+                files.  
+
+                The   default  sort  is  ascending  in  ASCII  collating
+                sequence using the entire line.  Upper  and  lower  case
+                are  considered different.  Using optional arguments, up
+                to ten key fields may be specified.   Lines  with  equal
+                keys  are  further  ordered  using  the entire line as a
+                single ASCII key.  
+
+                The following options apply to the entire sort:  
+
+
+                -o  The  sorted  output  is  written  to  the named file
+                    instead of to the standard output.  The file may  be
+                    the same as one of the input files.  
+
+                -u  (Unique)  only  the  first  of a set of lines having
+                    equal keys is output.  Only the specified  keys  are
+                    considered in the definition of 'unique.' 
+
+                -v  (Verbose) Print elapsed time, etc.  
+
+                The  following  options define the form of the sort.  If
+                they preceed the first key field definition, they define
+                the  default for all keys.  If the option includes a key
+                definition, only that key is affected.  
+
+
+                -b  (Blank)  causes  leading whitespace in the key field
+
+        Tool Library Reference Manual                                    Page 78
+        sort    Sort Data Files
+
+
+                    to be ignored.  
+
+                -d  (Dictionary)   sorts   in  dictionary  order;   only
+                    letters, digits, and blanks are  considered  in  the
+                    compare,  all  else  is  ignored.   (Note:  national
+                    letters (with values greater than 128  decimal)  are
+                    not processed correctly.) 
+
+                -f  (Fold  case)  folds  all  letters  to lower-case for
+                    comparisons.  
+
+                -i  (Ignore    whitespace)   causes   all   non-printing
+                    characters to be ignored.  
+
+                -k  (Key)  selects a field to be used as a sort key.  Up
+                    to ten key fields can be specified.  The keys are in
+                    order  of  decreasing  significance.  Key fields are
+                    compared, beginning with the most  significant  one,
+                    until a not-equal key is found.  
+
+                    The  format  of the -k option is "-kM1.N1,M2.N2" The
+                    formatting flags "bdfinrt?"  may  be  applied  to  a
+                    particular  key  by preceeding the 'k' appropriately
+                    as will be shown in the examples.  
+
+                    The  values  following  the "-k" define the starting
+                    and ending position of the key using a  field/offset
+                    value:  
+
+                    M1.N1  Start  of  the  key position (first character
+                            that is to be compared).  
+
+                    M2.N2  End  of  the  key  position  (first character
+                            after the key).  
+                    The  'M' values define the number of fields to skip,
+                    from the start of the data line.  (0 means "skip  no
+                    fields").  
+
+                    The 'N' values define the number of bytes to skip in
+                    the selected field.  
+
+                    If  "M1.N1"  are  omitted, start at the beginning of
+                    the line.  If "M2.N2" are omitted, end at the end of
+                    the   line.    Except  for  "M2.N2"  being  omitted,
+                    omitting any of the four values means "use zero" for
+                    that value.  
+
+                    Neither  of  these specifiers will go beyond the end
+                    of the line.  A record can have a null  key  if  the
+                    start-of-key  is on or after the end-of-key or at or
+                    after the end-of-line.  A null key is lower than any
+                    non-null key.  
+
+                    If  -b  was specified, leading whitespace is skipped
+
+        Tool Library Reference Manual                                    Page 79
+        sort    Sort Data Files
+
+
+                    after advancing to the M1  (M2)  field,  but  before
+                    advancing by N1 (N2) characters.  
+
+                -n  (Numeric)  changes  the  sort  ordering to ascending
+                    arithmetic  on  a  leading  signed  integer  numeric
+                    string.  
+
+                -r  (Reverse)  changes  the sort ordering from ascending
+                    to descending.  
+
+                -t? (Terminator)  changes the field terminator.  The new
+                    definition is:  
+
+                        String  of  zero  or more characters ending with
+                        the '?' character.  
+
+                    The terminator character may be escaped by using the
+                    backslash  convention.    By   default,   whitespace
+                    (blanks or tabs) terminates a field.  
+
+        EXAMPLES OF KEY FIELD SELECTION:  
+
+                Let a record be "ABC DEF          GHI" 
+
+                Flag            Key field
+                -k1             " DEF         GHI"
+                -bk1            "DEF         GHI"
+                -bk1.1          "EF         GHI"
+                -bk1,2          "DEF         "
+                -k1,1           "" (Null field)
+                -k1.0,2.1       " DEF "
+                -bk1.0,2.1      "DEF         G"
+                -k0.1,1.3       "BC DE"
+                -k1.0,2.0       " DEF"
+                -k0.5,1.0       "" (Null field)
+
+                Let a record be "ABC,DEFGHIJ,KLM" 
+
+                Flag            Key field
+                -t,k1           "DEFGHIJ,KLM"
+                -t,k1,2         "DEFGHIJ,"
+                -t,k0.1,0.6     "BC,DE"
+                -t,k1.0,0.10    "DEFGHI"
+
+        FILES:  
+
+                sort.tmp 
+
+        DIAGNOSTICS:  
+
+                The  following  messages  occur  on  a non-severe error.
+                SORTC will exit with "error" status.  
+
+
+
+        Tool Library Reference Manual                                    Page 80
+        sort    Sort Data Files
+
+
+                "?SORT-F-Cannot create temp.  file" 
+                        The required temporary file cannot be created in
+                        the current directory.  
+
+                "?SORT-F-Cannot open input file." 
+                        An input file cannot be accessed for reading.  
+
+                "?SORT-F-Cannot create output file." 
+                        An output file cannot be created for writing.  
+
+                "?SORT-F-Out of space." 
+                        There  was  insufficient  memory  space  for the
+                        sort.  
+                The  following  messages  occur on a severe error.  SORT
+                will exit with "severe error" status.  Get help.  
+
+                "?SORT-U-Unexpected end of file"
+                "?SORT-U-Empty run"
+                "?SORT-U-temp. file"
+        AUTHOR:  
+
+                David Conroy 
+
+                Very slightly modified by Martin Minow 
+
+                Extensively modified by
+                  Ray Van Tassle
+                  Motorola
+                  1301 E. Algonquin Rd.
+                  Room 4135
+                  Shaumburg, Ill.
+                  (312)-576-6017
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 81
+        sorts   Sort Utility Subroutines
+
+
+        32.0  Sort Utility Subroutines 
+              ____ _______ ___________
+
+
+
+                                    *********
+                                    * sorts *
+                                    *********
+
+
+
+        NAME:   sorts -- Sort Utility Subroutines 
+
+        SYNOPSIS:  
+                        sorta(record)
+                        char            *record;
+
+                        sorto(buffer)
+                        char            **buffer;
+
+        DESCRIPTION:  
+
+                Sorta()   and   sorto()   comprise   a   general-purpose
+                C-callable sort utility.  There are no  restrictions  on
+                file or item size.  The routines are used as follows:  
+
+                    sorta(record) 
+
+                        Add  the  named record to the data to be sorted.
+                        After   adding   the   last   record,    execute
+                        "sorta(NULL)" to terminate the data.  
+
+                    sorto(buffer) 
+
+                        Sort output:  move the next (sorted) record into
+                        the buffer.  Return "buffer" or  NULL  when  all
+                        records have been returned.  
+
+                The  routines  are  meant  to  be  used in the following
+                manner:  
+
+                        while (next_datum()) {
+                                sorta(datum);
+                        }
+                        sorta(NULL);
+                        while (sorto(buffer)) {
+                                process(buffer);
+                        }
+
+                After  sorto()  returns  NULL,  sorta() may be called to
+                start a new sort sequence.  
+
+                Data  is normally sorted in ascending Ascii order, using
+                the  entire  record  as  the  key.   If  this   is   not
+                satisfactory,  the  following global symbols may be used
+
+        Tool Library Reference Manual                                    Page 82
+        sorts   Sort Utility Subroutines
+
+
+                to modify the sort:  
+
+                    extern int sort_l;  
+
+                        This  value  defines  the maximum record length.
+                        It may be changed before calling sorta() for the
+                        first time.  
+
+                    extern int (*sort_c)();  
+
+                        This  defines  the comparison function which, by
+                        default, is strcmp().  To call  a  user-provided
+                        function, the main program should contain:  
+
+                                extern int (*sort_c)();
+                                ...
+                                main()
+                                {
+                                        extern int      myfun();
+
+                                        (*sort_c)() = _&myfun;
+                                        ...
+                                }
+                                ...
+                                int myfun(record1, record2)
+                                char    *record1, *record2;
+                                /*
+                                 * Compare records, returning
+                                 *  -1  record1  < record2
+                                 *   0  record1 == record2
+                                 *  +1  record1  > record2
+                                 */
+                                {
+                                        ...
+                                }
+
+                    extern int sort_r;  
+
+                        This flag reverses the sense of the sort.  Thus,
+                        to sort in reverse alphanumeric order, the  main
+                        program should contain:  
+
+                                extern int sort_r;
+                                ...
+                                main()
+                                {
+                                        ...
+                                        sort_r = 1;
+                                }
+
+                    extern char *sort_f;  
+
+                        This names the sort work file and may be changed
+                        if, for example, the file should be written to a
+
+        Tool Library Reference Manual                                    Page 83
+        sorts   Sort Utility Subroutines
+
+
+                        private disk.  It is used as follows:  
+
+                                extern char *sort_f;
+                                ...
+                                main()
+                                {
+                                        ...
+                                        sort_f = "myfile.tmp";
+                                }
+
+        DIAGNOSTICS:  
+
+
+                SORTS-E-cannot create temp.  file "filename" 
+
+                        The  required  file  cannot  be  created  in the
+                        current directory.  
+
+                SORTS-E-out of main memory.  
+
+                        The  program  ran out of main memory.  Sorts may
+                        be optionally compiled to dump  internal  tables
+                        (run tables) on this error.  
+
+                SORTS-E-Error writing temp.  file 
+
+                        An occurred when writing the temp.  file.  It is
+                        probably "out of space on the disk".  
+
+                SORTS-F-Can't reopen temp.  file 
+
+                SORTS-F-Empty run 
+
+                SORTS-F-Unexpected eof 
+
+                All   error   are   fatal.   "-E"  errors  are  probably
+                correctable  by  the  user.   "-F"  errors  are  serious
+                problems.    If   the   user  program  defined  its  own
+                comparison  function,  that  should   be   checked   for
+                consistancy.  
+
+        AUTHOR:  
+
+                David Conroy, Martin Minow 
+
+                Revised by Bob Denny and Tim Coad 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 84
+        t       Type File on Video Screen
+
+
+        33.0  Type File on Video Screen 
+              ____ ____ __ _____ ______
+
+
+
+                                      *****
+                                      * t *
+                                      *****
+
+
+
+        NAME:   t -- Type File on Video Screen 
+
+        SYNOPSIS:  
+
+                t [options] [file_list] 
+
+        DESCRIPTION:  
+
+                t  writes  a  file,  one screen at a time, on the user's
+                terminal.  The argument list may contain  wildcard  file
+                specifiers.  The following options may be given:  
+
+                -e                      Pass    escape   sequences   and
+                                        control  characters  through  to
+                                        the terminal.  This is useful if
+                                        you  are  viewing  a  file  with
+                                        embedded  graphics codes, but it
+                                        can  cause   trouble   if   your
+                                        terminal  doesn't understand the
+                                        data in the file.  "-e" disables
+                                        the  "columns_per_line" and long
+                                        line wrap-around features.  
+
+                +columnsperline Define  the number of print positions on
+                                        each line of the display.   This
+                                        is  useful  if  you have a VT100
+                                        set to  132  columns.   The  '+'
+                                        sign   must  be  present.   "+0"
+                                        disables line wrap-around.  This
+                                        parameter is ignored if you have
+                                        specified "-e".  
+
+                -linesperscreen Define   the   number  of  lines  to  be
+                                        displayed on each screen.   This
+                                        is  useful if you are scanning a
+                                        file from a  dial-up  (low  data
+                                        rate) terminal.  
+
+                After each screen has been printed, t waits for the user
+                to type a single-letter command:  
+
+                <Space> or 
+                <Carriage-Return>       To get the next screen.  
+
+
+        Tool Library Reference Manual                                    Page 85
+        t       Type File on Video Screen
+
+
+                <Backspace> or 
+                <Line-feed> or 
+                '^' <Circumflex>        To back up one screen.  
+
+                'B' or 'b'              To skip to the last screen.  
+
+                'E', 'e', or CTRL/Z     To exit the program.  
+
+                'F' or 'f'              To return to the first screen.  
+
+                'P' or 'p'              To get the next page.  
+
+                'Q' or 'q'              To exit (quit) the program.  
+
+                'S'   or   's'              To   search  for  a  regular
+                                        expression.  
+
+                'X' or 'x'              To exit the current file.  
+
+                If  the "next screen," "next page," or "backup" commands
+                are preceeded by a number, T  will  skip  the  requested
+                number of screens or pages.  Negative skips are allowed:
+                "-P" moves back one page.  Note that <Space>,  0<Space>,
+                and 1<Space> are equivalent.  
+
+                All unlisted characters will be ignored.  
+
+                The  'P' command skips to the next page (as delimited by
+                form-feeds).  
+
+                The  'B'  command  is  equivalent to 32767<Space>.  As T
+                must scan the file byte-by-byte,  the  'B'  command  may
+                seem slow.  
+
+                Search  arguments are regular expressions (as defined in
+                the grep program).  If you enter '?' when prompted for a
+                search   argument,   a  help  screen  will  be  printed.
+                Backward searching is not possible.  
+
+                Note  that  T  works  only  on  video  terminals.  If no
+                file_list is specified, T prompts for each file.   If  a
+                file_list  argument  lacks  an  explicit extension, ".*"
+                will be used;  thus "T X" is equivalent to 
+
+                        "T X.*".
+
+                The  program will only backup to the built-in maximum of
+                100 screens.  
+
+                T will erase underline and boldface information from the
+                text if it occurs in the following format (where 'X'  is
+                any character and '\b' is backspace):  
+
+                        X\b_    for underline and
+
+        Tool Library Reference Manual                                    Page 86
+        t       Type File on Video Screen
+
+
+                        X\bX... for boldface
+
+                If  an  embedded carriage return (for line-overprint) is
+                encountered, all  text  following  the  return  will  be
+                ignored.  
+
+                T  converts  <escape>  characters  in  the  text file to
+                "<ESC>" (unless the -e option was specified).  This  was
+                done  to defend against escape sequences triggering user
+                terminal  identification  sequences  (which  could,  for
+                example, cause the program to backup one screen).  
+
+        DIAGNOSTICS:  
+
+
+                Sorry, t works only on video terminals.  
+
+                Can't open file "name".  
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+                Neither input nor output may be redirected.  T cannot be
+                used as a filter.  
+
+                If  a  skip or backup command fails (for example, if the
+                input file is not on a disk), the program will exit with
+                an error message.  
+
+                When  running  T  from  a  remote (DECnet) terminal, you
+                should  use  <return>  to  request  the  next  page  and
+                <rubout> or <linefeed> to request the previous page.  
+
+
+        Tool Library Reference Manual                                    Page 87
+        tr      Character Transliterator Program
+
+
+        34.0  Character Transliterator Program 
+              _________ ______________ _______
+
+
+
+                                     ******
+                                     * tr *
+                                     ******
+
+
+
+        NAME:   tr -- Character Transliterator Program 
+
+        SYNOPSIS:  
+
+                tr from-chars to-chars 
+
+        DESCRIPTION:  
+
+                tr copies the standard input to the standard output with
+                substitution or deletion of selected characters.  It  is
+                used as follows:  
+
+                        tr FROM TO 
+
+                where FROM and TO are strings of characters.  The effect
+                of this command  depends  on  the  lengths  of  the  two
+                strings.  
+
+                If  FROM  and  TO have the same length, characters in TO
+                are substituted for characters in FROM.  Thus, 
+
+                        tr "abcd" "wxyz" 
+
+                changes  all  a's  to  w's, b's to x's, and so on.  Note
+                that the quotes are needed to ensure  that  tr  receives
+                lower-case  characters.   tr DOES distinguish letters by
+                case;  the above command has no effect on A's, B's, C's,
+                or D's.  
+
+                If  TO is left out or explicitly null, any characters in
+                FROM are deleted.  
+
+                If  TO is non-null but shorter than FROM, all characters
+                in FROM beyond the last one to match up with one  in  TO
+                translate into the last character in TO;  BUT any stream
+                of consecutive characters so translated  is  reduced  to
+                just one occurence of the resulting character.  Thus, 
+
+                        tr "abcde12345" "ABCDE-" 
+
+                changes "aAbB1234cCdD5678eEfF" into "AABB-CCDD-678EEfF". 
+
+                If  a  character  appears  more  than  once in FROM, the
+                leftmost equivalence  prevails.   Thus,  to  change  all
+
+        Tool Library Reference Manual                                    Page 88
+        tr      Character Transliterator Program
+
+
+                strings of *'s into a single *, use tr "**" "*".  
+
+                In  addition  to  simple  characters,  FROM  and  TO may
+                include:  
+
+                Escapes 
+                        \x  is  x except that \b is a backspace, \f is a
+                        form feed, \n is a newline, \r is a  return,  \t
+                        is  a tab, and \ddd is the character whose OCTAL
+                        value is ddd.  (Only 8 bits of ddd are retained,
+                        and  it  is  ok  for there to be only one or two
+                        valid octal digits present.  Using \0 will cause
+                        unpredictable  results.).   The letters b, f and
+                        so on must be lower case to be recognized.  
+
+                Ranges 
+                        a-e  is  the  same as abcde, etc.  Note that the
+                        range e-a, while legal, is empty.  
+
+                Classes 
+                        A  number  of  built-in  character  classes  are
+                        available:  
+
+                                :a      is the same as a-zA-Z
+                                :d      is the same as 0-9
+                                :n      is the same as a-zA-Z0-9
+                                :       (:<SPACE>)  is  the  range  from
+                                        CTRL/A to <SPACE>  in increasing
+                                        numerical order
+                                :.      is the range including all ASCII
+                                        characters other than NUL (\0).
+                                        Thus,
+
+                                                tr ":a:." "A-ZA-Z "
+
+                                        translates all letters to upper-
+                                        case and  reduces all streams of
+                                        non-letters to a single space.
+
+                        Class characters a, d and n must be lower case. 
+
+                Negation 
+                        If  the  first  character  of  FROM  is "^", any
+                        characters not in FROM match.  In this case,  TO
+                        must be null or only a single character.  
+
+                "\" and ":" lose their special meaning if they appear as
+                the last character of FROM or TO;  "-" loses it if it is
+                the  first or last;  "^" loses it if it is not the first
+                character  of  FROM;   and  all  characters  lose  their
+                special meaning if preceded by an escape ("\").  
+
+
+        Tool Library Reference Manual                                    Page 89
+        tr      Character Transliterator Program
+
+
+        I/O PECULIARITIES:  
+
+                The  C  I/O system terminates records read with a single
+                newline;  hence the \r character will never be found for
+                replacement.   Also,  in RSX modes, output files must be
+                broken into records;  removing newlines can produce huge
+                records that cannot be processed by RMS.  
+
+        DIAGNOSTICS:  
+
+                ?TR-F-Not enough memory 
+
+                ?TR-F-Unknown class type <character> 
+                        <character>  appeared  after a ":", but is not a
+                        known class type.  
+
+
+        BUGS:  
+
+        AUTHOR:  
+
+                Jerry  Leichter, based on the RATFOR version in Software
+                Tools.  
+
+
+        Tool Library Reference Manual                                    Page 90
+        uniq    Print Unique Lines in a File
+
+
+        35.0  Print Unique Lines in a File 
+              _____ ______ _____ __ _ ____
+
+
+
+                                    ********
+                                    * uniq *
+                                    ********
+
+
+
+        NAME:   uniq -- Print Unique Lines in a File 
+
+        SYNOPSIS:  
+
+                uniq  [-options]  [-fields]  [+letters]  [limit]  [input
+                [output]] 
+
+        DESCRIPTION:  
+
+                Uniq  reads  a  sorted  input  file, writing each unique
+                line.  The following options are defined:  
+
+                -a      Print  all  copies of duplicated lines;  implies
+                        -d.  
+
+                -u      Only print unique lines.  
+
+                -d      Only print duplicate lines.  
+
+                -c      Print  the  number  of  times each line occurred
+                        along with the line.  
+
+                -N      Skip  over the first N words before checking for
+                        uniqueness.  
+
+                +N      Skip  over the first N letters (in the indicated
+                        field).  Note that  fields  are  skipped  before
+                        letters.  
+
+                N       Compare only N letters.  
+
+                A  word is defined as "optional spaces or tabs" followed
+                by text up to the first space, tab, or end of line.  
+
+                If  the output file is not specified, uniq will write to
+                the  standard  output.   If  the  input  file   is   not
+                specified, uniq will read from the standard input.  
+
+                For  an  on-line  help  message (written to the standard
+                output), execute:  
+
+                        uniq ?
+
+        DIAGNOSTICS:  
+
+        Tool Library Reference Manual                                    Page 91
+        uniq    Print Unique Lines in a File
+
+
+
+
+                Can't open input file "name" 
+
+                Can't open output file "name" 
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+                Because  of  the  way  the syntax of the command line is
+                defined,  you  can't  use  an  input  file  whose  first
+                character  is  a  digit  -  the  code  will  attempt  to
+                interpret it as a limit.  
+
+
+        Tool Library Reference Manual                                    Page 92
+        units   Units Conversion
+
+
+        36.0  Units Conversion 
+              _____ __________
+
+
+
+                                    *********
+                                    * units *
+                                    *********
+
+
+
+        NAME:   units -- Units Conversion 
+
+        SYNOPSIS:  
+
+                units [-u[d]] 
+
+        DESCRIPTION:  
+
+                Units   converts   between   various   scales  to  their
+                equivalents in other scales.  It works interactively:  
+
+                        You have: inches
+                        You want: cm
+                        * 2.54
+                        / 3.93701
+
+                Quantities are specified as multiplicative combinations,
+                optionally preceeded by a  numeric  multiplier.   Powers
+                are indicated by suffixed positive integers, division by
+                '/'.  
+
+                Units  does  only multiplicative conversions;  it cannot
+                convert, e.g., Farenheit to Celsius.  
+
+                The  units  conversion table is stored in binary format.
+                If it cannot be found, or if units is invoked using  the
+                '-u'  switch, a binary table will be built, slowly, from
+                the source table.  "-ud" causes each input  line  to  be
+                dumped when building tables.  
+
+                The  tables  are  found using a search list.  Be sure to
+                copy the units.txt file from the distribution kit  to  a
+                place where it can be found by the search list.  
+
+        DIAGNOSTICS:  
+
+
+                Conformability 
+
+                        The   measures  are  not  interconvertable,  for
+                        example, you cannot convert inches to pounds.  
+
+        AUTHOR:  
+
+
+        Tool Library Reference Manual                                    Page 93
+        units   Units Conversion
+
+
+                David Conroy 
+
+        BUGS:  
+
+                This  version does not understand about file dates.  The
+                only way to rebuild the binary data file is to  use  the
+                -u switch (or to delete all versions of units.dat).  
+
+                It  would  be nice to have additive conversions, such as
+                Farenheit to Celsius.  
+
+
+        Tool Library Reference Manual                                    Page 94
+        wc      Word Count
+
+
+        37.0  Word Count 
+              ____ _____
+
+
+
+                                     ******
+                                     * wc *
+                                     ******
+
+
+
+        NAME:   wc -- Word Count 
+
+        SYNOPSIS:  
+
+                wc [-options] [filename ...] 
+
+        DESCRIPTION:  
+
+                Count  the  number  of bytes, words, and lines in one or
+                more files.  wc accepts wild-card file name arguments.  
+
+                The following options are defined:  
+
+                -b      Count bytes in the input files.  
+                -c      Count  characters  in  the input files - synonym
+                        for -b.  
+                -l      Count lines in the input files.  
+                -u      Unix-style  output;   omits  the descriptions of
+                        the counts (e.g., the "bytes" in "5 bytes").  
+                -w      Count words in the input files.  
+
+                A  word is defined as "optional spaces or tabs" followed
+                by text up to the first space, tab, or end of line.  
+
+                If no options are given, wc provides all three counts.  
+
+                If  no  file  names  are  given,  wc reads from standard
+                input.  All output is written to standard output.  
+        DIAGNOSTICS:  
+
+
+                "file name":  cannot open 
+
+                "file name":  illegal file name 
+
+        AUTHOR:  
+
+                Martin Minow 
+
+        BUGS:  
+
+
+        Tool Library Reference Manual                                    Page 95
+        xrf     Cross-Reference Lister for C Programs
+
+
+        38.0  Cross-Reference Lister for C Programs 
+              _______________ ______ ___ _ ________
+
+
+
+                                     *******
+                                     * xrf *
+                                     *******
+
+
+
+        NAME:   xrf -- Cross-Reference Lister for C Programs 
+
+        SYNOPSIS:  
+
+                xrf [-options] [-o outfile] [file ...] 
+
+        DESCRIPTION:  
+
+                xrf  prepares  a  cross-reference  listing  for C source
+                programs.  The following options are defined:  
+
+                -n      Narrow  output (80 columns).  The default is 132
+                        columns.  
+
+                -s      Spool output to the default line printer.  
+
+                -o  file Write output to the named file.  The default is
+                        the first input file encountered with a filetype
+                        (extension) of ".x".  
+
+                xrf accepts wild-card file input.  
+
+        DIAGNOSTICS:  
+
+
+                Trying to get too much.  
+
+                        Internal error, get help.  
+
+                Not enough memory space.  
+
+                        xrf ran out of main memory space.  
+
+                Cannot open "file" 
+
+                Cannot open listing file "file" 
+
+                Usage ...  
+
+        AUTHOR:  
+
+                Robert B.  Denny 
+
+        BUGS:  
+
+        Tool Library Reference Manual                                    Page 96
+        xrf     Cross-Reference Lister for C Programs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                   APPENDIX A
+
+                                   TOOL INDEX
+
+
+
+        The  following  is  a  keyword  in  context index to the Decus C
+        tools.  The entry in the left-hand column is the  title  of  the
+        routine in the main library documentation.  
+
+
+        lex                       A Lexical Analyser Generator          
+        archc                     text file archive creation            
+        arch                      text file archiver                    
+        archx                     text file archiver extraction         
+        echo      Output               Echo Arguments to Standard       
+        units                       Convert between various units       
+        entab            blanks by tabs and blanks               Replace
+        detab               Replace tabs by blanks                      
+        entab                       Replace blanks by tabs and blanks   
+        getkwk                              Build Keyword Index         
+        getcmd    Decus C                   Build command files for     
+        build     files                     Build compilation command   
+        wc          Count Words, Lines, and Bytes in Files              
+        getcmd      command files for Decus C                      Build
+        xrf                      Lister for C Programs   Cross-Reference
+        cpp                                 C pre-processor             
+        tr        program                   Character transliterator    
+        field              Select fields or columns from a file         
+        mc        multi-column format       Combine files in            
+        build             Build compilation command files               
+        getcmd                        Build command files for Decus C   
+        getrno    Format            Convert Comments To Runoff Source   
+        comm                                Compare Files for Equality  
+        diff              Differential File Comparison                  
+        build                         Build compilation command files   
+        lzcomp                         File compression                 
+        scat                                Concatenate Files           
+        kwik                     Keyword in Context Index               
+        getrno    Source Format             Convert Comments To Runoff  
+        mc        multi-column format       Convert a file to           
+        units     units                     Convert between various     
+        wc        Bytes in Files            Count Words, Lines, and     
+        archc             text file archive creation                    
+        xrf       C Programs                Cross-Reference Lister for  
+        sort                           Sort Data Files                  
+
+        C Compiler and Library                                          Page A-2
+        Tool Index
+
+
+        lzdcmp                         File decompression               
+        getcmd      Build command files for Decus C                     
+        diff      Comparison                Differential File           
+        od                         od Octal Dump                        
+        echo      Output                    Echo Arguments to Standard  
+        comm              Compare Files for Equality                    
+        grep                    Get Regular Expression and Print        
+        grep                    Get Regular Expression and Print        
+        archx            text file archiver extraction                  
+        field     file               Select fields or columns from a    
+        uniq        Print Unique Lines in a File                        
+        diff                   Differential File Comparison             
+        pr                            Print File With Line Numbers      
+        lzcomp                              File compression            
+        lzdcmp                              File decompression          
+        t                              Type File on Video Screen        
+        field      fields or columns from a file                  Select
+        archc                          text file archive creation       
+        arch                           text file archiver               
+        archx                          text file archiver extraction    
+        fixrno                    Fix table file for Runoff             
+        scopy                          Make file standard RMS           
+        mc                        Convert a file to multi-column format 
+        scat                    Concatenate Files                       
+        wc              Lines, and Bytes in Files           Count Words,
+        sort                      Sort Data Files                       
+        comm                        Compare Files for Equality          
+        build           compilation command files                  Build
+        fixdoc            Fix runoff output files                       
+        getcmd                Build command files for Decus C           
+        mc        format            Combine files in multi-column       
+        linepr    headers             Print files with line numbers and 
+        fixdoc                              Fix runoff output files     
+        fixrno                              Fix table file for Runoff   
+        getrno             To Runoff Source Format      Convert Comments
+        mc            files in multi-column format               Combine
+        mc           a file to multi-column format               Convert
+        lex              A Lexical Analyser Generator                   
+        grep      Print                     Get Regular Expression and  
+        grep      Print                     Get Regular Expression and  
+        linepr        with line numbers and headers          Print files
+        getkwk                Build Keyword Index                       
+        kwik             Keyword in Context Index                       
+        getkwk                        Build Keyword Index               
+        kwik                                Keyword in Context Index    
+        lex                               A Lexical Analyser Generator  
+        pr                  Print File With Line Numbers                
+        linepr             Print files with line numbers and headers    
+        uniq                   Print Unique Lines in a File             
+        wc                     Count Words, Lines, and Bytes in Files   
+        xrf                 Cross-Reference Lister for C Programs       
+        scopy                               Make file standard RMS      
+        nm                  nm Print Object Module Symbol Names         
+        mc                 Combine files in multi-column format         
+
+        C Compiler and Library                                          Page A-3
+        Tool Index
+
+
+        mc                Convert a file to multi-column format         
+        nm             Object Module Symbol Names               nm Print
+        nm        Symbol Names              nm Print Object Module      
+        pr             Print File With Line Numbers                     
+        linepr        Print files with line numbers and headers         
+        nm                         nm Print Object Module Symbol Names  
+        od                               od Octal Dump                  
+        od                                  od Octal Dump               
+        field                 Select fields or columns from a file      
+        echo          Arguments to Standard Output                  Echo
+        fixdoc                   Fix runoff output files                
+        cpp                               C pre-processor               
+        grep         Regular Expression and Print                    Get
+        grep         Regular Expression and Print                    Get
+        pr        Numbers                   Print File With Line        
+        nm        Names                  nm Print Object Module Symbol  
+        uniq      File                      Print Unique Lines in a     
+        linepr    numbers and headers       Print files with line       
+        tr         Character transliterator program                     
+        xrf                    Lister for C Programs     Cross-Reference
+        grep      Print                 Get Regular Expression and      
+        grep      Print                 Get Regular Expression and      
+        entab     blanks                    Replace blanks by tabs and  
+        detab                               Replace tabs by blanks      
+        scopy            Make file standard RMS                         
+        fixrno           Fix table file for Runoff                      
+        getrno          Convert Comments To Runoff Source Format        
+        fixdoc                          Fix runoff output files         
+        t                Type File on Video Screen                      
+        field     from a file               Select fields or columns    
+        sort                                Sort Data Files             
+        sorts                               Sort Utility Subroutines    
+        getrno           Comments To Runoff Source Format        Convert
+        echo              Echo Arguments to Standard Output             
+        scopy                     Make file standard RMS                
+        sorts                  Sort Utility Subroutines                 
+        nm           nm Print Object Module Symbol Names                
+        fixrno                          Fix table file for Runoff       
+        entab             Replace blanks by tabs and blanks             
+        detab                       Replace tabs by blanks              
+        archc                               text file archive creation  
+        arch                                text file archiver          
+        archx     extraction                text file archiver          
+        tr                        Character transliterator program      
+        t                                   Type File on Video Screen   
+        uniq                          Print Unique Lines in a File      
+        units       Convert between various units                       
+        sorts                          Sort Utility Subroutines         
+        units               Convert between various units               
+        t                      Type File on Video Screen                
+        wc        Files               Count Words, Lines, and Bytes in  
+

@@ -1,0 +1,166 @@
+	.title	profile	Print profile data
+	.ident	/000007/
+;
+;+
+;
+; Index		Print profile data after exit
+; Index		$$prnl -- Profile entry per line
+; Index		$$pfil -- Profile output file
+;
+; Usage
+;
+;	$$prof();
+;
+;	extern	int	$$prnl;
+;
+;	extern	char	*$$pfil;
+;
+;
+; Description
+;
+;	$$prof is called by the run-time library when the program
+;	exits if any functions have been executed that were compiled
+;	with the profile option.
+;
+;	A profile file is written to file "profil.out".  This is defined
+;	by a global symbol $$pfil.  By setting $$prnl to NULL, the
+;	profile file is supressed.
+;
+;	By changing the value of $$prnl, the program can control the
+;	number of profile entries written on each line.  The
+;	default value writes 4 entries per line.  Changing
+;	$$prnl to N writes N entries on each line, simplifing
+;	post-processing (sorting) of the data.  For example:
+;
+;		$$prnl = 0;
+;
+;	writes each entry on a separate line.
+;
+;	The following example shows how to control the output file
+;	name:
+;
+;		extern char *$$pfil;
+;		...
+;		$$pfil = "ti:";	/* Output to ti:	*/
+;		$$pfil = NULL;	/* No profile output	*/
+;
+;
+;	Data is written using the format string "%8s %6u".
+;	If more than one entry is written to a line, succeeding
+;	entries will be preceeded by one space.
+;
+;	Note that, by writing the data one entry per line, the
+;	profile output may easily be sorted either by function name
+;	or by frequency count.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 26-Mar-80 MM	New $data structure, $$prnl added.
+; 000003 19-Jun-80 MM	Added $$pfil
+; 000004 15-Jul-80 MM	Output value is unsigned
+; 000005 08-Jul-82 MM	Allow $$pfil = NULL
+; 000006 19-Jan-87 JMC  Change .psect for I/D space.
+; 000007 19-Jan-02 BQT	Changed for I/D space.
+;			Changed how profile area is found.
+;
+
+	.psect	c$data,d,rw					;06
+$$pfil::
+	.word	fn		; Default output file		;03
+$$prnl::							;02
+	.word	4		; Default -- 4 entries per line	;02
+
+	.psect	c$stcn,d,ro
+w:	.asciz	"w"
+fn:	.asciz	"profil.out"	; Name change
+fmt:	.asciz	"%8s %6u"					;04
+err01:	.asciz	/Profiler can't open "%s", code = %06o/<12>
+
+	.psect	c$proe,d,rw	; Just before profile stuff.
+profst:
+	.psect	c$prog,d,rw	; Right after profile end.
+profnd:
+
+	.psect	c$code,i,ro
+;
+; Write the profile output to file "profil.out".
+;
+
+$$prof::
+	jsr	r5,csv$		; Get new frame.
+	mov	#w,(sp)
+	mov	$$pfil,-(sp)	; File name			; 03
+	beq	70$		; Exit if no output		; 05
+	jsr	pc,fopen	; r4 = fopen("profil.out", "w");
+	tst	(sp)+
+	mov	r0,r4		; if (r4 == NULL) return;
+	beq	40$
+;
+; Run through all profiling data.
+;
+	mov	#profst,r3	; First block.
+	clr	r2		; Column count.
+10$:	cmp	r3,#profnd	; Finished?
+	bhis	50$		; Yes.
+	tst	r2		; First column?
+	beq	30$		; Yes.
+
+	mov	#' ,r0		; No. Output either a space or a nl.
+	cmp	r2,$$prnl	; Done enough for this line?	;02
+	blt	20$						;02
+	mov	#12,r0
+	clr	r2
+
+20$:
+	mov	r4,(sp)		; IOV
+	mov	r0,-(sp)	; Char.
+	jsr	pc,putc		; putc([r0], [r4]);
+	tst	(sp)+
+
+30$:
+	mov	(r3)+,(sp)	; Count
+	mov	r3,-(sp)	; Name
+	mov	#fmt,-(sp)
+	mov	r4,-(sp)
+	jsr	pc,fprintf
+	add	#<3*2>,sp
+	inc	r2
+31$:	tstb	(r3)+		; Skip to end of name.
+	bne	31$
+	inc	r3		; And then round off.
+	bic	#1,r3
+	br	10$
+
+;
+; Here if the file won't open
+;
+40$:
+	mov	$$ferr,(sp)		; Error code
+	mov	$$pfil,-(sp)		; File name
+	mov	#err01,-(sp)		; Error message
+	mov	stderr,-(sp)		; Write to stderr
+	call	fprintf			;
+	br	70$			; and go exit
+;
+; Close file and return
+;
+
+50$:
+	tst	r2			; At the start of the line
+	beq	60$			; br if so
+	mov	r4,(sp)			; no, force a linefeed
+	mov	#12,-(sp)		; to profil.out
+	jsr	pc,putc
+	tst	(sp)+
+
+60$:
+	mov	r4,(sp)
+	jsr	pc,fclose
+
+70$:
+	jmp	cret$
+	.end

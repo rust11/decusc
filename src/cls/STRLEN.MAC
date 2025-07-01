@@ -1,0 +1,38 @@
+	.title	strlen	String length
+	.ident	/000002/
+;
+;+
+;
+; Index		Compute length of a string
+;
+; Usage
+;
+;	int
+;	strlen(s);
+;	char		*s;
+;
+; Description
+;
+;	Return the length of the argument string.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+strlen::
+	mov	2(sp),r0
+	mov	r0,r1
+10$:
+
+	tstb	(r0)+
+	bne	10$
+	sub	r1,r0
+	dec	r0
+	return
+	.end

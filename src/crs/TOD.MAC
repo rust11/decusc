@@ -1,0 +1,91 @@
+	.title	tod	Compute time of day
+	.ident	/000003/
+;
+;+
+;
+; Index		Compute time of day
+;
+; Usage
+;
+;
+;	long
+;	tod(0);
+;
+;	long
+;	tod(tloc);
+;	long		*tloc;
+;	
+;
+; Description
+;
+;	tod() returns the time of day in seconds.  If tloc is
+;	non-null, the return value is also stored in the place to
+;	which tloc points.
+;
+;	tod() is fairly fast.  time() computes the "Unix time" but
+;	is much slower and larger.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 21-May-80 MM	Written from scratch
+; 000002 21-Jul-80 MM	Use $$tick for RT11
+; 000003 16-Feb-82 MM	Renamed from time()
+; 000004 19-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if ne	rsx
+	.psect	c$code,i,ro
+
+tod::									;03
+	jsr	r5,csv$
+	sub	#<8.*2>,sp	;get the buffer
+	mov	sp,r4		;r4 -> time buffer
+	mov	r4,-(sp)	;time buffer
+	mov	(pc)+,-(sp)
+	.byte	61.,2		;GTIM$
+	emt	377
+	mov	#1440.,-(sp)	;1440 = 24 * 60
+	mov	<3*2>(r4),-(sp)	;Hours -- low order
+	sxt	-(sp)		;Sign extended -- not really needed
+	call	mul$li		;(hours * (24 * 60))
+	cmp	(sp)+,(sp)+	;clear the stack
+	add	<4*2>(r4),r1	;add in minutes in this hour
+	adc	r0		;as a long
+	mov	#60.,(sp)	;seconds per minute
+	mov	r1,-(sp)	;minutes, low order
+	mov	r0,-(sp)	;as a long
+	call	mul$li		;get number of seconds
+	add	<5*2>(r4),r1	;seconds
+	adc	r0		;high-order, too
+	mov	c$pmtr+0(r5),r2	;store it
+	beq	10$		;if non-null
+	mov	r0,(r2)+	;store high-order
+	mov	r1,(r2)		;and low-order
+10$:	jmp	cret$		;and exit
+
+.iff
+	.mcall	.gtim							;02
+	.psect	c$code,i,ro
+
+tod::									;03
+	jsr	r5,csv$
+	cmp	-(sp),-(sp)	;get a time buffer
+	mov	sp,r4		;r4 -> time
+	cmp	-(sp),-(sp)	;get a parameter buffer
+	mov	sp,r3		;r3 -> arg. buffer
+	.gtim	r3,r4		;get the time
+	mov	$$tick,(sp)	;Get clock frequency			;02
+	mov	2(r4),-(sp)	;Low order
+	mov	(r4),-(sp)	;High order
+	call	div$li		;time / Hertz
+	mov	C$PMTR+0(r5),r2	;Store it if non-zero
+	beq	20$		;nope
+	mov	r0,(r2)+	;yep, high order
+	mov	r1,(r2)		;and low order
+20$:
+	jmp	cret$
+.endc
+	.end

@@ -1,0 +1,45 @@
+	.title	rstsys	Execute a RSTS EMT
+	.ident	/000003/
+;
+;+
+;
+; Index		Execute a RSTS EMT
+;
+; Usage
+;
+;	int
+;	rstsys(emt)
+;
+; Description
+;
+;	Execute a rsts emt, returning the error code.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 21-Apr-82 JLB	Initial edit
+; 000002  7-May-82 JLB	Fix $$OPSYS bug
+; 000003 19-Jan-02 BQT	Changed for I/D space.
+;
+
+firqb = 0402
+	.globl	$$opsy
+
+	.psect	c$code,i,ro
+rstsys::
+	mov	(pc)+,	-(sp)		; Build cleanup command on stack
+	  jsr	sp, @(sp)+		; Returns from command exec.
+	mov	2+2(sp),-(sp)		; Get user emt code (hope it's an EMT)
+	cmp	$$opsy,	#7		; Under RT11?
+	bne	no.rt			; If so we must
+	mov	(pc)+,	-(sp)		;  Stuff the prefix emt on the stack
+	  emt	377			;  Emt prefix code
+no.rt:
+	jsr	pc,	(sp)		; Execute the stuff
+	clr	r0			; Error code is a pos. byte
+	bisb	@#firqb,r0		; Get error code from firqb
+	rts	pc			; And exit
+	.end
+

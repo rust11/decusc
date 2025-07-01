@@ -1,0 +1,87 @@
+	.title	setjmp	Execute non-local goto
+	.ident	/000005/
+;
+;+
+;
+; Index		setjmp -- save state for longjmp
+; Index		longjmp -- execute non-local goto
+;
+; Usage
+;
+;	#include <setjmp.h>
+;
+;	setjmp(env);
+;	jmp_buf		env;	/* Static save buffer	*/
+;
+;	longjmp(env, val)
+;	jmp_buf		env;	/* Was set by setjmp	*/
+;	int		val;	/* Value to return	*/
+;
+; Description:
+;
+;	These routines are useful for dealing with errors and interrupts
+;	encountered in a low-level subroutine of a program.
+;
+;	Setjmp() saves its stack environment in env for later
+;	use by unwind().  It returns 0.
+;
+;	Longjmp(env) restores the environment saved by the last call of
+;	setjmp(env). It then returns in such a way that execution continues
+;	as if the call of setjmp() had just returned.  All accessible data
+;	have values as of the time setjmp() was called.  The return from
+;	setexit() will have the specified value.  For example:
+;
+;	    #include <setjmp.h>
+;	    jmp_buf	env;
+;	    ...
+;	    main() {
+;		...
+;		if (setjmp(&env) != 0) {
+;		    err_exit();	/* Longjmp called	*/
+;		}
+;		else {
+;		    process();	/* Setjmp  called	*/
+;		}
+;		...
+;	    process() {
+;		...
+;		longjmp(&env);
+;		
+;	The routine that called setjmp() must still be active when longjmp()
+;	is called.
+;
+; Bugs
+;
+;-
+; EDIT HISTORY
+;
+; 000001 	   JMT	Original
+; 000002 31-Jul-78 JMT	Bug fix
+; 000003 07-Mar-80 MM	Setexit returns 0, unwind 1
+; 000004 23-Nov-81 MM	Conversion to setjmp/longjmp
+; 000005 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+SETJMP::
+	MOV	2(SP), R0		; R0 -> environment save area
+	MOV	(SP), (R0)+		; save caller PC
+	MOV	SP, (R0)+
+	MOV	R5, (R0)+
+	MOV	R4, (R0)+
+	MOV	R3, (R0)+
+	MOV	R2, (R0)
+	CLR	R0			; Return 0
+	RTS	PC			; to our caller
+
+LONGJMP::
+	MOV	2(SP),R1		; R1 -> environment save area
+	ADD	#14,R1			; R1 -> beyond save area
+	MOV	4(SP),R0		; Return value
+	MOV	-(R1), R2		; restore regs
+	MOV	-(R1), R3
+	MOV	-(R1), R4
+	MOV	-(R1), R5
+	MOV	-(R1), SP
+	JMP	@-(R1)			; to the last caller of setjmp
+	.END

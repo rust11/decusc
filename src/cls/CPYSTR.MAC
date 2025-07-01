@@ -1,0 +1,49 @@
+	.title	cpystr	String copy
+	.ident	/000002/
+;
+;+
+;
+; Index		String copy
+;
+; Usage
+;
+;	char *
+;	cpystr(out, in);
+;	char		*out;
+;	char		*in;
+;
+; Description
+;
+;	Copy "in" to "out".  Return a pointer to the end of out.
+;	This allows the following usage:
+;
+;		char		*ptr;
+;		char		buffer[BUFSIZ];
+;		extern char	*cpystr();
+;
+;		ptr = cpystr(buffer, text);
+;		ptr = cpystr(ptr, more_text);
+;
+;	The above sequence appends more_text to the copy of text
+;	already moved into the buffer.
+;
+; Bugs
+;
+;
+;-
+;
+; Edit history
+; 000001 07-May-80 MM	Initial edit
+; 000002 14-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+cpystr::
+	mov	2(sp),r0
+	mov	4(sp),r1
+10$:
+	movb	(r1)+,(r0)+
+	bne	10$
+	dec	r0			; r0 -> trailing null
+	return
+	.end

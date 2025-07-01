@@ -1,0 +1,82 @@
+	.title	callc	Call (Fortran) subroutine from C
+	.ident	/000003/
+;
+;+
+;
+; Index		Call (Fortran) subroutine from C
+;
+; Usage
+;
+;	integer	callc
+;
+;	ivalue = callc(routine, arg1, ... argN)
+;
+; Description
+;
+;	User-callable interface between Fortran programs and
+;	subroutines written in C.
+;
+;	The arguments are as follows:
+;
+;		routine		The name of the C routine to  be
+;				called.
+;
+;		arg1		The   (location  of  the)  first
+;				argument.
+;
+;	For example:
+;
+;		call callc(sort, table, nelement)
+;
+; Bugs
+;
+;	There will be I/O library conflicts since
+;	C files have not been initialized.
+;
+;	The following problem will occur if a C subroutine is
+;	called from a Fortran main program:
+;
+;	The C subroutine refers to the save register routine (CSV$)
+;	which refers to the C main program.  This pulls in a large
+;	amount of I/O dependent code, which may cause conflicts.
+;
+;	What is worse is that there will be two main programs.
+;
+;	It is therefore recommended that there be a C main program
+;	that calls Fortran subroutines that may, in turn, call
+;	C subroutines.
+;
+;	The programmer can also define a dummy program that resolves
+;	the globals referenced by CSV$ or modify callc.mac to provide
+;	the necessary globals.
+;
+;-
+;
+; Edit history:
+;
+; 000001 ??	   MM	Original
+; u1	 12-Oct-81 SR	Fixed bug in restoring stack after call.
+; 000002 08-Feb-82 MM	Restore caller's R4
+; 000003 14-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+CALLC::
+	MOV	R5,-(SP)	; Save R5 for caller
+	MOV	R4,-(SP)	; Save R4 for caller		;02
+	MOV	SP,R4		; Save stack pointer for return	;u1
+	MOV	(R5)+,R0	; R0 gets arg. count
+	BIC	#177400,R0	; Only low byte is valid
+	BEQ	20$		; Exit if no arguments
+	ADD	R0,R5		; R5 points to
+	ADD	R0,R5		;  arg. list end.
+10$:	MOV	-(R5),-(SP)	; Push all arguments
+	DEC	R0		;  onto the stack.
+	BNE	10$		; (Even the routine)
+	CLR	R5		; Don't link env'ts.
+	JSR	PC,@(SP)+	; Call the C routine
+	MOV	R4,SP		; Restore stack			;u1
+20$:	MOV	(SP)+,R4	; Restore R4			;02
+	MOV	(SP)+,R5	; Restore R5
+	RTS	PC		; And exit.
+	.END

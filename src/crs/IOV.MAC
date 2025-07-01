@@ -1,0 +1,519 @@
+	.title	iov	I/O vector definition
+.if ne rmsio
+	.ident	"RMS020"
+.iff
+	.ident	/000020/
+.endc
+;
+;+
+;
+; Index		I/O vector definition
+; Index		I/O error codes
+; Index		I/O system internal flags and vectors
+; Index		$$ferr -- File error value
+;
+; Usage
+;
+;	#include <stdio.h>
+;
+;	... to be supplied ...
+;
+;    Bits in iov.io_flag:
+;
+;	#define _IOREAD 0000001	/* read 		*/
+;	#define _IOWRT  0000002	/* write		*/
+;	#define _IONBF	0000004	/* Unbuffered, "u" mode	*/
+;	#define _IOMYBUF 000010	/* I/O lib. owns buffer	*/
+;	#define _IOEOF	0000020	/* End of file seen	*/
+;	#define _IOERR	0000040	/* Error seen		*/
+;	#define _IOSTRG	0000100	/* For sprintf		*/
+;	#define _IORW	0000200	/* Open for read/write	*/
+;	#define	IO_CMD	0000400	/* User's command titty	*/
+;	#define	IO_APN	0001000	/* Append mode open	*/
+;	#define	IO_NOS	0002000	/* No newlines needed	*/
+;	#define IO_NEWL	0004000	/* RSX TTY newline hack	*/
+;	#define	IO_FIL	0010000	/* Disk file		*/
+;	#define	IO_TTY	0020000	/* Terminal device	*/
+;	#define	IO_REC	0040000	/* Record device	*/
+;	#define	IO_OPN	0100000	/* Open file		*/
+;	#define IO_EOR	(IO_ERR | IO_EOF)
+;
+;    Bits in iov.io_wflag:
+;	#define IO_WLD	0000001	/* fwild: wildcard file	*/
+;	#define IO_VM1	0000002	/* fwild: version ;-1	*/
+;	#define IO_VER	0000004	/* fwild: ;0 or ;-1	*/
+;	#define IO_WF1	0000010	/* fwild first flag	*/
+;	#define	IO_NLH	0000020	/* Newlines hack bit	*/
+;
+;    Bits in iov.io_rsflag (RSTS native only)
+;	#define	IO_ODT2	0100000	/* ODT mode (RSTS only)	*/
+;
+;	extern int   $$ferr;	/* Error word		*/
+;	extern FILE  *stdin;	/* Standard input  file	*/
+;	extern FILE  *stdout;	/* Standard output file	*/
+;	extern FILE  *stderr;	/* User's command tty	*/
+;	extern int   $$exst;	/* Exit status		*/
+;
+; Internal
+;
+;	extern FILE  *$$luns[];	/* IOV pointer table	*/
+;	extern FILE  *$$lune;	/* IOV table end	*/
+;	extern (int)(char *$$lmax); /* RSX $$luns dim.	*/
+;	extern char  **$$ifil;	/* -> stdin file name	*/
+;	extern char  **$$ofil;	/* -> stdout file name	*/
+;	extern int   $$nlun;	/* RSX: Number of luns	*/
+;	FILE	     *$$eiov;	/* RSX: Stderr iov	*/
+;	extern int   $$iosb[2];	/* RSX: I/O status 	*/
+;
+; Description
+;
+;	Define the I/O vector structure used for communication by
+;	all I/O routines in the C library.  Note that it is
+;	different for RSX and RT11 modes.  Note also that certain bits
+;	in IO_FLAG are only meaningful for one flavor of I/O.
+;
+;	The RSX-mode IOV contains an entire file data block (FDB).
+;	Also, 'io_uic' contains the binary UIC of the directory
+;	via which the file is being accessed, not the 'owner' UIC.
+;	It is this UIC which is given when fgetname() is called.
+;
+;	The RT11-mode IOV contains only enough information to read and
+;	write files plus a pointer to an Ascii string with the file
+;	name argument to fopen().  The file name is needed for fgetname()
+;	and to allow deleting files given the IOV pointer.
+;
+;	The following files are defined here:
+;
+;		stdin	The standard input file.
+;
+;		stdout	The standard output file.
+;
+;		stderr	The error  output  file.   Note:  on RSX
+;			systems, stderr is opened on LUN 1.
+;
+;	$$ferr (error word) is also defined here.  This is set non-zero
+;	if an error occurred when performing I/O.  On RSX, the standard
+;	I/O error code is returned.  On RT11, an error code compatible
+;	with RSTS/E usage is returned:
+;
+;		Global   Value	Meaning
+;		E$$ILF	02. 002	Illegal file name
+;		E$$NOR	04. 004	No room for user on device
+;		E$$FNF	05. 005	Can't find file or account
+;		E$$NOD	06. 006	Not a valid device
+;		E$$ILU	07. 007 I/O channel in use
+;		E$$NOO	09. 011	I/O channel not open
+;		E$$EOF	11. 013	End of file on device
+;		E$$FAT	12. 014	Fatal system I/O failure
+;		E$$ERR	13. 015	User data error on device
+;		E$$FND	16. 020 File already found (protected)
+;		E$$NOC	17. 021	Too many open files on unit.
+;		E$$NSP	32. 040	No memory space for buffer
+;
+;	E$$FAT (12) is set only if an "impossible" error occurs.  While this
+;	may indicate a bug in the RT11 library, it is more likely to be
+;	a user programming error (like passing garbage to an I/O routine).
+;
+;	E$$ILU (7) is set if fopen tries to open a channel that is already
+;	in use.
+;
+;	The perror() library routine may be used to print an error message
+;	defined for the error code.
+;
+;	$$exst (exit status) is used to transmit a termination code to
+;	the operating system.  The value is set by calling exit() or
+;	exits().  The following exit status values are defined in stdio.h:
+;
+;	  Global  #define    RSX RT11 Meaning
+;	  E$$XOK IO_SUCCESS   1    1  Normal
+;	  E$$XWA IO_WARNING   0    2  Warning
+;	  E$$XER IO_ERROR     2    4  Error
+;	  E$$XFA IO_FATAL     4    8  Severe Error
+;
+; Internal
+;
+;	In RSX, buffering is done by the RSX file-management services
+;	(FCS).  The block buffer pointer is unused (but reserved for
+;	anybody who cares to add random access).
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the newer C library
+; 000003 18-Mar-80 MM	Rewritten to add RT11 support
+; 000004 10-Jun-80 MM	Added VF$VER, VF$VM1, WF$MOD
+; 000005 26-Jun-80 MM	Added V$WILD
+; 000006 27-Jun-80 MM	Reorganized -- version numbers removed
+; 000008 18-Jul-80 MM	Added E$$ILU and E$$FND, redid globalization
+; 000009 01-Aug-80 MM	Removed VF$OUT, added VF$WF1, moved VF$OPN
+; 000010 17-Aug-80 RBD	Added IO_WLD/VF$WLD for RT-11 fwild() support.
+;			(VF$WLD is set for RSX wild-card files, too.)
+; 000011 15-Sep-80 RBD	Added IO_UIC/V$UIC to RSX IOV for proper UIC
+;			handling under native RSX.
+; 000012 ??		??
+; 000013 17-Feb-81 MM	No newlines hack for wildcard files
+; 000014 27-Jun-82 MM	Major revision
+; 000015 13-Aug-82 MM	Added VF$NEWL
+; 000016 29-Sep-82 MM	Remove VF$BZY, Added VF$CMD
+; RMS017 17-Dec-83 RBD	Add conditional support for RMS-11(V2)
+; 000018 06-Jul-84 RBD	Merge MM's "Set VF$NEWL for RSX correctly" ... actually
+;			was in my version all along.  Marked anyway.  Correct
+;			documentation for changes to VF$BZY -> VF$CMD etc.
+; 000019 19-Jan-87 JMC  Change .psect for I/D space.
+; 000020 18-Jan-02 BQT	Changed for I/D space.
+;
+
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+.iif	ndf	rsts	rsts	=	0	;Not native RSTS/E
+;
+; The IOV is the communication area for all I/O functions.
+; Note that, when referred to by ASM routines (??????.S),
+; "$" is written using the forbidden tilde.
+;
+.if ne	rsx
+.if ne  RMSIO
+	.mcall	FAB$B	FABOF$	RAB$B	RABOF$				;17+
+	.mcall	NAM$B	NAMOF$	XAB$B	XABOF$
+	XABOF$	DEF$SZ
+	RABOF$	DEF$SZ
+	NAMOF$	DEF$SZ
+	FABOF$	RMS$L							;17-
+.iff
+	.mcall	FDOF$L,	FDBDF$,	FDAT$A,	FDRC$A,	FDOP$A, NMBLK$
+	FDOF$L
+.endc
+.endc
+	.psect	c$data,d,rw						;19
+;
+;
+; Some macros to simplify definition.
+;
+.macro	define	start=0
+	$off$ = start
+.endm
+
+.macro	int	name, size=1		; Define a global integer
+	$ = size+size
+	.iif ne	<$ & 1>			.error odd size for name
+name	==	$off$			; Define name
+	$off$ = $off$ + $
+.endm	int
+
+.macro	allo	name, value, size=1
+	$ = size+size
+	.iif ne <$ & 1>			.error odd size for name
+	.iif ne	<name - $off$>		.error bad allocation for name
+	.if ne size
+	.word	value			; Allocate name = value
+	.endc
+	$off$ = $off$ + $
+.endm
+
+.macro	char	name, size=1		; Define a global character
+name	==	$off$			; Define name
+	$off$ = $off$ + size
+.endm	char
+
+.macro	bitmask	name
+	.iif eq	$off$			.error name bit flag overflow
+.if nb	<name>
+name	==	$off$
+.endc
+	$off$ = $off$ + $off$
+.endm	bitmask
+
+
+;
+; Define the I/O vector offsets
+;
+
+define
+;
+; This section is common to all implementations
+;
+int	V$BCNT		; _cnt		free (or unread) bytes in buffer
+int	V$BPTR		; _ptr		-> next byte to read/write
+int	V$BASE		; _base		-> start of buffer
+int	V$FLAG		; _flag		I/O flags
+int	V$WFLG		; io_wflag	Wildcard flags
+int	V$WILD		; io_wild	Wildcard buffer
+int	V$RBSZ		; io_rbsz	Record buffer size in bytes
+;
+; This section is needed for RT11 (and RSTS)
+;
+.if eq	rsx
+int	V$LUN		; io_lun	Logical unit (channel) number
+int	V$BNBR		; io_bnbr	Block number
+int	V$FSIZ		; io_size	File size in blocks
+int	V$NAME		; io_name	File name
+char	V$DBUF,size=2	; io_dbuf[2]	Dummy ungetc buffer
+.if ne	rsts
+int	V$RFLG		; io_rflag	RSTS/E specific flags
+int	V$RECM		; io_recm	XRB@XRMOD	modifier
+int	V$WAIT		; io_wait	XRB@XRTIME	i/o wait time
+int	V$BLKM		; io_blkm	XRB$XRBLKM	high-word block number
+.endc
+.iff
+;
+; RSX specific stuff
+;
+int	V$BBUF		; io_bbuf	Block buffer (unused for now)
+int	V$UIC		; io_uic	File uic
+int	V$DNAM		; io_dname	Directory name string
+.if ne RMSIO
+char	V$FAB,size=FB$BLN	; io_fab[]	File access block	;17+
+V$LUN	== V$FAB+O$LCH		; LUN location in FAB.
+char	V$NAM,size=NB$BLN	; io_nam[]	Name block
+char	V$RAB,size=RB$BLN	; io_rab[]	Record access block
+char	V$DAT,size=XB$DTL	; io_dat[]	Date/time XAB
+char	V$PRO,size=XB$PRL	; io_pro[]	Proctection XAB		;17-
+.iff
+char	V$FDB,size=S.FDB ; io_fdb[]	File data block
+V$LUN	== V$FDB+F.LUN	;LUN location in FDB.
+.endc
+.endc
+int	V$SIZE,size=0	; Size of complete iov
+
+;
+; Define flag bits
+;
+define	start=1			; Bits in iov._flag
+bitmask	VF$READ			; Open for input
+bitmask	VF$WRT			; Open for output
+bitmask	VF$NBF			; Unbuffered i/o 'u' flag to fopen
+bitmask	VF$MBUF			; Buffer owned by i/o routines
+bitmask	VF$EOF			; End of file seen
+bitmask	VF$ERR			; Error seen
+bitmask	VF$STRG			; String, used by sprintf() and scanf()
+bitmask	VF$RW			; Read/write
+bitmask	VF$CMD			; User's command terminal		;16
+bitmask	VF$APN			; 'a' option to fopen
+bitmask	VF$NOS			; 'n' option to fopen
+bitmask	VF$NEWL			; Newline hack -- see IOPUT.MAC		;15
+bitmask	VF$FIL			; Disk file
+bitmask	VF$TTY			; Terminal				;16
+bitmask	VF$REC			; Record device
+bitmask	VF$OPN			; Open file
+
+VF$EOR	==	VF$EOF+VF$ERR	;End of input mask
+
+;
+; The following bits are defined in iov.io_wflag (for wildcards)
+; They must be in the low byte for RT11 (native) fwild to work.
+;
+
+define	start=1
+bitmask	VF$WLD			; Wild card file
+bitmask	VF$VM1			; Version ;-1 specified
+bitmask	VF$VER			; Version ;0 or ;-1 specified
+bitmask	VF$WF1			; Wild card first flag
+bitmask	VF$NLH			; Newlines hack bit
+
+.if ne 	rsts
+;
+; The following bit is used for the RSTS native library
+;
+define	start=100000
+bitmask	VF$ODT2			; ODT mode
+.endc
+
+;
+; The error IOV is allocated statically
+;
+.if ne	rsx
+define
+$$eiov::
+allo	V$BCNT, $$esiz			; Buffer count
+allo	V$BPTR, $$erec			; Buffer pointer
+allo	V$BASE, $$erec			; Buffer start
+allo	V$FLAG,	<VF$OPN+VF$REC+VF$TTY+VF$CMD+VF$WRT+VF$NEWL>		;16/18
+allo	V$WFLG,	0			; Wild card flags
+allo	V$WILD, 0			; Wild card buffer
+allo	V$RBSZ,	$$esiz			; Buffer size
+allo	V$BBUF,	0			; Block buffer
+allo	V$UIC,	0			; UIC
+allo	V$DNAM,	0			; Directory name
+.if ne RMSIO
+allo	V$FAB,size=0			; FAB				;17+
+$$efab::
+	fab$b				; File access block
+	 F$FNA	$$efna			; File name string
+	 F$FNS	$$efns			; File name size
+	 F$NAM	$$enam			; File name block
+	 F$LCH	1			; LUN 1
+	 F$ORG	FB$SEQ			; Sequential file
+	 F$RAT	FB$CR			; CR/LF
+	 F$RFM	FB$VAR			; Variable length records
+	 F$XAB	$$edat			; Link to first XAB
+	fab$e
+$off$ = $off$ + <.-$$efab>
+allo	V$NAM,size=0			; NAM
+$$enam::
+	nam$b
+	 N$ESA	$$eesa			; Expanded string buffer address
+	 N$ESS	$$eess			; Expanded string length
+	nam$e
+$off$ = $off$ + <.-$$enam>
+allo	V$RAB,size=0			; RAB
+$$erab::
+	rab$b				; Record access block (RAB)
+	 R$FAB	$$efab			; Address of FAB
+	 R$UBF	$$erec			; User record buffer
+	 R$USZ	$$esiz			; User record buffer size
+	rab$e
+$off$ = $off$ + <.-$$erab>
+allo	V$DAT,size=0
+$$edat::				; XAB (DAT)
+	xab$b	XB$DAT			; Date/time block declaration
+	 X$NXT	$$epro			; Link to next XAB
+	xab$e
+$off$ = $off$ + <.-$$edat>
+allo	V$PRO,size=0
+$$epro::				; XAB (PRO)
+	xab$b	XB$PRO			; Protection block declaration
+	 X$NXT	0			; End of XAB list
+	xab$e
+$off$ = $off$ + <.-$$epro>						;17-
+.iff
+allo	V$FDB,size=0			; FDB
+$$efdb::
+	fdbdf$				; File data block
+	fdat$a	r.var,fd.cr		; Vanilla file
+	fdrc$a				; Use get/put
+	fdop$a	1,,$$efnb		; Default filename, lun 1
+$off$ = $off$ + <.-$$efdb>
+.endc
+.iff
+;
+; RT11 (and RSTS native)
+;
+define
+$$eiov::
+allo	V$BCNT, 0			; Buffer count
+allo	V$BPTR, 0			; Buffer pointer
+allo	V$BASE, 0			; Buffer start			;16--
+allo	V$FLAG,	<VF$OPN+VF$TTY+VF$CMD+VF$NBF+VF$WRT>			;15/16
+allo	V$WFLG,	0			; Wild card flags
+allo	V$WILD, 0			; Wild card buffer
+allo	V$RBSZ,	0			; Buffer size
+allo	V$LUN,	-1			; Strange lun
+allo	V$BNBR,	0			; Block number
+allo	V$FSIZ,	0			; File size in blocks
+allo	V$NAME,	tty			; File name
+allo	V$DBUF, 0			; Ungetc buffer
+.if ne	rsts
+allo	V$RFLG, 0
+allo	V$RECM, 0
+allo	V$WAIT, 0
+allo	V$BLKM, 0
+.endc
+.endc
+allo	V$SIZE,size=0		; Check size of complete iov
+
+.if ne	rsx
+.if ne RMSIO
+$$EFNA::								;17+
+	.ascii	"TI:ERROUT.TXT"
+$$EFNS = .-$$EFNA
+	.even
+$$EESA::
+	.word	$$gsa
+	.BLKB	78.
+$$EESS = .-$$EESA
+	.even								;17-
+
+.iff
+$$EFNB::
+	NMBLK$	ERROUT,TXT,,TI	; Default output to TI:ERROUT.TXT
+				; Note: on VMS, this is changed to
+				; CL:ERROUT.TXT by init.mac
+.endc
+.endc
+
+.if eq rsx
+;
+; Define Error codes for RT11
+;
+E$$ILF	==	02.		;Illegal file name
+E$$NOR	==	04.		;No room for user on device
+E$$FNF	==	05.		;Can't find file or account
+E$$NOD	==	06.		;Not a valid device
+E$$ILU	==	07.		;I/O channel in use
+E$$NOO	==	09.		;I/O channel not open
+E$$EOF	==	11.		;End of file on device
+E$$FAT	==	12.		;Fatal system I/O failure
+E$$ERR	==	13.		;User data error on device
+E$$FND	==	16.		;File already found
+E$$NOC	==	17.		;Too many open files on unit.
+E$$NSP	==	32.		;No memory space left
+
+.endc
+
+;
+; Define exit status codes
+;
+.if ne rsx
+E$$XOK	==	1
+E$$XWA	==	0
+E$$XER	==	2
+E$$XFA	==	4
+.iff
+E$$XOK	==	1
+E$$XWA	==	2
+E$$XER	==	4
+E$$XFA	==	8.
+.endc
+
+;
+; Allocate other file data
+;
+
+$$ferr::
+	.word	0		;Error control word
+
+.if ne	rsx
+$$nlun::
+	.word	0		;Number of luns
+.nluns::
+	.blkw	1		;Set (by linker) to number of user luns
+$$iosb::
+	.word	0,0		;Common i/o status block for library
+.endc
+
+$$ifil::
+	.word	tty		;Stdin file name
+$$ofil::
+	.word	tty		;Stdout file name
+$$erec::
+	.blkw	41.		;Stderr buffer (also used by GTSK)
+
+$$esiz	==	.-$$erec	;Error record size
+
+$$lmax	==	20.		;Max number of user luns
+
+stdin::
+	.word	0		;Stdin ioptr
+stdout::
+	.word	0		;Stdout ioptr
+;
+; Note: stderr must be located just before $$luns
+; as it is assigned to LUN 1 on RSX, and to channel -1 on RT11
+; $$luns[0] is LUN 2 on RSX, and channel 0 on RT11
+;
+stderr::
+	.word	$$eiov		;Stderr ioptr (lun 1 or -1)
+
+$$luns::
+	.blkw	$$lmax		;Ioptrs on a per lun basis
+$$lune	==	.		;End of Ioptr table
+
+tty:
+.if ne	rsx
+	.asciz	/ti:/		;Standard (command) input/standard output
+.iff
+	.asciz	/tt:/		;Standard input/standard output
+.endc
+	.END

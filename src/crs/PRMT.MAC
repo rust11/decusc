@@ -1,0 +1,27 @@
+	.enable	lc
+	.title	$$prmt	Null prompt pointer
+	.ident	/000003/
+;+
+;
+; Index		Null prompt pointer
+;
+; Usage
+;	char *$$prmt = "Prompt string";
+;
+; Description
+;
+;	This pointer is checked in $$init and if the user has defined
+;	$$prmt then it will be used as the task prompt instead of
+;	using the task name on RSX or "Argv:" on RT-11.
+;-
+;
+; Edit history
+; 000001 02-Oct-82 TTC		Initial edit
+; 000002 19-Jan-87 JMC		Change .psect for I/D space.
+; 000003 19-Jan-02 BQT		Changed for I/D space.
+;
+	.psect	c$data,d,rw						;02
+
+$$prmt::	.word	0
+
+	.end

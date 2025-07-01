@@ -1,0 +1,52 @@
+	.title	fflush	Flush output buffers
+	.ident	/000008/
+;
+;+
+;
+; Index		Flush output buffers
+;
+; Usage
+;
+;	fflush(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;	Flush output buffers.  This routine actually does I/O.
+;	$$ferr is set if anything unexpected happens.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 10-Mar-80 MM	Conversion for the newer library
+; 000003 27-Mar-80 MM	Merged libraries
+; 000004 23-Jun-80 MM	Added .print/.ttyout to RT11
+; 000005 01-Aug-80 MM	IOV tracking
+; 000006 14-Oct-81 MM	Split out $$flsh and $$put
+; 000007 27-Jun-82 MM	Newer library
+; 000008 17-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+
+	.psect	c$code,i,ro
+
+FFLUSH::
+	JSR	R5,CSV$
+	MOV	C$PMTR(R5),R4		;R4 -> IOV
+	CLR	R0			;Assume ok
+.if ne	rsx
+	BIT	#VF$WRT,V$FLAG(R4)	;Output file?			;06
+	BEQ	10$			;No, ignore it
+;;	BIT	#VF$NBF,V$FLAG(R4)	;User does buffering?		;06
+;;	BNE	10$			;Yes, not us.			;06
+.iff
+	BIT	#VF$FIL,V$FLAG(R4)	;NOP on disk			;07
+	BNE	10$			;Exit if so
+.endc
+	CALL	$$FLSH			;Dump it now
+10$:
+	JMP	CRET$
+	.END

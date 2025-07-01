@@ -1,0 +1,34 @@
+	.title	wdleng	Expensive way to say sizeof(int)
+	.ident	/000002/
+;
+;+
+;
+; Index		Machine independent sizeof(int)
+;
+; Usage
+;
+;	wdleng()
+;
+; Description
+;
+;	Return word length in bits.
+;
+; Bugs
+;
+;	Assuming 8-bit bytes, this may be replaced by:
+;
+;		#define wdleng() (sizeof (int) * 8)
+;
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+wdleng::
+	mov	#16.,r0
+	rts	pc
+	.end

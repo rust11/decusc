@@ -1,0 +1,53 @@
+	.title	tolower	Convert upper-case to lower-case
+	.ident	/000002/
+;
+;+
+;
+; Index		Convert upper-case to lower-case
+;
+; Usage
+;
+;	tolower(c);
+;	int		c;
+;
+; Description
+;
+;	If c is a upper-case alphabetic, return it's lower-case
+;	equivalent.  Otherwise, return c.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+;
+; Some definitions
+;
+U	=	0001		; UPPER case alpha
+L	=	0002		; Lower case alpha
+UL	=	U+L		; Upper or Lower
+D	=	0004		; Digit
+ULD	=	U+L+D		; Upper, Lower, or digit
+S	=	0010		; Whitespace (tab, backspace, lf, etc)
+P	=	0020		; Punctuation
+PULD	=	U+L+D+S		; Graphic
+C	=	0040		; Control
+X	=	0100		; Hex alpha
+B	=	0200		; Blank
+
+	.psect	c$code,i,ro
+
+tolower::
+	mov	2(sp),-(sp)	; Push character again.
+	mov	#U,r0		; Check if uppercase.
+	call	$$ctype
+	tst	(sp)+		; Drop character
+	tst	r0		; Check result.
+	beq	10$		; No uppercase...
+	bis	#40,2(sp)	; If uppercase we change to lowercase.
+10$:	mov	2(sp),r0	; Get result.
+	rts	pc
+	.end

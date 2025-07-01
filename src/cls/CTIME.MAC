@@ -1,0 +1,203 @@
+	.title	ctime	Convert time value to ascii
+	.ident	/000009/
+;
+;+
+;
+; Index		Convert time value to ascii
+; Index	asctime	Convert time buffer to ascii
+;
+; Usage
+;
+;	#include <time.h>
+;
+;	char *
+;	ctime(tvecp)
+;	long		*tvec;	/* Time value pointer	*/
+;
+;	char *
+;	asctime(tm)
+;	struct tm	*tm;	/* Time buffer pointer	*/
+;
+; Description
+;
+;	ctime() converts a time value, as returned by time()
+;	to an ascii string.  For compatibility with previous
+;	versions, ctime(0) obtains and converts the current
+;	time of day.  Note, however, that ctime(0) is not
+;	portable.
+;
+;	asctime() converts a time vector, as returned by localtime()
+;	to an ascii string.
+;
+;	The string is statically allocated.  It has the format
+;
+;		Sun Sep 16 01:03:52 1973\n\0
+;		012345678901234567890123 4 5
+;		0         1         2
+;
+;	All the fields have constant width.  To remove the trailing
+;	newline, just:
+;
+;		char		*tp;
+;		extern char	*ctime();
+;		int		tvec[2];
+;
+;		time(&tvec);		/* Get time	*/
+;		tp = ctime(&tvec);	/* in Ascii	*/
+;		tp[24] = '\0';		/* Fix newline	*/
+;
+; Bugs
+;
+;	There is no range checking on the information passed.
+;
+;-
+;
+; Edit history
+; 000001 08-Jul-80 MM	From scratch
+; 000002 21-Jul-80 MM	Dropped the newline
+; 000003 23-Jul-80 MM	ctime(0) gets time of day, doesn't call sprintf
+; 000004 05-Sep-80 MM	Added another Null
+; 000005 16-Feb-82 MM	Unix compatible
+; 000006 21-Feb-82 MM	put back ctime(0)
+; 000007 19-Aug-83 TTC  Free the tm buffer created by localt().
+; 000008 19-Jan-87 JMC  Change .psect for I/D space.
+; 000009 15-Jan-02 BQT	Changed for I/D space. Bugfix: localt uses static buf.
+;
+
+;
+; Written by C. Ralston, Modified by C. Guldenschuh, converted to Decus C
+; by Martin Minow.
+;
+
+	.psect	c$stcn,d,ro						;08
+
+month:	.ascii	/JanFebMarAprMayJunJulAugSepOctNovDec/
+
+wkday:	.ascii	/SunMonTueWedThuFriSat/
+
+	.psect	c$strn,d,rw
+tbuf:	.asciz	/Sun Sep 16 01:03:52 1973/<12>
+secbuf	=	tbuf+19.	; just past low digit of seconds
+yearbf	=	tbuf+24.	; just past low digit of year
+nlbyte	=	24.		; trailing newline position		;06
+
+sec	=	0		; Offsets into Unix time vector
+min	=	sec+2
+hour	=	min+2
+mday	=	hour+2
+mon	=	mday+2		; Month (Jan == 0)
+year	=	mon+2		; Year since 1970
+wday	=	year+2		; Weekday, (Sun == 0)
+yday	=	wday+2		; Yearday, (Jan 1 == 0)
+isday	=	yday+2		; True if daylight savings time
+
+	.psect	c$code,i,ro
+
+ctime::
+	jsr	r5,csv$			; Link environments
+	mov	C$PMTR+0(r5),-(sp)	; and call
+	bne	10$			; branch if normal		;06+
+	tst	-(sp)			; need two words
+	mov	sp,r0			; save tvec pointer
+	mov	r0,-(sp)		; cleanly
+	call	time			; and get time.
+	call	ctime			; call ourselves to convert time
+	clrb	nlbyte(r0)		; trash newline
+	br	20$			; and exit
+10$:					;				;06-
+	call	localt			; local time to get vector
+	mov	r0,(sp)			; now, call
+	call	asctim			; asctim to convert
+;	mov	r0,r2			; save pointer to tbuf		;07
+;	call	mfree			; free the local time buffer	;07
+;	mov	r2,r0			; restore tbuf ptr, return it	;07
+20$:									;06
+	jmp	cret$			; and exit
+
+asctim::				; convert time buffer
+	jsr	r5,csv$			; link environments
+	mov	C$PMTR+0(r5),r4		; r4 -> user time buffer
+	mov	wday(r4),r0		; get week day
+	asl	r0			; by
+	add	wday(r4),r0		; three
+	add	#wkday,r0		; point to table
+	mov	#tbuf,r3		; R3 -> output buffer
+	movb	(r0)+,(r3)+		; move
+	movb	(r0)+,(r3)+		; 'em
+	movb	(r0)+,(r3)+		; out.
+	inc	r3			; skip blank
+	mov	mon(r4),r0		; Month
+	asl	r0			; times
+	add	mon(r4),r0		; three
+	add	#month,r0		; point to table
+	movb	(r0)+,(r3)+		; move
+	movb	(r0)+,(r3)+		; 'em
+	movb	(r0)+,(r3)+		; out.
+	inc	r3			; skip it
+;
+; Note, the following code requires second/minute/hour ordering
+;
+	mov	r4,r2			; r2 -> buffer @ sec
+	mov	#secbuf,r3		; r3 -> buffer @ sec
+	call	conv			; Second
+	call	conv			; Minute
+	call	conv			; Hour
+	call	conv			; Day
+	clr	r0			; High-order year
+	mov	year(r4),r1		; Year - 1900
+	add	#1900.,r1		; Year
+	mov	#100.,r2		; Get year mod 100
+	call	$$div2			; simple
+	mov	#yearbf,r3		; r3 -> output @ year
+	mov	r1,-(sp)		; Save first two digits
+	mov	r2,r0			; Get last two digits
+	call	conv2			; Stuff them
+	mov	(sp)+,r0		; and the
+	call	conv2			; first two, too
+	mov	#tbuf,r0		; Return tbuf
+	jmp	cret$			; to the user
+;
+;
+; Convert an offset from the time buffer to a two digit number
+;
+; Calling sequence:
+;
+;	mov	entry_pointer,r2
+;	mov	text_pointer,r3		; -> just past rightmost digit
+;	call	conv
+;
+; Return:
+;	r0,r1 destroyed,
+;	r2 updated
+;	r3 decremented (by three)
+;
+conv:
+	mov	(r2)+,r0		; Get the value, update r2
+	call	conv2			; Convert two digits
+	dec	r3			; Skip one
+	rts	pc			; That's all
+;
+;
+; Convert a small integer to two ascii digits
+;
+; Calling sequence
+;
+;	mov	value,r0
+;	mov	text_pointer,r3		; -> just past rightmost digit
+;	call	conv2
+;
+; Return
+;	r0,r1 destroyed
+;	r3 decremented by 2
+;
+conv2:
+	mov	#'0-1,r1		; Initialize quotient
+10$:
+	inc	r1			; Up the quotient
+	sub	#10.,r0			; Divide by
+	bge	10$			; ten
+	add	#10.+'0,r0		; Fix up remainder
+	movb	r0,-(r3)		; Write it
+	movb	r1,-(r3)		; out.
+	rts	pc			; and exit
+	.end

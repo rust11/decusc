@@ -1,0 +1,254 @@
+	.title	mul$l	Multiply long * long
+	.ident	/000005/
+;+
+;
+; Internal
+;
+; Index		Multiply long by long
+;
+; Usage
+;
+;	long
+;	mul$l(a, b);		/* long = long * long	*/
+;	long		a;
+;	long		b;
+;
+;	long
+;	mul$li(a, b);		/* Long = long * int	*/
+;	long		a;
+;	int		b;
+;
+; Description
+;
+;	Multiply the long arguments.  This routine is called
+;	by the C compiler to compile long multiplies.  
+;
+;	For EIS, given two longs, A and B, in the word format Ah,As,Al and
+;	Bh,Bs,Bl where Ah is the high word, As the sign bit of the low word,
+;	and Al the remaining 15 bits of the low order word.  Then
+;
+;	      A * B = Al * Bl  +  As * Bl * 2**15  +  Bs * Al * 2**15
+;			       +  Al * Bh * 2**16  +  Bl * Ah * 2**16
+;
+;	This derivation was provided by Cliff Geschke.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 23-Jul-80 MM	Added C$$SXT
+; 000003 05-Aug-80 MM	Fixed neg. number bug
+; 000004 04-Dec-81 SDR	Added EIS versions for big speedup
+; 000005 15-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	C$$SXT	C$$SXT	=	0				;02
+.iif	ndf	C$$EIS	C$$EIS	=	0				;04
+	.psect	c$code,i,ro
+
+.if ne C$$EIS				; Define stack offsets		;04+
+	AH	=10.			; High-word of A
+	AL	=AH+2			; Low-  "   "  "
+	BH	=AL+2			; High- "   "  B
+	BL	=BH+2			; Low-  "   "  B
+
+	LH	=8.			; High-word of long
+	LL	=LH+2			; Low-  "   "   "
+	INT	=LL+2			; Integer
+.endc ; C$$EIS								;04-
+
+mul$li::
+.if ne C$$EIS								;04+
+	MOV	R2,-(SP)	; Save em
+	MOV	R3,-(SP)
+	MOV	R4,-(SP)
+
+	MOV	LL(SP),R4	; Keep long in R3,R4
+	MOV	LH(SP),R3	; Positive long?
+	SXT	-(SP)		; (Initialize sign flag)
+	BPL	10$		;	Yes
+	NEG	R3		;	No, make long positive
+	NEG	R4
+	SBC	R3
+	
+10$:	MOV	INT+2(SP),R2	; Positive integer?
+	BPL	20$		;	Yes
+	COM	(SP)		;	No, note the sign (flip-flop)
+	NEG	R2		;		and make INT positive
+
+; From here, R2 = INT, R3 = Lh, R4 = Ll, and R0-R1 = accumulated result
+
+20$:	MOV	R4,R0		; Ll * INT (low order by low order)
+	BIC	#100000,R0	;	except for the high order (sign) bit
+	MUL	R2,R0		; Accumulate in R0, R1
+
+	TST	R3		; (This test pays off if Lh is zero at least
+	BEQ	30$		;	1/4 of the time)
+	MUL	R2,R3		; Lh * INT * 2**16
+	ADD	R3,R0
+
+30$:	TST	R4		; High order bit of Ll set?
+	BPL	50$		;	No
+	ROR	R2		; Add 2**15 * INT to accumulator (TST cleared C)
+	BCC	40$		; If no bit shifted off, just add 2**15 * INT
+	ADD	#100000,R1	;	Otherwise, add the shifted bit
+	ADC	R0		;		carrying if necessary
+40$:	ADD	R2,R0
+
+50$:	TST	(SP)+		; Check sign flag.  Negative?
+	BEQ	60$		;	No
+	NEG	R0		; Yes, negate result
+	NEG	R1
+	SBC	R0
+
+60$:	MOV	(SP)+,R4	; Restore em
+	MOV	(SP)+,R3
+	MOV	(SP)+,R2
+	RETURN
+
+.iff									;04-
+	.enabl	lsb
+
+	jsr	r5,csv$		; Linkage
+	clr	-(sp)		; Clear sign flag
+  .if ne C$$SXT								;02+
+	mov	C$PMTR+4(r5),r3	; Get multiplicand
+	sxt	r2		; Fix high-order part
+	bpl	20$		; Skip compliment if positive
+  .iff									;02-
+	clr	r2		; Clear high order part
+	mov	C$PMTR+4(r5),r3	; Get multiplicand
+	bpl	20$		; Skip compliments if positive
+	com	r2		; Sign extend				;03
+  .endc									;02
+	br	10$		; Go flip flag
+
+.endc ; z C$$EIS							;04
+
+mul$l::
+.if ne C$$EIS								;04+
+	MOV	R2,-(SP)	; Save em
+	MOV	R3,-(SP)
+	MOV	R4,-(SP)
+	MOV	R5,-(SP)
+
+	MOV	AL(SP),R4	; Keep the low halves here
+	MOV	BL(SP),R2
+
+	MOV	AH(SP),R5	; Positive A?
+	SXT	-(SP)		; (Initialize sign flag)
+	BPL	10$		;	Yes
+	NEG	R5		; Negate A.
+	NEG	R4
+	SBC	R5
+	
+10$:	MOV	BH+2(SP),R3	; Positive B?	(Look past sign flag on stack)
+	BPL	20$		;	Yes
+	COM	(SP)		;	No, note the sign (flip-flop)
+	NEG	R3		; Negate B.
+	NEG	R2
+	SBC	R3
+
+; Here, R5 = Ah, R4 = Al, R3 = Bh, R2 = Bl, and R0-R1 = accumulated result
+
+20$:	MOV	R4,R0		; Al * Bl  (low order * low order)
+	BIC	#100000,R0	;	except for the high order (sign) bits
+	MOV	R2,R1
+	BIC	#100000,R1
+	MUL	R1,R0		; Accumulate in R0, R1
+
+	TST	R3		; Al * Bh * 2**16
+	BEQ	30$		;	(Bh will be 0 at least half the time)
+	MUL	R4,R3		;	Ignore high order (sign) bit of Al
+	ADD	R3,R0		;	If set,	its an overflow--ignored
+	BR	60$
+
+30$:	TST	R4		; High order bit of Al set?
+	BPL	50$		;	No
+	MOV	R2,R3		; Add 2**15 * Bl to accumulator
+	ROR	R3		;	(The TST above cleared the C bit)
+	BCC	40$		; If no bit shifted off, just add 2**15 * Bl
+	ADD	#100000,R1	;	Otherwise, add the shifted bit
+	ADC	R0		;		carrying if necessary
+40$:	ADD	R3,R0
+
+50$:	TST	R5		; Ah * Bl * 2**16
+	BEQ	60$		;	(Ah will be 0 at least half the time)
+	MUL	R2,R5		;	Ignore high order (sign) bit of Bl
+	ADD	R5,R0		;	If set,	its an overflow--ignored
+	BR	80$
+
+60$:	TST	R2		; High order bit of Bl set?
+	BPL	80$		;	No
+				; Add Al * 2**15 to accumulator
+	ROR	R4		;	(The TST above cleared the C bit)
+	BCC	70$		; If no bit shifted off, just add 2**15 * Bl
+	ADD	#100000,R1	;	Otherwise, add the shifted bit
+	ADC	R0		;		carrying if necessary
+70$:	ADD	R4,R0
+
+80$:	TST	(SP)+		; Check sign flag.  Negative?
+	BEQ	90$		;	No
+	NEG	R0		; Yes, negate result
+	NEG	R1
+	SBC	R0
+
+90$:	MOV	(SP)+,R5	; Restore em
+	MOV	(SP)+,R4
+	MOV	(SP)+,R3
+	MOV	(SP)+,R2
+	RETURN
+
+.iff
+	jsr	r5,csv$		; Linkage
+	clr	-(sp)		; Clear sign flag
+	mov	c$pmtr+6(r5),r3	; Get multiplicand lord
+	mov	c$pmtr+4(r5),r2	; Get multiplicand hord
+	bpl	20$		; Br if pos.
+10$:									;03
+	neg	r2		; Negate.
+	neg	r3
+	sbc	r2
+	com	(sp)		; Flip flag.
+
+20$:
+	tst	c$pmtr+0(r5)	; Multiplier pos.
+	bpl	30$		; Yes
+	neg	c$pmtr+0(r5)	; Negate multiplier.
+	neg	c$pmtr+2(r5)
+	sbc	c$pmtr+0(r5)
+	com	(sp)		; Flip flag.
+
+30$:
+	mov	#32.,r4		; Initialize bitcount
+	clr	r0		; Clear product
+	clr	r1
+
+40$:
+	asl	r1		; Double product
+	rol	r0
+
+	asl	r3		; Shift multiplicand left (d.p.)
+	rol	r2
+	bcc	50$		; If msb was set then
+	add	c$pmtr+2(r5),r1	; Add multiplier to product
+	adc	r0
+	add	c$pmtr+0(r5),r0
+
+50$:
+	dec	r4		; Do all 32 bits.
+	bne	40$
+
+	tst	(sp)+		; Recomplement if necessary.
+	beq	60$
+	neg	r0
+	neg	r1
+	sbc	r0
+
+60$:
+	jmp	cret$
+
+.endc ; z C$$EIS							;04+
+
+	.end	; MULL.MAC						;04-

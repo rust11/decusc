@@ -1,0 +1,87 @@
+	.title	fput	Output a binary record
+	.ident	/000008/
+;
+;+
+;
+; Index		Output a binary record
+;
+; Usage
+;
+;	fput(buffer, nbytes, iop);
+;	char		*buffer;
+;	int		nbytes;
+;	FILE		*iop;
+;
+; Description
+;
+;	The specified record is written to the file.  The file
+;	must have been opened 'n' so newlines
+;	aren't stuffed here and there.
+;
+;	On RT11, the file is only readable by fget.
+;
+;	Nbytes is always returned.
+;
+;	A call to ferr() after calling fput() is advised.
+;
+; Bugs
+;
+;	On RT11, file close zeros the current output block.  To
+;	prevent fget() from reading "zero length" records, fput
+;	writes "record count + 1" on the file.
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 13-Aug-79 MM	Fixed typo when getting ioptr
+; 000003 10-Mar-80 MM	Conversion for the newer library
+; 000004 27-Mar-80 MM	Works on RT11, too.
+; 000005 28-Apr-80 MM	Works on RSX even if not opened with 'u'
+; 000006 19-Nov-80 MM	Increment RT11 record count so zero means eof
+; 000007 27-Jun-82 MM	Newer library -- don't worry about 'u'.
+; 000008 17-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if ne	rsx							;04
+
+	.psect	c$code,i,ro
+
+fput::
+	jsr	r5,csv$						;03
+	mov	C$PMTR+4(r5),r4	;Get IOV pointer		;02
+	call	$$flsh		;Flush previous record		;05
+
+10$:	mov	C$PMTR+0(r5),r0	;Buffer
+	mov	C$PMTR+2(r5),r1	;Nbytes
+	call	$$put		;Do the actual put
+
+20$:	mov	C$PMTR+2(r5),r0	;Return nbytes
+	jmp	cret$						;03
+
+.iff								;04+
+
+	.psect	c$code,i,ro
+
+fput::
+	jsr	r5,csv$
+	mov	C$PMTR+4(r5),r4	;Get IOV pointer
+	mov	C$PMTR+0(r5),r1	;R1 -> buffer
+	mov	C$PMTR+2(r5),r2	;R2 := byte count
+	inc	r2		;Increment it			;06
+	mov	r2,r0		;Output byte count
+	call	$$putc		;low byte first,
+	swab	r0		;then the
+	call	$$putc		;high byte
+
+10$:	dec	r2		;Done?
+	ble	20$		;Exit if so			;06
+	movb	(r1)+,r0	;No, get another
+	call	$$putc		;Out it goes
+	br	10$		;Back we go
+
+20$:	mov	C$PMTR+2(r5),r0	;Always return caller byte count
+	jmp	cret$		;Goodbye.
+
+.endc								;04-
+	.end

@@ -1,0 +1,102 @@
+	.title	sleep	Delay job a given number of seconds
+	.ident	/000009/
+;
+;+
+;
+; Index		Delay job a given number of seconds
+;
+; Usage
+;
+;	sleep(delay);
+;	int		delay;
+;
+; Description
+;
+;	Sleep a specified number of seconds.
+;
+; Bugs
+;
+;	On RSTS/E, the reader should refer to the description
+;	of SLEEP() in the operating system documentation.
+;
+;	On native RSX-11M or RSX emulated by VMS, sleep() executes
+;	a mark-time (MRKT$) and wait sequence, using event flag 1.
+;
+;	On native RT11, sleep() executes a .TWAIT executive request.
+;
+;	Sleep flushes stdout and stderr.
+;
+;-
+;
+; Edit history
+; 000001 18-May-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the new library
+; 000003 02-Jul-80 MM	Test for RSX/RT11 modes
+; 000004 21-Jul-80 MM	Do it (correctly) for all modes
+;			Edit codes were removed.
+; 000005 24-Jul-80 RMH	Do it (correctly) for non-RSTS modes.
+; 000006 01-Jul-82 MM	Flush stdout and stderr
+; 000007 17-Jul-82 MM	Native rt11 requires a queue element
+; 000008 19-Jan-87 JMC  Change .psect for I/D space.
+; 000009 19-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1			;03
+
+xrb	=	442
+.sleep	=	emt+10
+.if ne	rsx
+	.mcall	mrkt$s, wtse$s
+.iff
+	.mcall	.twait,.qset						;07
+	.psect	c$data,d,rw						;08
+
+area:	.word	24*400+0
+	.word	hitime
+hitime:	.word	0
+lotime:	.word	0
+qarea:	.blkw	10.							;07
+qflag:	.word	1			;First time flag		;07
+.endc
+
+	.psect	c$code,i,ro
+
+sleep::
+	jsr	r5,csv$			;Link environments
+	mov	stdout,r4		;Flush output			;06+
+	call	$$flsh			;
+	mov	stderr,r4		;All of 'em
+	call	$$flsh			;				;06-
+	tst	$$rsts			;If not rsts,
+	beq	10$			;Do it normally			;05
+	mov	C$PMTR(r5),@#xrb	;Seconds to wait
+.if eq	rsx
+	emt	377			;.priv
+.endc
+	.sleep				;Do the sleep
+	br	20$			;And exit
+
+10$:					;Opsys specific code
+.if ne	rsx
+	mrkt$s	#1.,C$PMTR+0(r5),#2	;Initialize wait
+	bcs	20$			;Exit if impossible
+	wtse$s	#1.			;OK, now wait for it
+.iff
+	mov	$$tick,(sp)		;Ticks per second
+	mov	C$PMTR+0(r5),-(sp)	;Time to wait (Low word)
+	clr	-(sp)			;High-order seconds
+	call	mul$li			;Get the ticks
+	mov	r0,hitime		;Ticks to wait -- high order
+	mov	r1,lotime		;Ticks to wait -- low order
+	asr	qflag			;First time here?		;07+
+	bcc	15$			;Br if been here already
+	.qset	#qarea,#1		;Grab a queue area
+15$:					;Main sequence			;07-
+;;	.twait	#area			;Wait for it
+	mov	#area,r0		;Expand the .twait
+	emt	375			;ourselves
+.endc
+
+20$:
+	jmp	cret$
+	.end
+

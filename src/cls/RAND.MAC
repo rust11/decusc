@@ -1,0 +1,63 @@
+	.title	rand	Random number generator
+	.ident	/000006/
+;
+;+
+;
+; Index		Random number generator
+;
+; Usage
+;
+;	long
+;	rand()
+;
+;	extern long	seed;	/* Random number seed	*/
+;
+; Description
+;
+;	Generate a pseudorandom number.
+;
+;	The algorithm is:
+;
+;	    seed = (69069 * seed + 1);
+;	    return (rand & 0X8FFFFFFF);
+;
+;	The algorithm is based on the mth$random function in the
+;	VMS common run-time library.
+;
+;	Note that the algorithm is prone to nonrandom sequences when
+;	considering the next pseudorandom number.
+;
+; Bugs
+;
+;
+;-
+;
+; Edit history
+; 000001 ??-Jan-80 MM	Initial theft from Basic-11
+; 000002 06-Jun-80 MM	Redid algorithm completely
+; 000003 25-Jul-80 MM	Redid again, using VMS algorihtm
+; 000004 07-Oct-81 MM	Split into rand and irand, return 32 bits
+; 000005 19-Jan-87 JMC  Change .psect for I/D space.
+; 000006 15-Jan-02 BQT	Changed for I/D space
+;
+
+	.psect	c$data,d,rw						;05
+seed::
+	.word	22,153207		; Initial seed = 1234567
+
+	.psect	c$code,i,ro
+rand::
+	jsr	r5,csv$			; Link environments
+	mov	#6715,(sp)		; 69069 (low order)
+	mov	#1,-(sp)		; 69069 (high order)
+	mov	#seed+2,r2		; Seed address
+	mov	(r2),-(sp)		; Seed
+	mov	-(r2),-(sp)		;
+	call	mul$l			; Seed * 69069
+	add	#1,r1			; + 1
+	adc	r0			; Longword addition
+	mov	r0,(r2)+		; Remember for
+	mov	r1,(r2)			; Next call
+	bic	#100000,r0		; Force it positive
+	jmp	cret$			; exit
+	.end

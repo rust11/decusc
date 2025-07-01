@@ -1,0 +1,87 @@
+	.title	atol	Convert Ascii to long
+	.ident	/000003/
+;
+;+
+;
+; Index		Convert string to long
+;
+; Usage
+;
+;	long
+;	atol(p)
+;	char		*p;
+;
+; Description
+;
+;	Convert string to integer.  No data checking is performed.
+;	The conversion stops at the first non-integer.  Leading
+;	spaces, tabs, plus-signs and/or newlines are ignored.  
+;	The integer may be preceeded by a minus sign.
+;
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 05-Jan-81 MM	Fix blank/tab bug
+; 000003 14-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+atol::
+	jsr	r5,csv$		; Linkage
+
+	mov	c$pmtr+0(r5),r4	; r4 = ptr to string
+	clr	r3		; r3 = sign flag
+	clr	r1		; r1 = low
+	clr	r0		; r0 = high
+
+10$:
+	movb	(r4)+,r2	; Grab character.
+	beq	40$		; Done
+	cmp	r2,#9.		; Ignore tabs
+	beq	10$		;					;02
+	cmp	r2,#10.		; Newlines
+	beq	10$		;					;02
+	cmp	r2,#'+		; '+' signs
+	beq	10$		;					;02
+	cmp	r2,#' 		; and spaces
+	beq	10$		;					;02
+
+	cmp	r2,#'-		; If '-'
+	bne	20$		; then
+	inc	r3		; hit sign flag and
+	br	10$		; ignore
+
+20$:
+	sub	#'0,r2		; Make int
+	cmp	r2,#9.		; Legal ?
+	bhi	30$		; No
+	asl	r1		; r[01] = 10*r[01]
+	rol	r0		;
+	mov	r0,-(sp)	; Harunph.
+	mov	r1,-(sp)	;
+	asl	r1		;
+	rol	r0		;
+	asl	r1		;
+	rol	r0		;
+	add	(sp)+,r1	; Add in the rest
+	adc	r0		;
+	add	(sp)+,r0	;
+	add	r2,r1		; Add in new digit
+	adc	r0		;
+	movb	(r4)+,r2	; Get next
+	bne	20$		; Loop if not the end
+
+30$:
+	asr	r3		; '-' ?
+	bcc	40$		; Nope
+	neg	r0		; Negate
+	neg	r1		;
+	sbc	r0		;
+
+40$:
+	jmp	cret$		; Done
+	.end

@@ -1,0 +1,14 @@
+;+++;	CCS:CC107 - parend was once-only code
+;***;	CCS:CC100/CC107 - Increases data space with overlay trick
+.title	cc107 - c1end - end of parser
+.psect	cc107
+
+;	Return the address at the end of the parser overlay.
+;	This provides about 6kw additional space for parsing.
+;	RUST and RT-11 only. IJH.
+
+parend::mov	#10$,r0
+	return
+10$:
+
+.end

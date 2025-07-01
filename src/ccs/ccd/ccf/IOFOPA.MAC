@@ -1,0 +1,349 @@
+	.title	$$fopa	Open file (RT11 only)
+	.ident	/000007/
+;
+;+
+;
+; Internal
+;
+; Index		Open or reopen a file on RT11
+;
+; Usage
+;
+;	mov	iov,r4	;r4 -> iov
+;	mov	lun,r3	;r3 := lun
+;	jmp	$$fopa	;RT11 file open (ascii file spec.)
+;			;C$PMTR+0(r5) => ASCII file spec.
+;			;(may include file size for writes)
+;			;Parse the file using .CSISPC, open it,
+;			;returning to the caller via cret$ or
+;			;$$fope if error.
+;
+;	mov	iov,r4	;r4 -> iov
+;	mov	lun,r3	;r3 := lun
+;	mov	dblk,r1	;r1 -> Rad50 device descriptor, followed
+;			;by filesize word if write reqeust.
+;	jmp	$$fopr	;open by Rad50 device descriptor
+;			;RT11 only -- used to open the device
+;			;for directory processing.  Exit via
+;			;cret$$ or $$fope if error.
+;			;If successful, the number of blocks in
+;			;the file is stored in the first word of
+;			;the block buffer.
+;
+; Description
+;
+;	Actually open the RT11 file, doing data buffer management
+;	and post-open cleanup.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out from fopen
+; 000002 ??-???-?? ???	Mystery edit (at least it was marked)
+; 000003 29-Sep-82 MM	Added VF$CMD, VF$TTY means any terminal
+; 000004 23-Dec-82 RBD	.GTLIN support
+; 000005  1-Dec-97 ARB	Device Read/Write Access (TSX only)
+; 000006 18-May-98 ARB	Fix Device Read/Write for Variable Size Volumes
+; 000007  1-Dec-02 ARB	Device Read/Write Access (RT and TSX)
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if	eq	rsx
+;
+	.mcall	.csispc, .dstat, .close, .wait
+	.mcall	.fetch						;10
+;
+; RSTS/E offsets (for append and device status)
+;
+FIRQB	=	402
+FQSIZE	=	16		; File size (low-order word)
+FQDEVN	=	32		; Device unit number (flag in high byte)
+;
+; Define local data
+;
+	.psect	c$data
+
+defext:	.word	0,0,0,0		; No default extensions			;07
+
+device:	.word	0		; device access flag			;05
+devsiz:	.word	0		; .dstat device size			;05
+devtyp:	.word	0		; .dstat device status word 1		;06
+
+sp$373:	.byte	0,32		; .spfun #sp$373,#0,#373,#devsiz,0,0,0	;06
+	.word	0							;06
+	.word	devsiz							;06
+	.word	0							;06
+	.byte	377,373							;06
+	.word	0							;06
+
+
+csierr:
+	.byte	E$$ILF, E$$NOD	; Errors possible on .csispc
+
+lokerr:									;12+
+	.byte	E$$ILU		; Lookup 0, channel open
+	.byte	E$$FNF		; Lookup 1, file not found
+
+enterr:
+	.byte	E$$ILU		; Enter 0, channel open
+	.byte	E$$NOR		; Enter 1, no room
+	.byte	E$$FAT		; Enter 2, undefined
+	.byte	E$$FND		; Enter 3, file already found		;12-
+	.even
+;
+	.psect	c$code
+;
+; ** $$fopa
+;
+; Open the file given an Ascii name
+;
+; r3 has a LUN, try for a file name.  Store it in a dynamically-allocated
+; string buffer, pointed to by V$NAME.  While opening the file, attach
+; a trailing "=" to the file name to trigger RT11's file size specification
+; option.
+;
+$$fopa::
+	clr	device		; File Access				;07
+
+	mov	V$NAME(r4),r0	; Left over name from fwild?		;02+
+	beq	5$		; br if so
+	call	$$free		; dump it.
+5$:				;					;02-
+	sub	#39.*2,sp	; Get a csi block
+	mov	C$PMTR+0(r5),r2	; get the argument string
+	mov	r2,(sp)		; r0 = strlen(file_name) + 1
+	call	strlen		;
+	add	#2,r0		; Make room for '=' NULL
+	call	$$falo		; Get actual length
+	mov	r0,V$NAME(r4)	; and save the buffer pointer
+10$:
+	movb	(r2)+,(r0)	; Copy the next byte
+	beq	20$		; Exit at the end
+
+	;07	Device Read/Write requires the special form
+	;07
+	;07		dev:$[-1]
+	;07
+	;07	This code converts this special form to a
+	;07	valid filespec so that the .csispc system
+	;07	call doesn't choke.
+	;07
+	;07		dev:$[-1]  ==>>  dev:0[-1]
+
+	cmpb	(r0),#':	; Device Access :$			;07
+	bne	15$							;07
+	cmpb	(r2),#'$	; Special (Device)			;07
+	bne	15$							;07
+	movb	#'0,1(r0)						;07
+	cmpb	(r2)+,(r0)+						;07
+	inc	device							;07
+15$:									;07
+	cmpb	(r0)+,#040	; Not at the end, if it's not a blank,
+	bne	10$		; Keep on trucking
+	dec	r0		; Ignore blanks
+	br	10$		; And do the next one
+;
+20$:
+	mov	r0,r2		; r2 -> the equals sign
+	movb	#'=,(r0)+	; Tack on an equals sign
+	clrb	(r0)		; and null-trail the string
+	mov	sp,r1		; r1 -> csi area
+	.csispc	r1,#defext,V$NAME(r4)
+	bcc	30$		; So far so good (well, maybe)
+	movb	@#52,r0		; Get error code
+	movb	csierr(r0),r0	; Get our flavor
+	br	nogood		; And exit
+
+30$:
+	mov	(sp)+,r0	; Get switch count
+	beq	40$		; Can't have switches, br if ok
+	mov	#E$$ILF,r0	; Error code
+	br	nogood		; Bye for now
+
+40$:
+	clrb	(r2)		; Erase the trailing equals sign
+;
+; ** $$fopr
+;
+; Open the file given the 5-word Rad50 device specification
+; Entry: r1 -> device spec (Rad50) area.  Note that all five words are
+; specified.
+;
+$$fopr::
+	sub	#8.,sp		; Get a .dstat work area
+	mov	sp,r0		; save the area
+	mov	r0,-(sp)	; Return area on the stack
+	mov	r1,r0		; Device spec. in r0
+	emt	342		; .dstat --  Get device status
+	bcc	fopr1		; Ok so far.				;02
+	mov	#E$$NOD,r0	; Only error possible -- no device
+;;	add	#8.,sp		; Clean up the stack -- done by $$fope	;02+
+nogood:	jmp	$$fope		; Bye, for now.
+
+fopr1:				; .dstat ok				;02
+	mov	#VF$FIL,r2	; Assume it's a file
+	tst	(sp)		; 0(sp) has device type
+	bmi	20$		; .dstat sets high bit if random-access
+	mov	#VF$REC,r2	; Nope, set "record-oriented" flag
+
+20$:
+	bis	r2,V$FLAG(r4)	; Remember it's type			;02
+	tst	4(sp)		; Is it resident now?
+	bne	25$		; Continue if so
+	mov	2(sp),r0	; Get handler size
+	beq	25$		; Continue if zero size (RSTS)
+	call	$$falo		; Handler memory, never released
+	mov	r0,-(sp)	; Handler loaded here
+	mov	r1,r0		; Device spec. in r0
+	emt	343		; .fetch
+
+25$:
+	mov	(sp),r0		; Get device type
+	mov	r0,devtyp	; Save device type			;06
+	mov	6(sp),devsiz	; Get device size			;05
+	add	#8.,sp		; Clean up the stack
+	cmp	r0,#4		; Terminal?
+	bne	40$		; Br if not
+	bis	#VF$TTY,V$FLAG(r4) ; Set the terminal flag		;03
+	clr	V$FSIZ(r4)	; Some sort of terminal.  size word = 0	;02
+	tst	$$rsts		; Yes, do console check if RSTS
+	beq	30$		; Br if RT11
+	mov	r1,r0		; RSTS, r0 -> csi area
+	emt	360		; .setfqb
+	tst	@#FIRQB+FQDEVN	; Was a unit given?
+	bmi	40$		; Br if so, it's not the console, then
+30$:
+	bis	#VF$CMD,V$FLAG(r4) ; Set the flag			;02+/03
+	bit	#VF$NBF,V$FLAG(r4) ; Hack for "u" mode?			;02-
+	beq	35$		; No, continue
+	bic	#VF$WRT!VF$APN,V$FLAG(r4) ; Yes, make it "input"	;02
+	bis	#VF$REA,V$FLAG(r4)					;02
+35$:
+	bit	#VF$REA,V$FLAG(r4) ; Reading?
+	beq	openok		; Br if output
+;									;04+
+; Here, we decide whether we are going to use the (normal) .GTLIN
+; interface, or (for "u" mode) the .TTIN flavor.  If we are using
+; .GTLIN, we do not need the "magic" ungetc buffer set up below.
+; In fact, we MUST not set it up, or the allocation of the 81. byte
+; buffer needed by .GTLIN will be supressed by the presence of a "real"
+; V$BASE, and anything over a 1 byte input will "wedge" memory.
+;
+	bit	#VF$NBF,V$FLAG(R4)  ; Using .GTLIN interface?
+	beq	openok		; (yes, skip the magic)			;04-
+;
+; For more information, see the comments in iogetc.mac
+; This sequence makes ungetc work even for terminals (with i/o coming
+; from .ttyin)
+;
+	mov	r4,r0		; Setup a fake buffer for terminal ungetc
+	add	#V$DBUF,r0	; r0 -> dummy buffer
+	mov	r0,V$BASE(r4)	; Buffer base
+	add	#2,r0		; r0 -> just at end of buffer
+	mov	r0,V$BPTR(r4)	; Buffer pointer (at end of buffer)
+	mov	#2,V$RBSZ(r4)	; Stuff it, too (probably unneeded)
+	br	openok		; And exit
+
+40$:
+	;07	If the device flag is set then verify the filespec:
+	;07
+	;07		dev:0[-1]
+	;07
+	;07	then reset the filespec to
+	;07
+	;07		dev:[-1]
+	;07
+	;07	This ensures that the .lookup or .enter will
+	;07	open the device in a non file structured manner.
+
+	tst	device							;07
+	beq	45$							;07
+	clr	device		; Verify Device Access			;07
+	cmp	2(r1),#^R0	; Device access requires:		;07
+	bne	45$		; dev:file.ext := dev:0[-1]		;07
+	tst	4(r1)							;07
+	bne	45$							;07
+	tst	6(r1)							;07
+	bne	45$							;07
+	cmp	10(r1),#-1						;07
+	bne	45$							;07
+	clr	2(r1)		; Device access filespec:		;07
+	inc	device		; dev:[-1]				;07
+45$:									;07
+
+	clr	-(sp)		; No seqnum
+	clr	-(sp)		; Assume read, no size
+	mov	r1,-(sp)	; Push device area
+	mov	#1*400,-(sp)	; Assume .lookup
+	bit	#VF$WRT,V$FLAG(r4) ; Did fopen ask for write?		;02
+	beq	50$		; Br if not
+
+	tst	device							;05
+	bne	50$		; Writing Device, (sp) := 1*400		;05
+
+	asl	(sp)		; Writing File,   (sp) := 2*400		;30
+	mov	10(r1),4(sp)	; And set in the requested size
+
+50$:
+	bis	r3,(sp)		; Set lun onto stack
+	mov	sp,r0		; r0 -> arg block
+	emt	375		; Open the file
+	ror	r2		; Save C-bit
+	tst	device		; Device access ?			;05
+	beq	52$		; No					;05
+	bit	#400,devtyp	; variable sized volume ?		;06
+	beq	51$		; no - use .dstat volume size		;06
+	mov	#sp$373,r0	; arguement area			;06
+	movb	r3,(r0)		; lun					;06
+	emt	375		; .spfun #sp$373,r3,#373,#devsiz,0,0,0	;06
+51$:	mov	devsiz,r0	; Yes, Use device size			;05;06
+52$:									;05
+	mov	r0,V$FSIZ(r4)	; Save file length in iov		;02
+	add	#4*2,sp		; Dump the stack
+	tst	r2		; Open ok?
+	bmi	55$		; No (maybe redo append as write)
+	bit	#VF$APN,V$FLAG(r4) ; Yes, append mode?			;02
+	beq	openok		; No, nothing to do
+;;	tst	$$rsts		; The native RT11 file handler will abort
+;;	beq	60$		; the process later.
+	bit	#VF$FIL,V$FLAG(r4) ; Append mode, is it a file?		;02
+	beq	openok		; No, nothing to do.
+	mov	r0,V$FSIZ(r4)	; Move length in (zero if new file)	;02
+	br	openok		; and exit.
+
+55$:
+	bit	#VF$APN,V$FLAG(r4) ; Open error, append mode?		;02
+	beq	60$		; Not append, bad trouble
+	bit	#VF$FIL,V$FLAG(r4) ; Is it a file?			;02
+	beq	60$		; No, bad trouble.
+	bit	#VF$WLD,V$WFLG(r4) ; File, is it wild?			;02
+	bne	60$		; Shouldn't happen.
+	bic	#VF$APN,V$FLAG(r4) ; Make append into			;02
+	bis	#VF$WRT,V$FLAG(r4) ; write (new file) and
+	clr	10(r1)		; Make sure request has 0 filesize
+	br	40$		; Try again
+
+60$:
+	movb	@#52,r0		; Didn't open, get error code
+	bit	#VF$WRT,V$FLAG(r4) ; Opening existing file?		;02
+	beq	70$		; Br if so
+	movb	enterr(r0),r0	; New file, get the error
+	br	80$		; and die.				;02
+
+70$:
+	movb	lokerr(r0),r0	; Get the error code
+80$:	jmp	$$fope		; and fail				;02
+
+;
+; File is open.
+;
+openok:
+	bic	#VF$EOR,V$FLAG(r4)	; Mark not at end of file	;02
+	bis	#VF$OPN,V$FLAG(r4) ; Mark that it's open		;02
+	mov	r4,r0		; Normal exit				;02
+	jmp	cret$
+
+.endc
+	.end
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 

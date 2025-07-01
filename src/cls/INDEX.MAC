@@ -1,0 +1,35 @@
+	.title	index	Find First Instance of a Character in a String
+	.ident	/000003/
+;
+;+
+;
+; Index		Find the first instance of a character in a string
+;
+; Usage
+;
+;	char *
+;	index(stng, chr)
+;	char		*stng;	/* String to search in	*/
+;	char		chr;	/* Byte to search for	*/
+;
+; Description
+;
+;	If chr is in stng, return a pointer to it.  If not,
+;	return NULL.
+;
+; Bugs
+;
+;	Obsolete; use strchr() instead.
+;
+;-
+;
+; Edit history
+; 000001 21-Oct-81 MM	Initial edit
+; 000002 24-Jun-82 MM	Just redefine the global
+; 000003 06-Jul-82 MM	Too good to be true.
+; 000004 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+index::	jmp	strchr							;03
+	.end

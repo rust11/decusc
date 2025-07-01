@@ -1,0 +1,58 @@
+	.title	$$svr1	Save registers r1-r5 on the stack
+	.ident	/000002/
+;
+;+
+;
+; Internal
+;
+; Index		Save registers r1-r5 on the stack
+;
+; Usage
+;
+;	jsr	r5,$$svr1	;Save r1-r5 on the stack
+;	...
+;	return			;Restore r1-r5 and return to caller
+;
+; Description
+;
+;	Save general registers r1-r5 on the stack and return to the
+;	caller.  When the caller executes an return (rts pc), it
+;	will cause the original r1-r5 to be restored and the program
+;	will return to the original caller.
+;
+;	On return, the caller's registers are as follows:
+;
+;		R1	02(SP)
+;		R2	04(SP)
+;		R3	06(SP)
+;		R4	10(SP)
+;		R5	12(SP)
+;		PC	14(SP)	Return to original user
+;
+; Bugs
+;
+;	Except for the C-bit, condition codes are not preserved.
+;
+;-
+;
+; Edit history
+; 01 28-Jul-80 MM	Initial edit
+; 02 15-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+$$SVR1::
+	MOV	R4,-(SP)
+	MOV	R3,-(SP)
+	MOV	R2,-(SP)
+	MOV	R1,-(SP)
+	MOV	R5,-(SP)	;Return to subroutine
+	MOV	12(SP),R5	;Get original R5 contents
+	JSR	PC,@(SP)+	;Co-routine call to subroutine
+	MOV	(SP)+,R1
+	MOV	(SP)+,R2
+	MOV	(SP)+,R3
+	MOV	(SP)+,R4
+	MOV	(SP)+,R5
+	RTS	PC
+	.END

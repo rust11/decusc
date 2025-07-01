@@ -1,0 +1,169 @@
+	.title	scanf	Formatted input conversion
+	.ident	/000008/
+;+
+;
+; Index		Formatted input conversion
+;
+; Usage
+;
+;	scanf(fmt, pointer(s))
+;	char		*fmt;	/* Format string	*/
+;
+;	fscanf(fd, fmt, pointer(s))
+;	FILE		*fd;	/* Input file pointer	*/
+;	char		*fmt;	/* Format string	*/
+;
+;	sscanf(buf, fmt, pointer(s))
+;	char		*buf;	/* Input text buffer	*/
+;	char		*fmt;	/* Format string	*/
+;
+;	$$scan(fmt, argp, iov)
+;	char		*fmt;	/* Format string	*/
+;	int		*ptr[];	/* Pointer vector	*/
+;	FILE		*iov;	/* Input file des.	*/
+;
+; Description
+;
+;	Using the format string, these functions parse the input file
+;	(or given text file), storing the results in the pointer
+;	arguments.  The three user-callable routines differ as follows:
+;
+;		scanf	Reads from the standard input file.
+;
+;		fscanf	Reads from the indicated file.
+;
+;		sscanf	Reads from the text buffer.
+;
+;	$$scan() is an internal routine called by the above to actually
+;	parse the input text.  It is functionally identical to the Unix
+;	and Vax-11 C _doscan() routine.  Unfortunately, the leading
+;	'_' conflicts with RSX file control service routine naming
+;	conventions.
+;
+;	The format string may contain control characters to direct
+;	the conversion of the input textual data:
+;
+;	  ' '	Blanks, tabs, or newlines are ignored in  format
+;		strings.  To match whitespace, use "%[ \t\n]".
+;
+;	   x	An  ordinary  character  (not  %) must match the
+;		next input character.
+;
+;	   %	Conversion specifications consist of a  '%',  an
+;		optional   '*'  (to   supress   assignment),  an
+;		optional  maximum  numeric  field  width,  and a
+;		conversion specifier.
+;
+;	Unless value assignment was supressed by the '*' format modifier,
+;	the next field is converted and stored in the variable pointed to
+;	by the corresponding argument.  An input field is defined as a
+;	string of non-space characters, extending to the first inappropriate
+;	character or until the field width (if given) is exhausted.
+;
+;	The following conversion characters are specified:
+;
+;	  %	A single  '%'  is  expected  in  the  input,  no
+;		assignment is done.
+;
+;	  d	An integer  of  the  specified  class  (decimal,
+;	  o	octal,  or  hexadecimal)   is   expected.    The
+;	  x	corresponding  argument  should  be  an  integer
+;		pointer.   If   the  format specifer is given in
+;		upper-case, or preceeded by 'l', a long  integer
+;		will be stored.  For example, "%ld" is identical
+;		to "%D".   Leading  whitespace  will be ignored.
+;		A null field is not converted.  Scanf()  returns
+;		a  count  of the number of fields converted, but
+;		does not indicate which fields were ignored.
+;
+;	  s	A character string is expected.  The input field
+;		will be terminated by a space, tab, or  newline.
+;		The corresponding argument  should  point  to  a
+;		buffer large enough to contain the  text  and  a
+;		terminating  NULL.   Leading  whitespace will be
+;		ignored.
+;
+;	  c	A single character is read. Leading white  space
+;		is not supressed  --  to read the next non-blank
+;		character, use "%1s".  If a field width is given
+;		the  corresponding  argument  is  a pointer to a
+;		vector of characters and the indicated number of
+;		characters are read.
+;
+;	  e	A floating-point number is converted and  stored
+;	  f	appropriately.    If  the  format  indicator  is
+;	  g	capitalized, or  preceeded  by  'l',  a  double-
+;		precision  floating-point number will be stored.
+;		The floating-point format is the same as in  the
+;		C language:   an  optionally  signed  string  of
+;		digits  possibly  containing  a  decimal  point,
+;		followed by an  optional  exponent  field  which
+;		consists  of  an  'E'  or  'e'  followed  by  an
+;		optionally signed integer.
+;
+;	 [ ]	A string not  to  be  delimited  by  white-space
+;		characters.  Unless the first character is  '^',
+;		the format constitutes an acceptance  list:  the
+;		input field is all characters  until  the  first
+;		character  which  is  not  in  the  set   within
+;		brackets.   Note  that leading whitespace is not
+;		ignored.
+;
+;		If the first character after the left bracket is
+;		'^', the format defines a stop list:  the  input
+;		field   is   all   characters  until  the  first
+;		character specified within the bracketed string.
+;
+;		The corresponding argument points to a character
+;		vector.  The result will be null-terminated.
+;
+;	Scanf() returns the number of successfully matched and
+;	assigned input items.  If the end of input was reached,
+;	EOF (-1) is returned.  For example:
+;
+;		main()
+;		{
+;			register int	c;
+;			int		i;
+;			char		text[10];
+;
+;			c = scanf("%d%9s", &i, &text);
+;			printf("i = %d, text = %s\n",
+;				i, text);
+;		}
+;
+;	If the input line is "150   foobar", the program will print:
+;
+;		i = 150, text = foobar
+;
+; Diagnostics
+;
+;	Scanf() returns -1 if an end of file (end of string) condition
+;	exists and no data was stored.  It returns -2 if a palpably
+;	incorrect format, such as "%" is encountered.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 19-Aug-80 MM		Initial Edit
+; 000002 18-Sep-80 MM		Fixed .psect name
+; 000003 27-Jan-82 SDR		Added floating point using FPP instructions
+; 000004 18-Mar-82 CCG		Fixed bug in %*[]
+;				Also NEVER use tst (rn)+ or -(rn) to count!!!
+; 000005 28-Apr-82 SDR		Made exponent 'e' illegal in integer strings
+; 000006 02-Jul-82 MM		Split out scanf, fscanf, etc.
+; 000007 03-Aug-82 MM		.doscan -> $$scan
+; 000008 19-Jan-02 BQT		Changed for I/D space.
+;
+	.psect	c$code,i,ro
+scanf::
+	jsr	r5,csv$			; Link routines
+	mov	stdin,-(sp)		; Setup for _doscan
+	mov	#C$PMTR+2,-(sp)		; arg offset
+	add	r5,(sp)			; -> args
+	mov	C$PMTR+0(r5),-(sp)	; format
+	call	$$scan			; do it				;07
+	jmp	cret$			; and exit
+	.end

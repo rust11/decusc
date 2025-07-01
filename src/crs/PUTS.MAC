@@ -1,0 +1,76 @@
+	.title	puts	Output a string to a file
+	.ident	/000006/
+;
+;+
+;
+; Index		Output a string to a file
+;
+; Usage
+;
+;	puts(s);
+;	char		*s;
+;
+;	fputs(s, iop);
+;	char		*s;
+;	FILE		*iop;
+;
+;	fputss(s, iop);
+;	char		*s;
+;	FILE		*iop;
+;
+; Description
+;
+;	puts() writes a string to the standard output.  It appends
+;	a newline after the string.
+;
+;	fputs() writes a string to the indicated file.  No newline
+;	is appended.
+;
+;	fputss() writes a string to the indicated file.  A newline
+;	is appended.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-May-79 MM	Initial edit
+; 000002 13-Aug-79 MM	putchar() writes to fout
+; 000003 11-Mar-80 MM	Conversion for the new library
+; 000004 25-Apr-80 MM	Added fputss()
+; 000005 22-May-80 MM	Use stdout, not fout
+; 000006 05-Feb-82 CCG  Removed extra instruction from puts loop
+; 000007 19-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+fputss::							;04+
+	jsr	r5,csv$
+	mov	C$PMTR+2(r5),r4
+	br	puts1
+
+puts::
+	jsr	r5,csv$						;03
+	mov	stdout,r4					;02/04
+puts1:								;04
+	jsr	pc,puts3	;Call common routine		;03+
+	mov	#12,r0		;Append a newline
+	call	$$putc		;
+	br	puts2		;and goto common exit		;03-
+ 
+fputs::
+	jsr	r5,csv$						;03
+	mov	C$PMTR+2(r5),r4
+	jsr	pc,puts3	;Call common routine
+puts2:	jmp	cret$		;and exit			;03
+
+puts3:
+	mov	C$PMTR+0(r5),r3
+	br	30$						;06+
+
+20$:	call	$$putc
+30$:	movb	(r3)+,r0
+	bne	20$						;06-
+
+	rts	pc		;Exit common routine		;03
+	.end

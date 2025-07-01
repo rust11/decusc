@@ -1,0 +1,40 @@
+	.title	ungetc	Push back a character onto an input file
+	.ident	/000005/
+;
+;+
+;
+; Index		Push back onto an input file
+;
+; Usage
+;
+;	ungetc(c, iop);
+;	char		c;
+;	FILE		*iop;
+;
+; Description
+;
+;	Push one character back on the indicated stream.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-May-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the new library
+; 000003 08-Oct-81 MM	Bummed code
+; 000004 02-Jul-82 MM	Newer library.
+; 000005 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+;
+; Note -- this code works for rt11 terminal input as the buffer pointer
+; was preinitialized to point to the end of dummy buffer (V$DBUF+2)
+;
+ungetc::
+	mov	4(sp),r0		; r0 -> iov
+	dec	V$BPTR(r0)		; make room			;03+
+	movb	2(sp),@V$BPTR(r0)	; and stuff byte
+	inc	(r0)			; increment V$BCNT
+	return
+	.end

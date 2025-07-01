@@ -1,0 +1,62 @@
+	.title	strncpy	String Copy With Count
+	.ident	/000003/
+;
+;+
+;
+; Index		Copy one string to another, with count
+;
+; Usage
+;
+;	char *
+;	strncpy(out, in, count);
+;	char		*out;
+;	char		*in;
+;	unsigned int	count;
+;
+; Description
+;
+;	Copy "in" to "out".  Return out.
+;	At most, "count" bytes are moved from in.
+;	Note that "count" includes the trailing null.
+;
+;	If strlen(in) is less than count, "out" is null-filled.
+;
+;	If strlen(in) is greater than count, the output buffer
+;	will not be null-trailed.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 21-Oct-81 MM	Initial edit
+; 000002  9-Jul-82 JSL	Use .sob
+; 000003 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+strncp::
+	mov	r2,-(sp)		; Get a temp
+	mov	6+2(sp),r2		; Get count			;02
+	beq	50$			; Nothing to do			;02
+	mov	2+2(sp),r0		; r0 -> output
+	mov	4+2(sp),r1		; r1 -> input
+
+20$:
+	movb	(r1)+,(r0)+		; Copy one byte, at end.
+	beq	40$			; Input string done		;02+
+	.sob	r2,20$			; Repeat as required
+	br	50$			; Copied to limit		;02-
+;
+; Input string is done, null fill the output buffer
+;
+30$:
+	clrb	(r0)+			; Null fill output
+40$:
+	.sob	r2,30$			; And repeat as required	;02
+
+50$:
+	mov	(sp)+,r2		; Restore register
+	mov	2(sp),r0		; Return first arg.
+	return
+	.end

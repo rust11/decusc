@@ -1,0 +1,48 @@
+	.title	$$cl16	Close all channels
+	.ident	/000003/
+;
+;+
+;
+; Internal
+;
+; Index		Close all I/O channels
+;
+; Usage
+;
+;	$$cl16();		/* Close all channels	*/
+;
+; Description
+;
+;	This module closes all I/O channels.  It is called on exit
+;	from C programs.
+;
+; Diagnostics
+;
+; Bugs
+;
+;-
+;
+; Run time startoff.
+;
+; Edit history:
+; 01 22-May-80 MM	From scratch
+; 02 25-Feb-82 CCG	Ignore IOV's of -1, Required by getlun, frelun 
+; 03 18-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+$$cl16::
+	jsr	r5,csv$		;Link environments
+	mov	#$$luns,r2
+10$:
+	cmp	r2,#$$lune	; At the end?
+	bhis	20$		; Yes, all done
+	mov	(r2)+,(sp)	; No, get another
+	beq	10$		; Br if closed
+	cmp	(sp),#-1	; Lun from getlun?		;02
+	beq	10$		; Yes, ignore it		;02
+	call	fclose		; That's all for now
+	br	10$		; Try for another
+20$:
+	jmp	cret$		; And exit
+	.end

@@ -1,0 +1,71 @@
+	.title	$$abuf	Allocate memory for i/o buffers
+	.ident	/000004/
+;
+;+
+;
+; Internal
+;
+; Index		Allocate memory for i/o buffers
+;
+; Usage
+;
+;	mov	#iov,r4	;file data block
+;	call	$$abuf	;Allocate it
+;	bcs	error	;Exit on errors
+;
+; Description
+;
+;	A block of memory is allocated.  If it succeeds, the iov
+;	record buffer is correctly setup and $$abuf returns the
+;	buffer address in r0.  If it fails, an error
+;	code is stored in $$ferr, the error bit set in the iov
+;	flag word, r0 is set to 0, and $$abuf returns with the C-bit set.
+;
+;	In RSX mode, the record gets padding that may be needed
+;	by $$put.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 01-Jul-82 MM	Done for the new library
+; 000002 24-Jul-82 MM	Padding added
+; 000003 16-Sep-82 MM	For .gtlin support on RT-11
+; 000004 18-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+;
+; ** $$ABUF
+;
+	.psect	c$code,i,ro
+$$abuf::
+.if ne	rsx
+	mov	V$RBSZ(r4),r0	;Record buffer size
+	add	#2.,r0		;For terminals and 'n' files		;02
+.iff
+	mov	#512.,r0	;512 byte data block
+	bit	#VF$TTY,V$FLAG(r4) ; Unless it's for the terminal	;03+
+	beq	5$		;Branch if it's a file
+	mov	#81.+1.,r0	;Terminal, get the line size
+5$:									;03-
+	mov	r0,V$RBSZ(r4)	;Save the size
+.endc
+	call	$$aloc		;Call global allocator
+	mov	r0,V$BASE(r4)	;Set the buffer pointer
+	beq	10$		;Yes, sorry.
+	mov	r0,V$BPTR(r4)	;Set it every where.
+	bis	#VF$MBUF,V$FLAG(r4) ;We own the buffer
+	mov	V$RBSZ(r4),(r4)	;Set V$BCNT -- all bytes free
+	clc			;Return C-bit off
+	return			;Got it this time.
+10$:
+.if ne	rsx
+	MOV	#IE.NBF,$$ferr	;Error code "No buffer space"
+.iff
+	MOV	#E$$NSP,$$ferr	;Error code "no buffer space"
+.endc
+	bis	#VF$ERR,V$FLAG(r4) ;Set error code in fdb, too
+	sec			;Return C-bit on
+	return			;r0 == 0
+	.END

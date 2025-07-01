@@ -1,0 +1,46 @@
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+	.title	alloc	Allocate memory
+	.ident	/000002/
+;
+;+
+;
+; Index		Allocate memory
+;
+; Usage
+;
+;	char *
+;	alloc(n);		/*   -1 if no space	*/
+;
+; Description
+;
+;	Allocate the requested number of bytes, returning a pointer
+;	to the first.  The program image will be expanded as needed.
+;
+;	alloc() returns -1 if the requested space could not be allocated.
+;
+;	free() is used to return the buffer to free space.
+;
+;	See also the description of malloc(), realloc() and sbrk().
+;
+; Diagnostics
+;
+; Bugs
+;
+;	alloc() is obsolete.  Use malloc() for new programs.
+;-
+;
+; Edit history
+; 000001 28-Jul-80 MM		(Complete rewrite of alloc())
+; 000002 14-Jan-02 BQT		Added I/D space
+;
+	.psect	c$code,i,ro
+
+alloc::
+	mov	2(sp),r0	; Grab size.
+	call	$$aloc		; Try to allocate the space.
+	tst	r0		; Well ?
+	bne	10$		; Br if all ok.
+	dec	r0		; Convert NULL to -1
+10$:
+	return			; Done.
+	.end

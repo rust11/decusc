@@ -1,0 +1,54 @@
+	.title	ddtoa	Convert floating to ASCII -- dummy
+	.ident	/000005/
+;+
+;
+; Internal
+;
+; Index		Convert floating point to ASCII -- dummy
+;
+; Usage
+;
+;	$$dtoa(buff, value, field, dplace)
+;	char	*buff;		/* Where it goes	*/
+;	double	value;		/* What to convert	*/
+;	int	field;		/* Maximum field width	*/
+;	int	dplace;		/* Decimal part width	*/
+;
+; Description
+;
+;	This is a dummy routine that is always present in the
+;	Decus C run-time library.  If a program attempts to
+;	convert a floating point value to ascii (by calling
+;	printf() with a '%f' format effector), an error message
+;	will be generated.
+;
+;	If floating point conversion is needed, the conversion
+;	routine must be named in the link or task-build command
+;	line as follows:
+;
+;	  RSX:	TKB file=file,c:dtoa,c:c/lb
+;	  RT11:	LINK file,c:dtoa,c:suport,c:clib/bot:2000
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Feb-82 MM	Dummy routine written
+; ??
+; 00003a 07-Jun-85 DLE	Use .psect c$code so I/D tasks work
+; 000004 19-Jan-87 JMC  Change .psect for I/D space.
+; 000005 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$stcn,d,ro						;04
+
+msg:	.asciz	/{dtoa?}/
+
+	.psect	c$code,i,ro
+$$DTOA::
+	mov	2(sp),r0	; result buffer pointer
+	mov	#msg,r1		; error message
+10$:	movb	(r1)+,(r0)+	; copy it
+	bne	10$		; out
+	return			; and return
+	.end

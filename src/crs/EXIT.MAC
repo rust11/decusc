@@ -1,0 +1,175 @@
+	.title	exit	Exit from C programs
+	.ident	/000010/
+;
+;+
+;
+; Index		Normal exit from C programs
+; Index		Exit with status code
+; Index		$$exst -- Exit status code
+;
+; Usage
+;
+;	exit(status);		/* Exit, no return	*/
+;
+;	exits(status);		/* Exit with status	*/
+;
+;	$$fail();		/* Immediate exit	*/
+;
+;	extern int $$exst;	/* Exit status value	*/
+;
+; Internal
+;
+;	jmp	$$exit		;Call exit routine
+;
+; Description
+;
+;	On exit, the following sequence occurs:
+;	  1.	The user-supplied wrapup() function is called.
+;	  1.5	Any other things-to-do of the C run-time system
+;		are called. (psect $FINL)
+;	  2.	Profiles (if requested) are printed.
+;	  3.	All files are closed.
+;	  4.	The program exits to the operating system.
+;
+;	By calling exits() with an appropriate value, the program can
+;	pass an exit status code to the operating system monitor.
+;	The RT11 and RSX11 monitors define exit status codes differently;
+;	the value passed to exits() is not checked for consistancy.
+;
+;	  RT11	RSX	Meaning
+;	    1.	 1.	IO_SUCCESS -- no message is printed
+;	    2.	 0.	IO_WARNING -- minor error
+;	    4.	 2.	IO_ERROR   -- serious error
+;	    8.	 4.	IO_FATAL   -- severe error
+;
+;	Calling exit() with some other value is equivalent to
+;	calling exits(IO_SUCCESS).  This is compatible with
+;	Unix programs that exit by calling exit() without parameters.
+;
+;	Note that the program may also set a value into $$exst
+;	and exit via exit():
+;
+;		extern int $$exst;
+;
+;		...
+;
+;		$$exst = IO_WARNING;
+;		exit();
+;
+;	If the program calls, or jumps to $$fail, it will immediately
+;	exit to the operating system without closing files, calling
+;	wrapup(), or writing a profile file.
+;
+; Diagnostics
+;
+; Bugs
+;
+;-
+;
+; Edit history:
+; 000001 22-May-80 MM	From scratch
+; 000002 21-Jul-80 MM	Added exits()
+; 000003 22-Jul-80 MM	Globalized $$exst
+; 000004 24-Nov-81 SDR	Don't force line-feed on exit
+; 000005 08-Feb-82 MM	Fixed edit 04 per SDR source.
+; 000006 27-Jun-82 MM	New library
+; 00006a 07-Jul-85 DLE	Added .psect c$code. Stop code living in c$data,d!
+;		-- DLE	disassembled (DOB) exit.obj to observe changes
+;			to version 000008 (which I have no source for -
+;			remind me to steal software more carefully)
+;			then perpetrated 00008a being same with USEFUL
+;			psect attributes.
+; 00008a 10-Jul-85 DLE	Fix (again) so I/D tasks work OK
+; 000009 19-Jan-87 JMC  Change .psect for I/D space.
+; 000010 15-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if ne	rsx
+	.mcall	exit$s, exst$s						;02
+.iff
+	.mcall	.print,	.exit						;02
+USERRB	=	53		; User error code byte			;02
+.endc
+
+	.psect	c$data,d,rw						;09
+$$exst::
+	.word	1	;Presuppose "normal" exit			;02/03
+exitfl:	.byte	-2	;-1 during windup(), 0 during library exit
+	.even
+
+									;08a+
+	.psect	$finl ,d,ro	; First psect in exit list.
+todo:	.word	wrapup		; We always call this function.
+	.psect	$finl$,d,ro	; Additional exit functions should have
+				; pointers in this psect.
+	.psect	$finl.,d,ro	; tells us how long the list is
+theend:
+;
+; I would just like a 0-terminated list: saves I-space at least, saves TKB
+; time & table space, saves symbol table space. But we have a convention ...
+; 
+; Anarchists unite!
+;
+; Or... we could have the last subr. of the list actually do the exit (!!)
+; (Why can't we get 11 (or 8?) code so tense that we can do better than
+; vaxen?) Anyway, if you don't use 36 bits you aren't playing with a full DEC.
+									;08a-
+
+
+	.psect	c$code,i,ro						;06a
+
+exits::									;02
+	mov	2(sp),$$exst	;Set exit code and exit		;02/03/06+
+	br	$$exit		;
+exit::
+	mov	2(sp),r0	;User supplied parameter?
+	bmi	$$exit		;Nope
+	cmp	r0,#E$$XFA	;Bigger than IO_FATAL?
+	bgt	$$exit		;Can't use it then.
+	mov	r0,$$exst	;Set exit code			;06-
+
+$$exit::
+	incb	exitfl		;Are we exiting?
+	beq	10$		;Br if we come here twice.
+	bpl	$$fail		;Br if here too often
+
+								;08a+
+;
+; We are here to call (at least one) wrapup subroutine.
+; Programs unknown have laid out a list of things to do.
+;
+	mov	#todo,r2	; (R2) -> next subr to call
+5$:	call	@(r2)+		; assume at least 1 thing to do
+	cmp	r2,#theend	; all done?
+	bcs	5$		; LO: not all done, loop back
+
+;	call	wrapup		;User wrapup routine
+
+								;08a-
+
+10$:
+	call	$$cl16		;Close all channels
+;
+; We call the profiler after closing files to make sure there's a
+; free logical unit and buffer space
+;
+	call	@$$pptr		;Profiler
+.if ne	rsx						;RSX11M
+;
+; Flush stderr, note: this depends on stderr not being in the lun table
+;
+	mov	stderr,-(sp)	;Force out any pending line		;04
+	call	fflush		;to the user's terminal			;04/05
+.endc
+
+$$fail::			;Very hard exit
+
+.if ne	rsx
+	EXST$S	$$exst		;Return status code			;02/03
+	EXIT$S			;Back to RSX (EXST$ not emulated)	;02
+.iff ; ne rsx
+	bisb	$$exst,@#USERRB	;Stuff status code			;02/03
+	clr	r0		;Hard exit
+	.exit
+.endc ; ne rsx
+	.end

@@ -1,0 +1,58 @@
+	.title	msize	Get Size of a Memory Block
+	.ident	/000002/
+;
+;+
+;
+; Index		Get size of a memory block
+;
+; Usage
+;
+;	unsigned int
+;	msize(buff)
+;	char *buff;
+;
+; Description
+;
+;	msize() returns the size of a block of memory allocated by calloc(),
+;	malloc(), or realloc().  If buff did not, in fact, come from one of
+;	these routines, the program will crash about 75% of the time; the
+;	other 25% , nonsense will be returned.  (This behavior is due to a
+;	simple-minded validation algorithm.)  However, buff == NULL is valid
+;	and will return 0.
+;
+;	Note that the value returned is the amount of memory that malloc()
+;	(or whoever) actually allocated, which may not be exactly the same
+;	as the program asked for.  (Currently, all allocations are rounded
+;	up to an even number of bytes.)
+;
+; Bugs
+;
+;	Not portable.
+;-
+;
+; Edit history
+; 000001 11-Jul-82 JSL	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+msize::
+	mov	2(sp),r1	; Get pointer
+	bne	10$		; Something there
+	clr	r0		; buff == NULL...
+	br	20$		;   return 0
+10$:
+	mov	-2(r1),r0	; Link to next block
+	bit	#1,r0		; Check busy bit
+	beq	30$		; Not on - invalid pointer
+	bic	#1,r0		; Clear busy bit
+	sub	r1,r0		; The length
+	blo	30$		; Pointers not ascending (note that r1==r0
+				; just means a zero-length block, since r1
+				; points BEYOND the header
+20$:
+	return
+
+30$:
+	CRASH			; We are not amused
+	.end

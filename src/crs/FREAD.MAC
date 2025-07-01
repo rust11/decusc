@@ -1,0 +1,63 @@
+	.title	fread	Input a record
+	.ident	/000003/
+;
+;+
+;
+; Index		Input a record
+;
+; Usage
+;
+;	int
+;	fread(object, sizeof (*object), nitem, iop)
+;	int		nitem;
+;	FILE		*iop;
+;
+; Description
+;
+;	Object points to a buffer that is to receive a specified
+;	number of items from the file.
+;
+;	fread() returns the actual number of items read.  This will
+;	be zero if an end-of-file or error was encountered.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Initial edit
+; 000002 27-Jun-82 MM	Newer library
+; 000003 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+fread::
+	jsr	r5,csv$
+	mov	c$pmtr+0(r5),r3	;Get buffer pointer.
+	mov	c$pmtr+6(r5),r4	;Get IOV pointer
+	clr	(sp)		;Clear item counter
+	br	40$		;And enter loop at test
+
+10$:
+	inc	(sp)		;Getting another item
+	mov	c$pmtr+2(r5),r2	;r2 := byte count for this item
+	br	30$		;And enter loop at test
+
+20$:
+	call	$$getc		;Get a byte to r0
+	movb	r0,(r3)+	;Yes, stuff it out
+
+30$:
+	dec	r2		;Drop the object size counter
+	bge	20$		;And get another if possible	
+
+40$:
+	mov	(sp),r0		;Returning actual item count
+	cmp	r0,c$pmtr+4(r5) ;Got all we want?
+	blt	10$		;Continue if more items to read.
+	bit	#VF$EOR,V$FLAG(r4) ;But, if there's an error		;02
+	beq	50$		;(not this time)
+	clr	r0		;Return "no" items.
+50$:
+	jmp	cret$		;Exit from fread
+	.end

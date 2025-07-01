@@ -1,0 +1,161 @@
+	.title	trace	Profile support entry module (with trace)
+	.ident	/000009/
+;+
+;
+; Index		Profile support module (with trace)
+;
+; Usage
+;
+;	#include <stdio.h>
+;	extern	FILE	*$$flow;
+;
+;	$$flow = fopen("trace.out", "w");
+;
+;	/* or $$flow = stderr; to trace to the console	*/
+;	...
+;	$$flow = NULL;		/* Turn off flow trace	*/
+;
+; Internal
+;
+;	mov	#name,r0	; Pointer to name
+;	jsr	r5,pcsv$
+;
+;	Where name has the structure:
+;
+;	name:	.word	0	; Counter
+;		.asciz	/name/	; function name
+;
+; Description
+;
+;	This module is called whenever a function that was compiled
+;	with the profile option is executed.  It checks that the
+;	stack will remain above 600 octal when the function executes
+;	and optionally prints a flow-trace.
+;	
+;	If $$flow is set to a file descriptor, the function name,
+;	location the function is called from, and the calling environment,
+;	are printed on each call to a function compiled with the profile
+;	option.
+;
+;	The output format is:
+;
+;		function_name<TAB>caller<TAB>environment
+;
+;	Where function_name is the name of the function being called,
+;	caller is the address of the calling program (actually,
+;	the return address), and environment is the R5 argument
+;	pointer (for local addressing within the routine being called).
+;	The information will be written to $$flow with a newline before
+;	and after.
+;
+;	If profiling has been enabled and the program exits via
+;	error() or via an operating-system trap (such as an illegal
+;	memory reference), a register dump and subroutine trace
+;	will be written to stderr.
+;
+;	See the description of calltrace() for details.
+;
+; Internal
+;
+;	See csv$ for details of the calling environment.
+;
+;	When this routine is entered for the first time, it sets
+;	up to intercept synchronous system traps, and loads the
+;	error exit address and profile pointer. The trap service
+;	routines are in the "traps" module. See the description there
+;	for more information.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 26-Mar-80 MM	Counter stored in $data .psect
+; 000003 09-May-80 MM	Converted to trace
+; 000004 30-Jun-80 MM	Load calltr() for error exit tracing
+; 000005 15-Jul-80 RBD	Add SST intercept setup code and load
+;			profile ptr and error exit once only.
+; 000006 18-Jul-80 MM	RT11 vectors via .asect, changed globals
+; 000007 20-Oct-80 MM	Print function name if trace stack fault
+; 000008 19-Jan-87 JMC  Change .psect for I/D space.
+; 000009 15-Jan-02 BQT	Changed for I/D space and new stack layout
+;
+	.enabl	gbl,lc
+	.psect	c$data,d,rw						;03+/08
+
+$$flow::			; set FILE *$$flow for tracing
+	.word	0
+
+	.psect	c$stcn,d,ro
+format:	.byte	12
+	.ascii	"%s"
+	.byte	11
+	.ascii	"%06o"
+	.byte	11
+	.ascii	"%06o"
+	.byte	12,0
+
+die:	.byte	15,12
+	.asciz	/-IO-TRACE-stack below 600 octal at/		;07
+
+	.psect	c$data,d,rw
+onesht:	.word	1		;set to zero when one-shot done	;05/06
+
+	.psect	c$code,i,ro
+;								;05+
+; Set up SST intercept first time through.
+;
+pcsv$::
+	asr	onesht		;Setup code executed?		;06
+	bcc	8$		;Yes, skip setup code		;06
+.if	ne	rsx
+	.mcall	SVTK$S		;One shot deserves $S form.
+	SVTK$S	#$$sstt,#10	;Table is in "traps" module	;06
+.iff
+	.mcall	.TRPSET
+	cmp	-(sp),-(sp)	;Get an area
+	mov	sp,r0
+	.TRPSET	r0,#$$t410	;This is in "traps" module	;06+
+	cmp	(sp)+,(sp)+	;Restore original stack
+.endc
+; Set up special profile and exit pointers
+	mov	#$$prof,$$pptr	;Profile pointer
+	mov	#$$ctra,$$errx	;Error exit
+;
+; Warning, this code must match the standard C save sequence.
+;
+8$:	mov	r5,r1
+	mov	sp,r5
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r0,-(sp)
+	inc	(r0)+		;Bump profile count		;02
+;
+; Trace the call
+;
+	mov	r1,r4		;save return address		;03+
+	mov	r0,r3		;Save pointer to function name
+	mov	$$flow,r1	;Get flow file pointer
+	beq	10$		;None, just check stack overflow
+	mov 	r5,-(sp)	;frame pointer
+	mov	2(r5),-(sp)	;caller
+	mov	r0,-(sp)	;(sp) -> function name
+	mov	#format,-(sp)	;format
+	mov	r1,-(sp)	;$$flow
+	jsr	pc,fprintf	;print it
+	add	#<5.*2>,sp	;drop arguments
+;
+10$:	cmp	sp,#600		;Got enough room?
+	blo	30$		;br if not
+	jsr	pc,(r4)		;tst -(sp); jmp (r4) -- Ok exit
+;
+30$:
+	mov	#die,-(sp)	;Sorry about that
+	jsr	pc,msg		;Inform the user
+	mov	r3,(sp)		;Function name				;07+
+	jsr	pc,msg		;Print it
+	jmp	$$exit		;Can't do more				;07-
+;
+	.end

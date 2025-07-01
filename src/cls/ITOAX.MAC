@@ -1,0 +1,76 @@
+	.title	itoax	Convert an integer to hexidecimal Ascii
+	.ident	/000005/
+;
+;+
+;
+; Index		Convert integer to hexadecimal Ascii
+;
+; Usage
+;
+;	char *
+;	itoax(value, buffer);
+;	int		value;
+;	char		*buffer;
+;
+; Description:
+;
+;	Convert the integer to hexidecimal ascii.  The string
+;	is null-trailed.  Values from 10 to 15 (decimal) are
+;	represented by "A" to "F". Itoax() returns a pointer
+;	to the trailing null.
+;
+;	Note that the result can be computed (more flexibly)
+;	by executing sprintf(buffer, "%x", value);
+;
+; Bugs:
+;
+;-
+;
+; Edit history
+; 000001 25-Mar-80 MM	Conversion for the new library
+; 000002 22-Aug-80 MM	Return buffer pointer -- no edit codes
+; 000003 18-Sep-80 MM	Fixed .psect name
+; 000004 19-Jan-87 JMC  Change .psect for I/D space.
+; 000005 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$mwcn,d,ro						;03/04
+
+htab:	.ascii	"0123456789ABCDEF"
+
+	.psect	c$code,i,ro
+ 
+itoax::
+	jsr	r5,csv$			; C setup
+	mov	c$pmtr+0(r5),r1		; r1 := value
+	mov	c$pmtr+2(r5),r0 	; r0 -> string
+	mov	#3,r2
+ 
+80$:
+	call	110$
+	bne	100$
+	dec	r2
+	bne	80$
+ 
+90$:
+	call	110$
+ 
+100$:
+	movb	htab(r3),(r0)+
+	dec	r2
+	bge	90$
+	clrb	(r0)			; Null trail it 
+	jmp	cret$			; Exit
+ 
+110$:
+	clr	r3
+	asl	r1
+	rol	r3
+	asl	r1
+	rol	r3
+	asl	r1
+	rol	r3
+	asl	r1
+	rol	r3
+	return
+
+	.end 

@@ -1,0 +1,147 @@
+	.title	localtime	Build time of day buffer
+	.ident	/000006/
+;
+;+
+;
+; Index		Build time of day buffer
+;
+; Usage
+;
+;	#include <time.h>	/* Define tm structure	*/
+;
+;	struct tm *
+;	localtime(tvec);
+;	long		*tvec;	/* Time value pointer	*/
+;
+;	struct tm {
+;	  int	tm_sec;		/* Seconds		*/
+;	  int	tm_min;		/* Minutes		*/
+;	  int	tm_hour;	/* Hours		*/
+;	  int	tm_mday;	/* Day of month		*/
+;	  int	tm_mon;		/* Month 0 .. 11	*/
+;	  int	tm_year;	/* Year - 1970		*/
+;	  int	tm_wday;	/* Weekday, Sunday == 0	*/
+;	  int	tm_yday;	/* Days since Jan 1	*/
+;	  int	tm_isdst;	/* Daylight Saving if 1	*/
+;	};
+;
+; Description
+;
+;	localtime() converts a Unix time value to a vector
+;	of values.
+;
+; Bugs
+;
+;	Decus C doesn't correct for time zone or daylight
+;	savings time.
+;
+;	Leap year isn't done correctly.  The routine will fail
+;	after Feb 28, 2100.
+;
+;	Following Unix precedent, localt returns a pointer to
+;	a static buffer.
+;
+;-
+;
+; Edit history
+; 000001 16-Feb-82 MM	From scratch
+; 000002 32-Mar-82 MM	Off by one
+; 000003 16-Sep-82 MM	Use a static buffer -- many changes, unmarked.
+; 000004 19-Jan-87 JMC  Change .psect for I/D space.
+; 000005 31-Jan-87 JMC  Change C$MWCN .pesect to d type
+; 000006 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$data,d,rw						;04
+sec:	.blkw	1
+min:	.blkw	1
+hour:	.blkw	1
+mday:	.blkw	1
+mon:	.blkw	1
+year:	.blkw	1
+wday:	.blkw	1
+yday:	.blkw	1
+isday:	.blkw	1
+
+	.psect	c$data,d,rw						;05
+
+dmsize:	.word	31.,28.,31.,30.,31.,30.	; Thirty days hath September
+	.word	31.,31.,30.,31.,30.,31.	; all the rest I don't remember
+
+	.psect	c$code,i,ro
+localtime::
+	jsr	r5,csv$			;
+	mov	C$PMTR+0(r5),r1		; r0 -> time value
+	mov	(r1)+,r0		; time, high order
+	mov	(r1),r1			; time, low order
+	tst	r0			; funny time value?
+	bpl	10$			; br if ok
+	clr	r0			; yes, make it zero
+	clr	r1			; both words
+10$:
+	mov	#sec,r3			; r3 -> time buffer @ seconds
+	mov	#60.,r2			; get seconds
+	call	$$div2			; r0:r1 / r2
+	mov	r2,(r3)+		; output seconds
+	mov	#60.,r2			; get minutes
+	call	$$div2			; r0:r1 / r2
+	mov	r2,(r3)+		; output minutes
+	mov	#24.,r2			; get hours
+	call	$$div2			; r0:r1 / r2
+	mov	r2,(r3)+		; output hours
+;
+; r0:r1 has number of days since jan 1, 1970 (r0 == 0)
+;
+	mov	r1,r2			; r2 = days since Jan 1, 1970
+	add	#4,r1			; get weekday -- this finagles it
+	mov	#7.,-(sp)		; there are seven days
+	mov	r1,-(sp)		; in a week
+	call	mod$i			; divide out
+	mov	r0,wday			; and store modulus
+;
+; Use a rather crude method to get the year and year day.
+;
+	mov	#70.,r1			; r1 has possible year
+	br	30$			; enter at middle
+20$:
+	sub	r0,r2			; subtract out year size
+	inc	r1			; get another year
+30$:
+	call	dysize			; r0 := days in this year
+	cmp	r2,r0			; all done?
+	bge	20$			; nope
+	mov	r1,year			; year
+	mov	r2,yday			; day in year
+	cmp	r0,#366.		; leapyear?
+	bne	40$			; nope
+	inc	dmsize+2		; yes, fix february
+40$:	clr	r0			; gets month, jan = 0 for some reason
+	mov	#dmsize,r1		; r1 -> month buffer
+	br	60$			; enter at middle
+50$:
+	sub	(r1)+,r2		; remove a day
+	inc	r0			; increase a month
+60$:
+	cmp	r2,(r1)			; done enough months?
+	bge	50$			; not yet (first of month = 0)	;02
+	mov	#28.,dmsize+2		; fix february
+	mov	r2,(r3)			; output the day
+	inc	(r3)+			; make it in a reasonable range
+	mov	r0,(r3)			; and the month
+	mov	#sec,r0			; normal return
+	jmp	cret$			; and exit
+
+;
+; ** DYSIZE
+;
+; Return days in this year -- 365. or 366.
+;
+; Entry:	r1 := year
+; Return:	r0 := days
+
+dysize:
+	mov	#365.,r0
+	bit	#3,r1			; divisible by 4
+	bne	10$			; no
+	inc	r0			; yes
+10$:	return
+	.end

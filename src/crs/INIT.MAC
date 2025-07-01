@@ -1,0 +1,1024 @@
+mut$c=1									;46
+suspicious = 1	; Enable this on new releases of vms
+	.title	$$init	One-time initialization code
+	.ident	/000045/
+
+	.list	src,meb
+;
+;+
+;
+; Index		C program initialization
+;
+; Usage
+;
+; Internal
+;
+;	$$init()
+;
+; Description
+;
+;	When a C program is started, a command line is parsed
+;	to form the argv[] array and the standard input, output,
+;	and error files are opened.  Note the following:
+;
+;	On RSX11/M (even emulated), argv[0] will be set to the
+;	task name.  On RT11 modes, argv[0] will be set to a dummy
+;	value.
+;
+;	If no command line is passed to the program, it will prompt
+;	the task name (or "Argv") and read a line from the command
+;	terminal.  To disable this, the user program may define
+;	a global flag as follows:
+;
+;		$$narg = 1;
+;		main (argv, argc) {
+;		...
+;
+;	If $$narg is initialized non-zero and no command line is passed
+;	to the program, or if the initialization sequence fails to
+;	read an argument, main() will be called with one argument.
+;
+;	The command line prompt may be changed from the task name (or
+;	"Argv") by defining a global string as follows:
+;
+;		char *$$prmt = "Command line prompt"
+;		main(argv, argc) {
+;		...
+;
+;	On Vax VMS, the program may be installed as a "foreign command"
+;	by a command such as:
+;
+;		$ command :== $disk:[dir]filename
+;
+;	and executed by typing:
+;
+;		$ command arg1 arg2
+;
+; Internal
+;
+;		    MAINTAINERS, Please Note
+;
+;	This module contains code that is sensitive to particular
+;	releases of the various operating systems.  Also, there is
+;	code that is sensitive to the various types of operating
+;	system emulators.  The maintainer should strive to keep all
+;	such code in this module.
+;
+;	This module has been tested on VMS V3.0 and V3.1, RSTS/E V7.1,
+;	RT11 V4.0, and RSX-11M V4.0.  It may not work correctly
+;	on earlier (or later) releases.
+;
+;	Note especially the "secret patch" to allow Decus C to
+;	read stream files on VMS V3.0 (and V3.1), and the command
+;	line parser for VMS version 3.0 and later.  This code
+;	will require examination on every release of VMS.
+;
+; Diagnostics
+;
+;	Can't parse command line
+;
+;	?C-Standard input, [filename]: error text
+;
+;	?C-Standard output, [filename]: error text
+;
+;	?C-No memory.
+;
+;	The "can't parse" message is given if the command line
+;	format is incorrect (because of unbalanced quotation marks, for
+;	example).
+;
+;	The "standard input" or "standard output" messages are a
+;	user error if input or output are redirected and the associated
+;	files cannot be opened.  The text should be self-explanatory.
+;
+;	The "no memory" message suggests a severe
+;	case of program immensity.
+;
+;	All errors are fatal.
+;
+; Bugs
+;
+;	On RSTS/RSX, command lines are limited to 80 bytes, although
+;	128 byte commands are feasable.  On VMS V3.0 and V3.1, the command
+;	name includes the expanded form of the command name.  This
+;	means that long command name translations coupled with long
+;	argument strings may cause the total argument string to exceed
+;	80 bytes.  Such arguments will be truncated by the operating
+;	system without warning.  The work-around is to make use
+;	of logical names:
+;
+;		$ assign $disk[directory.subdirectory] bin
+;		$ program :== $bin:prog
+;
+;	The expanded form of the "program" command is just "bin:prog".
+;
+;	On VMS V3.0 and V3.1, the distributed RSX file service (FCS) refuses
+;	to open "stream Ascii" files.  This module contains a
+;	dynamically-installed patch to the open routine.  An error
+;	message will be printed if the patch cannot be installed
+;	correctly.  The VMS3.0 compile-time switch enables this
+;	patch.  There is also code in fopen.mac that is affected
+;	by this patch.
+;
+;	It might be reasonable to make error messages non-fatal
+;	so $$init could be called by a user program.
+;
+;	On RSX, the program aborts (by executing a BPT instruction)
+;	if the program fails to open stderr or obtain partition parameters.
+;
+;-
+;
+; Edit history:
+; 000001 20-May-80 MM	Complete rewrite
+; 000002 16-Jun-80 MM	Dumb bug
+; 000003 23-Jun-80 MM	Some RT11 stuff
+; 000004 09-Jul-80 RD/MM Revised for native RT11
+; 000005 21-Jul-80 MM	Added 50/60 Hertz for RT11
+; 000006 25-Jul-80 MM	Added $$narg test
+; 000007 29-Jul-80 MM	Added initialization for sbreak(), bummed code
+; 000008 30-Jul-80 MM	Redid RSTS/E command line scan (gave up)
+; 000009 04-Aug-80 MM	Dumb bug in native RT11
+; 000010 26-Sep-80 MM	Determine $$rsts using KED and TECO sequence
+; 000011 18-Nov-80 MM	stderr to CO: on VMS
+; 000012 10-Dec-80 MM	Added $$vms, got task name on RSX modes.
+; 000013 09-Jan-81 MM	Patch 12 needs band-aid for RSTS (dunno about RSX)
+;			Note: this probably could stand a cleanup.
+; 000014 12-Jan-81 MM	bummed code after patch 12 and 13
+; 000015 19-Jan-81 MM	Bummed one word
+; 000016 24-Mar-81 RBD	Tell RT11 monitor to leave stuff in lower case
+; 000017 09-Apr-81 MM	Task name hack for M+ (?)
+; 000018 05-May-81 LMF/MM RSX-11 prompts for arg's, too.
+; 000019 01-Jun-81 MM	Incredible VMS 2.3 hack
+; 000020 19-Jun-81 JSL	Fixed typo in edit 19
+; 000021 08-Oct-81 MM	Conditionalized edit 19
+; 000022 22-Jan-82 MM/RBD/JB Task name and RSTS V7.1 fixes
+; 000023 03-Jun-82 MM	VMS 3.0 hack, sicker and sicker
+; 000024 07-Jun-82 MM	I may be paranoid, but...
+; 000025 08-Jun-82 MM	Cleanup, removed untestable RSTS V6C specific code
+; 000026 15-Jun-82 MM	Changed CO: to CL: for console log device.
+; 000027 15-Jun-82 MM	Stupendous vms hack for stream files.
+; 000028 17-Jun-82 MM	Debugged above hack
+; 000029 15-Jul-82 MM	RSTS/E get core common fixup; use .ttyin to get args
+; 000030 19-Jul-82 MM	Added $$pos
+; 000031 09-Aug-82 MM	Dump anything in local tty buffer on rt11
+; 000032 20-Aug-82 MM	Added "suspicious" -- no code changes
+; 000033 23-Aug-82 MM	Make patch 27 work if program is RUN
+; 000034 30-Aug-82 MM	Reorganize code so stderr is open when patch 27 is done
+; 000035 18-Oct-82 MM	Fix bug in RT-11 Argv processing
+; 000036 21-Oct-82 TTC  Added $$prmt
+; 000037 27-Oct-82 RBD	No longer set VF$NEWL on stdout.  Init stderr to have
+;			VF$NEWL set. Since all console output goes through
+;			stderr, the first call to $$get will flush out the
+;			pending newline. (sick)  Be rude on memory allocation
+;			failure on RSX.
+; 000038 07-Jun-85 DLE	Take data from c$code into c$data so I/D tasks work.
+; 00039a 05-Aug-85 DLE	(After Bruce Cook) if $$narg nonzero, don't waste
+;			time (terminal wait) doing GMCR$.
+;        11-Aug-85	Released to DECUS Australia (Struct, RSX sigs).
+;			Notice how the bug (39b) gets noticed 3 hours after
+;			release. I wish Murphy would come out and fight like
+;			a bug.
+; 00039b 12-Aug-85 DLE	If we do repress GMCR$, then we must still fake up
+;			argv[0] = our task name. The patch is crude, in that
+;			the faked argv[0] will have trailing blanks padded up
+;			to a length of 6. IE strlen(argv[0])==6 regardless of
+;			how long your task name should be. Too bad!
+; 00039c 13-Aug-85 DLE	Blast! We need to invent global $$ngmc, to work like
+;			$$narg. The logic now is:
+;			IF	$$ngmc
+;			THEN	{we must not do a GMCR$}
+;				{assume no args supplied on command line}
+;				IF	$$narg
+;				THEN	fake no args in usual way
+;				ELSE	prompt user, have another go at
+;					reading some arguments.
+;					process that argument line normally
+;				FI
+;			ELSE	{we can do a GMCR$}
+;				do a GMCR$
+;				IF	we got some arguments
+;				THEN	process arguments normally
+;				ELSE	IF	$$narg
+;					THEN	fake no args in usual way
+;					ELSE	prompt user, have another go
+;						reading some arguments.
+;						process that argument line normally
+;					FI
+;				FI
+;			FI
+;			So to make a silent task, try $4narg=$$ngmc=1;
+;
+; 000040 17-JAN-87 JMC 	Define $$ngmc and set it from $$narg, also change
+;			psect names and types. Why do we need a global $$narg ?
+; 000041 19-Jan-87 JMC  Get partition parameters ESR returns total of I and D
+;			space. This causes $$mend to be wrong and gives MALLOC
+;			heartburn. We need the end of D-space when using I and
+;			D-space, and the end of the task when not.
+; 000042 18-Jan-02 BQT	Changed code to find end of D-space memory
+;		   MM	Do .gtlin on native RT.
+; 000043 11-Dec-03 IJH	Even up PC before definition of $$ngmc:
+; 000044  1-Feb-04 IJH	Use .SETTOP to determine $$mend for RT-11
+; 000045 25-Feb-04 IJH	Support RT-11 V5.x CCL interface to get command without
+;			CSI mangling.
+; 000046 03-Sep-22 IJH	Use $$MUTE to automate $$NARG behaviour.
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.iif	ndf	vms2.3	vms2.3	=	0	;Assume no funnies	;27/28
+.iif	ndf	vms3.0	vms3.0	=	0	;Things got funnier	;23/28
+.iif	ne	vms3.0	vms2.3	=	0	;Only want one		;23
+.iif	ndf	suspicious	suspicious = 0	;For vms error msg.	;31
+.if ne	rsx
+;
+; RSX11-M specific globals and macro definitions
+;
+.if eq RMSIO
+	.mcall	FDBDF$,	FDAT$A,	FDRC$A, FDOP$A,	NMBLK$			;10
+	.mcall	OPEN$W
+.iff
+	.mcall	$open, $compare, $connect
+.endc
+	.mcall	GTSK$S,	EXIT$S, GPRT$S, NBOF$L				;07
+	.mcall	GMCX$S, ELAW$S
+	.mcall	QIOW$S							;18
+	NBOF$L								;10
+; Note: GMCR$ is also needed, but it cannot be made re-entrant.  Clever.
+
+	.globl	.nluns
+
+	.globl	$$prmt							;36
+;
+; Equivalences.
+;
+
+MAXMCR	=	80.		;Mcr command line size
+;
+.iff
+;
+; RT11 specific macros and equivalences
+;
+	.mcall	.print, .scca, .ttyin, .gval			;04/29
+	.mcall	.rctrlo, .gtlin					;16
+
+USERSP	=	42		; Initial stack pointer
+JSW	=	44		; Job status word
+HIMEM	=	50		; High-water mark of memory	;07
+SYSPTR	=	54		; R/W area pointer
+CNFIG1	=	300		; Configuration word 1		;05
+TTICNT	=	670		; TTY buffer count (RSTS/E RT11 only)
+;
+TTSPC$	=	010000		; No echo bit
+TTLC$	=	040000		; Don't translate upper case
+KEEPCC	=	100000		; Keep core common (RSTS/E only)	;29+
+;
+; Initialize the job status word.  KEEPCC is used, on RSTS/E emulation,
+; to preserve the core-common contents on entrance.
+;
+	.asect
+.	=	JSW
+	.WORD	KEEPCC+TTLC$
+	.psect	c$code,i,ro
+;
+; Some character definitions
+;
+LF	=	12
+CR	=	15
+TAB	=	11
+;
+.endc
+;
+; Common definitions
+;
+SPACE	=	40						;18
+R.PARM	=	30		; RSX or RT emulator chain line number
+				; (this is FIRQB @ FQNENT)
+CORCMN	=	460		; RSTS/E core common
+ISRSTS	=	4		; Returned by GTSK$ for RSTS
+ISVMS	=	5		; Returned by GTSK$ for VMS
+ISMPLUS	=	6		; Returned by GTSK$ for RSX-11M+
+ISPOS	=	11		; Returned by GTSK$ for P/OS (Professional)
+
+	.psect	c$data,d,rw					;40
+.if eq	RSX							;30
+;
+; These must stay in order
+;
+defcmd:	.ascii	/Argv:/		;Dummy command line for RT11	;04+
+defcbl:	.ascii	/ /		;Space following "argv:"
+clibuf:	.byte	200		;Terminate default command (overwritten)
+	.blkb	129.-<.-defcmd>	;Command line (or core common)	;04-
+cliend	=	.		;End of command line		;29
+.endc
+
+;
+; Assorted ASCII things.
+; Arg strings for 'fopen'.
+; Format strings for 'fprintf'.
+; Note: these are in $code so they sit in the overlay segment
+; ****: these are now moved to c$data so I/D tasks will work! ;000038
+;
+
+	.psect	c$stcn,d,ro						;40
+r:	.asciz	"r"
+w:	.asciz	"w"
+a:	.asciz	"a"
+nullst	=	.-1		;A null string				;12
+outtxt:	.asciz	/output/
+inptxt:	.asciz	/input/
+badopn:	.asciz	/?C-Standard %s, /				;29
+badmem:	.asciz	/?C-No memory./<12>
+.if ne rsx
+badm2:	.asciz	/   Is this task checkpointable?/<12>			;37
+.endc
+badcmd:	.asciz	/?C-Can't parse command line./<12>
+.if ne	vms3.0								;27+
+.if ne	suspicious							;31
+badpat:	.asciz	/%C-Can't install vms v3 patch. Get help./<12>		;28
+;
+; Maintainers -- this message will be printed if the file control service
+; "open by filename block" routine is later than the version (VMS V3.0
+; on which it was developed.  If this happens, you should take the following
+; actions:
+;    1.	Check whether Decus C programs can OPEN "stream format" files
+;	without the patch.  If so, the RSX AME maintainers have corrected
+;	the problem that prompted this patch.  (You can try compiling
+;	a stream-format file -- this patch is not in the compiler.)
+;
+;    2.	If the stream file opens successfully, disable the patch in
+;	FOPEN.MAC and check whether the file can be read successfully.
+;	A simple program such as:
+;		while (fgets(buffer, sizeof buffer, stdin) != NULL)
+;			fputs(buffer, stdout);
+;	should suffice.  Use the VMS DIFFERENCES program to check that
+;	the output file is correctly copied.  If so, eliminate the
+;	code in this module and FOPEN.MAC.  Watch out: the VMS3.0
+;	flag is used for command line parsing, too.
+;
+;	If the file can be opened, but not read, reenable the patch
+;	in FOPEN.MAC and see if that works.
+;
+;    3.	At this point, you have a problem.  Look around your distribution
+;	kit for the command files to build SOS.  See if there is a
+;	dynamic patch to FCS .OPFNB that can be used as a model for
+;	upgrading this patch.
+;
+;   4.	If that didn't work, dump out code around the current patch
+;	location to see if anything interesting turns up.  The
+;	code tests the record format and rejects the open if the
+;	value exceeds a certain value.
+;
+;   5.	Be joyful that your VMS system is supported, even if Decus C isn't.
+;	Have you considered Vax-11 C?  It's really very good.
+;
+.endc									;31
+.endc									;27-
+.if ne	vms3.0								;24+
+;
+; This is a string of funny characters that drops the space between
+; the command and first argument.  See below.
+;
+stlist:	.asciz	"#()+,-/>?]^"
+;
+.endc
+	.psect	c$data,d,rw
+	.even								;41
+$$ngmc: .word   0	        ;					;43
+.MACRO	PRINTF	FMT,A1,A2,A3,A4,A5,A6,A7,A8,A9,?FORMAT,?EXIT
+	  MOV	R0,-(SP)
+	  MOV	R1,-(SP)
+$$$$$$	=	4
+.IF	NB	A9
+	  MOV	A9,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A8
+	  MOV	A8,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A7
+	  MOV	A7,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A6
+	  MOV	A6,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A5
+	  MOV	A5,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A4
+	  MOV	A4,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A3
+	  MOV	A3,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A2
+	  MOV	A2,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A1
+	  MOV	A1,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+	  MOV	#FORMAT,-(SP)
+	  MOV	STDERR,-(SP)
+	  CALL	FPRINTF
+	  ADD	#$$$$$$,SP
+	  MOV	(SP)+,R1
+	  MOV	(SP)+,R0
+	.save
+	.psect	c$stcn,d,ro
+FORMAT:	.ASCII	FMT
+	.BYTE	12,0
+	.restore
+EXIT:
+.ENDM	PRINTF
+
+.MACRO	NOTE	TEXT,?TLOC,?EXIT
+	  mov	r0,-(sp)
+	  mov	#tloc,r0
+	  call	$$msg
+	  mov	(sp)+,r0
+	.save
+	.psect	c$stcn,d,ro
+tloc:	.asciz	text
+	.restore
+EXIT:
+.ENDM	NOTE
+;
+	.psect	c$code,i,ro
+$$init::
+	jsr	r5,csv$		;Link environments
+.if ne mut$c							;46
+	bis	$$mute,$$narg					;46
+.endc								;46
+	mov	$$narg,$$ngmc   ;set up $$gmc			;40
+.if ne	rsx							; RSX11-M+
+;
+; RSX11M specific code:  clear lun table,
+; and parse the command line.  Note that, on RSTS/E, the command line
+; may be stored in core-common (if CRUN.BAS chained to the C program)
+;
+	mov	.nluns,r1	;Linker lun maximum
+	cmp	r1,#$$lmax	;Max in table
+	blos	20$		;No, continue
+	mov	#$$lmax,r1	;Yes, set max we can handle
+20$:	mov	r1,$$nlun	;Set known lun maximum
+	mov	#$$luns,r0	;Address lun table
+;
+30$:	clr	(r0)+		;Empty this table entry
+	cmp	r0,#$$lune	;At the end?
+	blo	30$		;And loop for them all
+;
+; Initialize free memory pointers
+;
+;	mov 	$$mtop+2,$$mend	; initialize end of task		;41-
+;	sub	#3*2,sp		; Get partition return area		;07+/41
+;	mov	sp,r1		; r1 -> gprt$ buffer			;41-
+;	GPRT$S	,r1		; Get partition parameters		;41-
+;	bcc	35$		; Continue if we got it			;41-
+;	CRASH			; Can't happen				;41-
+; 35$:									;41-
+;	mov	2(r1),r1	; Partition size in clicks		;41-
+;	asl	r1		; Shift left to mul. by 32		;41-
+;	asl	r1		;					;41-
+;	asl	r1		;					;41-
+;	asl	r1		;					;41-
+;	asl	r1		;					;41-
+;	asl	r1		;					;41-
+;	add	$dsw,r1		; Top of memory (correctly)		;41-
+;	mov	r1,$$mend	; Save true top of memory		;41-
+;	add	#3*2,sp		; Dump the stack			;07-/41
+	sub	#<8.*24.+1>*2,sp	;Window def. buffer
+	mov	sp,r0		; Get buffer pointer in r0.
+	clr	r2		; Clear D-space flag.
+	clr	$$mlim		; Start limit
+	gmcx$s	r0		; Get all wdb's
+	bcc	31$
+	crash
+31$:	mov	w.nsiz(r0),r1	; Get size of window
+	ash	#6,r1		; Shift up to bytes.
+	add	w.nbas(r0),r1	; Add base address.
+	mov	r1,$$mend	; Set first end address.
+32$:	add	#20,r0		; Get next window.
+	tst	(r0)		; Check this window.
+	ble	35$		; End of list.
+	bit	#ws.sis,w.nsts(r0)	; Supervisor space?
+	bne	32$		; Yes. Ignore it.
+	bit	#ws.wrt,w.nsts(r0)	; Is it a readonly window?
+	bne	34$		; No.
+	tst	r2		; Do we have separate d-space?
+	beq	33$		; No.
+	bit	#ws.uds,w.nsts(r0)	; Yes. Is it d-space?
+	beq	34$		; No.
+33$:	mov	w.nbas(r0),$$mlim	; Yes. Set end limit.
+34$:	bit	#ws.uds,w.nsts(r0)	; Is window in data sapce?
+	beq	32$		; No.
+	inc	r2		; Yes. Set flag.
+	bit	#ws.wrt,w.nsts(r0)	; Is it r/w?
+	bne	31$		; Yes. Set end.
+	br	32$		; No.
+35$:	dec	$$mlim		; We actually wants the last valid address, not
+				; the first invalid one.
+	add	#<8.*24.+1>*2,sp	; Drop window def. buffer
+;
+; Do a get task to get the task name and default UIC
+;
+	GTSK$S	#$$erec		;Get task parameters
+	mov	#2,(sp)		;Get task name (2 words)		;07
+	mov	#$$erec+<0.*2>,-(sp) ;From here
+	mov	#$$task,-(sp)	;To here
+	call	r50toa		;Using C library routine
+	cmp	(sp)+,(sp)+	;Cleanup stack				;07
+	clr	(sp)		;Assume no task name needed	;12/14/22
+	mov	$$erec+<7.*2>,$$uic ;Default uic word (word 07)
+	mov	$$erec+<14.*2>,$$opsy	;Op. system unique code
+	cmp	$$opsy,#ISRSTS	;Good old RSTS?
+	bne	40$		;Not today
+	inc	$$rsts		;Here's someone who knows better
+;;	clr	(sp)		;No task name for RSTS			;14/25
+40$:				;
+	cmp	$$opsy,#ISVMS	;VMS?					;10+
+	bne	42$		;No					;22/30
+.if eq RMSIO
+	mov	#"CL,$$efnb+N.DVNM ;Yes, output to SYS$ERROR		;26
+.iff
+	.print	; Device not changed to CL on VMS systems...
+.endc
+	inc	$$vms		;Set flag				;12
+.if eq	VMS3.0								;23
+	mov	#$$task,(sp)	;Task name needed -- Note: this may	;22+
+				; be version-specific.  It is needed
+				; on versions V2.3 and V2.4.  It has
+				; been suggested that it is not needed
+				; on version V2.5.  So it goes.
+.endc									;23
+42$:
+.if eq RMSIO
+	OPEN$W	#$$efdb		;Open error file
+	bcc	43$		;Ok, continue
+.iff
+	mov	#$$efab,r0
+	mov	#$$erab,r1
+	$open	r0		;Open error file.
+	$compare #su$suc,sts,r0	; Success?
+	bne	421$		; Nope.
+	$connect r1		;Connect RAB with FAB.
+	$compare #su$suc,sts,r1	; Success
+	beq	43$
+.endc
+421$:	CRASH			;Die.
+43$:									;10-
+
+.if ne	VMS3.0								;33+
+;									;27+
+; Patch the open module to allow reading "stream-Ascii" files.
+; Warning -- this patch is release specific.
+; See the note at BATPAT: above.
+;
+	tst	$$vms		;On vms?
+	beq	46$		;Don't do the patch if not.
+.if gt	suspicious-1		;Suspicious == 2 to dump .opfnb
+	mov	#.OPFNB+1150,r1	;r1 -> place to patch
+	call	regdmp
+	mov	r1,r0		;Get a range
+	sub	#32.,r0
+	add	#32.,r1
+	call	$$dump
+.endc
+	mov	#.OPFNB+1150,r1	;r1 -> place to patch
+	cmp	(r1),#3		;Correct value?
+.if eq	suspicious
+	bne	46$		;No, don't do the patch			;28
+.iff
+	beq	44$		;Yes, install the patch
+	mov	stderr,-(sp)	;Print a message
+	mov	#badpat,-(sp)	; on the console
+	call	fputs		; as a warning
+	br	46$		; and don't do the patch
+44$:
+.endc									;31-
+	mov	#6.,(r1)	;Do it
+46$:				;					;27-
+.endc									;33-
+	cmp	$$opsy,#ISPOS	;P/OS (Professional)			;30+
+	bne	48$		;No
+	inc	$$pos		;Set flag if so				;30-
+48$:									;17-/22-
+;
+; Get command line.
+;
+
+	mov	#MAXMCR+4,r0	;Get command line buffer		;23
+
+; this is REALLY sick.
+;	call	$$wank							;999999
+
+	call	$$aloc
+	tst	r0		;zero means trouble
+	bne	50$		;Ok, continue
+	mov	#badmem,(sp)	;No core				;12
+.if ne rsx
+	mov	#stderr,-(sp)	;(first line)				;37+
+	call	fprintf
+	tst	(sp)+
+	mov	#badm2,(sp)	;(second line)				;37-
+.endc
+	jmp	fail		;No return				;18
+
+50$:
+	tst	$$ngmc		; are we allowed to do a GMCR$?		;39c+
+	beq	51$		; yes, so lets sniff our command line
+				; here if GMCR$ banned
+				; we pretend we did one and it failed
+				; a side effect of the GMCR$ code is ...
+	tst	(r0)+		; ... make R0 point to 1st byte of command
+	br	55$		; fake that GMCR$ failed
+51$:				; here to do a GMCR$			;39c-
+	mov	r0,-(sp)	;GMCR buffer address			;25
+	mov	(pc)+,(r0)+	;Fake MCR dispatch (GMCR$S)		;25
+	.byte	127.,41.	;as RSX can't do it at runtime
+	emt	377
+	bcs	55$		;Br if failure				;19+
+	mov	$dsw,r2		;R2 has number of bytes		;22+/23+
+	add	r0,r2		;R2 -> last byte in buffer
+;
+; Note: r2 -> last byte in buffer
+;
+	clrb	(r2)		;Nullify it			;22-/23-
+.if ne	VMS2.3			;Needed on VMS release 2.3 and 2.4
+;
+; The following piece of nonsense is due to an error in the RSX AME for
+; VMS releases V2.3 and V2.4.  (See following for VMS 3.0)
+; The problem is that, if a C program is installed as a "foreign
+; command", and the command line passed to the program starts with a '-',
+; the last byte of the command is passed in the buffer.  If not, the first
+; byte of the command buffer is blank.  Note the following cases for a
+; program, FOO.EXE, defined as "$ FOO :== $DISK:[DIR]FOO":
+;	User types	GMCR$ returns (quotes added):
+;	FOO		'O'
+;	FOO BAR		' BAR'
+;	FOO -x		'O-X'
+;	FOO "-x"	' "-x"'
+;
+; Note that the "mov #$$task,(sp)" above may -- I repeat, may -- be
+; release specific.
+;
+	tst	$$vms		;If it isn't vms,
+	beq	5410$		;We don't have to do this
+	mov	r0,r1		;r1 -> first byte of the buffer
+	cmpb	#'A,(r1)	;If the first byte of the buffer
+	bhi	domcr		;Isn't alphabetic, just go right on
+	cmpb	#'Z,(r1)+	;Check both ends
+	blo	domcr		;of the alpha scale: branch if not.	;20
+	movb	#SPACE,-(r1)	;Yep, hack around it
+.endc
+.if ne	VMS3.0								;23/24+
+;
+; For VMS 3.0, things got worse.  The entire command (after argument
+; expansion) is in the gcml buffer with the '-arg' tacked onto the end
+; as before.  Thus, if a program, FOO.EXE is installed as
+;
+;	$ FOO	:== $DISK:[DIR]FOO
+;
+; and invoked as
+;
+;	$ FOO -arg1 arg2
+;
+; the GMCR$ buffer contains
+;
+;	"DISK:[DIR]FOO-ARG1 ARG2"
+;
+; Even worse, "FOO >outfile" becomes "FOO>OUTFILE".
+; Indeed, there are other bytes in addition to '-'.  The current
+; list is defined by the stlist: string.
+;
+; We "fix" this by sliding the buffer over one byte if necessary.
+; During the search, we skip over strings of '[...]' and '<...>'.
+; What a mess.
+;
+	tst	$$vms		;If it isn't vms
+	beq	5410$		;We don't have to do this
+	mov	r0,r1		;r1 -> first byte in buffer
+52$:
+;
+; Not in an account string
+;
+	movb	(r1)+,r3	;Get byte, at end of command line?
+	beq	5410$		;yep
+	cmpb	#SPACE,r3	;or blank?
+	beq	5410$		;yep
+;
+; Search stoplist
+;
+	mov	#stlist,r4	;r4 -> stlist
+5210$:	cmpb	r3,(r4)		;interesting?
+	beq	53$		;gotcha.
+	tstb	(r4)+		;nope, last?
+	bne	5210$		;try another
+	cmpb	#'[,r3		;Account start?
+	beq	5220$		;Yep, more trouble starts
+	cmpb	#'<,r3		;Tops account start?
+	bne	52$		;Nope, try another
+	mov	#'>,r3		;Terminator
+	br	5230$		;Onwards
+;
+; Skip over the account string
+;
+5220$:	mov	#'],r3		;Account terminator
+5230$:
+	tstb	(r1)		;Null?
+	beq	5410$		;exit -- confused
+	cmpb	(r1)+,r3	;Proper ending?
+	beq	52$		;Yep, onwards
+	br	5230$		;More to follow.
+;
+; Slide the rest of the buffer down, remember, r2 -> trailing null.
+;
+53$:	dec	r1		;r1 -> funny byte
+5310$:
+	cmp	r2,r1		;Gone back far enough?
+	blo	54$		;ok, onward
+	movb	(r2),1(r2)	;slide it up
+	tstb	-(r2)		;work backwards
+	br	5310$		;ok
+54$:
+	movb	#SPACE,(r1)	;room for the space now.
+.endc								;23-
+
+;5410$:	br	domcr		;Onward, ever onward		;19-;24-
+5410$:	jmp	domcr							;36
+
+;
+; On many (native) RSX-11 systems, installing all C programs as tasks	;18+
+; is expensive, as it requires system pool space.  The following
+; modification prompts "Argv>" if no command line was passed by MCR.
+; Note that the code depends on the fact that the command line is
+; word-aligned.
+;
+55$:									;19
+	tst	$$narg		;Really want a command line?
+	bne	80$		;If ne, supresss prompt, and go on.
+	mov	r0,r1		;copy mcr buffer address
+	mov	#$$task,r2	;get address of our task name
+	.rept	3		;Copy task name
+	  mov	(r2)+,(r1)+
+	.endr
+70$:	cmpb	#SPACE,-(r1)	;Any spaces in the name?
+	beq	70$		;Check 'em all
+;
+; Note: the above loop depends on the fact that the GMCR directive
+; has put a non-space character (actually, '1') at the left end of
+; the MCR buffer.
+;
+75$:
+	inc	r1		;r1 -> first blank character
+	movb	#'>,(r1)+	;Make it look like an RSX prompt
+	movb	#SPACE,(r1)+	;Space it out a little			;25
+	mov	r1,r2		;r2 -> end of string
+	sub	r0,r2		;Get length with terminators
+	mov	r0,-(sp)	;Save for later				;36+
+	tst	$$prmt		;User supply prompt?
+	beq	78$		;No, use task name
+	mov	$$prmt,r2	;r2 --> user prompt string
+76$:	tstb	(r2)+		;end of string?
+	bne	76$		;keep goin'
+	mov	$$prmt,r0						;36-
+	sub	r0,r2
+78$:	qiow$s	#IO.WVB,#1,#1,,#$$iosb,,<r0,r2,#'$>	; prompt for argv
+	mov	(sp)+,r0	;Restore r0
+	bcs	80$		;No arg line if error
+	movb	#SPACE,-2(r1)	;Overwrite the '>'			;25
+	dec	r1		;Fix so r1 -> just after space		;25
+	qiow$s	#IO.RVB,#1,#1,,#$$iosb,,<r1,#maxmcr-10>	; read rest of input
+	bcs	80$		;No command if error
+	cmpb	$$iosb,#IS.SUC	;Finish ok?
+	bne	80$		;No command if error finish
+	add	$$iosb+2,r1	;Point to the end of the string
+	clrb	(r1)		;Terminate the string
+;;	clr	(sp)		;No extra task name, please		;25
+	br	domcr		;Gotcha
+
+80$:				;Here if we couldn't get one		;18-
+
+;
+; No GMCR command line.  If this is RSTS/E, look in core common, too.
+;
+	mov	#$$task,(sp)	;Make sure there's a task name
+	tst	$$rsts		;Running under RSTS/E?
+	beq	nomcr		;No, nothing doing
+	mov	@#R.PARM,r1	;Yes, grab line number from RSX emulator
+	bic	#100000,r1	;Ignore "retain privileges"
+	cmp	#29000.,r1	;At the magic line or better?
+	bgt	nomcr		;He's not a wizard, then
+	mov	#CORCMN,r1	;Yes, r1 -> core common buffer
+	clr	r2		;Get common length
+	bisb	(r1)+,r2	;r2 := number of bytes in common
+	beq	nomcr		;If zero, common is empty
+	mov	r0,r3		;Common exists, get a buffer copy
+60$:	movb	(r1)+,(r3)+	;Copy bytes to local buffer
+	dec	r2		;Counting them all the while
+	bne	60$		;Keep on trucking
+;;	clr	(sp)		;No task name for first argument	;12/15
+	br	domcr		;And go do it
+
+nomcr:
+	tst	-(r0)		;Repoint r0 to buffer true start	;25
+	call	$$free		;If no line, release buffer
+	mov	#nullst,r0	;Point to null string			;12/25
+
+domcr:
+	mov	#$$argv,-(sp)	;Gets argv pointer			;07/12
+	mov	#$$ofil,-(sp)	;Gets > redirection
+	mov	#$$ifil,-(sp)	;Gets < redirection
+	mov	r0,-(sp)	;And stuff command line, too.
+.iff
+;
+; RT11 specific code:  set lower-case bit, check if it's really RSTS/E
+; emulation.  Then do an incredable hack on RSTS to find the command line.
+; This code has been heavily reorganized -- the edit numbers were removed.
+;
+	mov	@#HIMEM,r1	; Save top of memory
+	inc	r1		; Push it up
+	bic	#1,r1		; to the first free byte
+	mov	r1,$$mend	; and save it.
+
+;;	bis	#TTLC$,@#JSW	; set lower-case bit (in asect)
+	clr	(sp)		; No task name hack needed
+	mov	#$$argv,-(sp)	; Where argv[] goes
+	mov	#$$ofil,-(sp)	; where stdout redirection goes
+	mov	#$$ifil,-(sp)	; Where stdin redirection goes
+	mov	#defcmd,-(sp)	; Default command line
+	mov	#clibuf,r2	; User supplied Argv line
+	cmp	-(sp),-(sp)	; Get temp for .gval
+	mov	sp,r1		; R1 -> .gval pmtr. block
+	.gval	r1,#CNFIG1	; Get configuration word 1
+	bit	#40,r0		; Bit 5, set if 50 Hertz
+	beq	10$		; Br if 60 Hertz
+	mov	#50.,$$tick	; Set 50 Hertz clock
+10$:				;
+;
+; Note: someday, we may have to test for RT11 emulation on vms, too.
+;
+	.gval	r1,#0		; Get first word of RMON
+	tst	r0		; It's non-zero on native RT11
+	bne	25$		; Branch if so.				;44
+;
+; Setup for RSTS/E
+;
+	inc	$$rsts		; zero means rsts/e, set flag
+;
+; Under RSTS/E, we have to trap CTRL/Z so stdio can return EOF
+;
+	.scca	r1,#$$scca	; Call with non-zero argument
+;									;31+
+; Dump the RT11 emulator's local buffer.  Note that this is somewhat
+; undocumented.
+;
+14$:	.gval	r1,#TTICNT	;Anything in the buffer?
+	tst	r0		;Well?
+	beq	18$		;Exit if nothing there
+	.ttyin			;Get the byte
+	br	14$		;Go for another
+18$:				;Main sequence				;31-
+;
+; Look for something in core common.
+;
+	mov	@#R.PARM,r1	;Yes, grab .run line number
+	bic	#100000,r1	;Ignore "retain privileges"
+	cmp	#29000.,r1	;At the magic line or better?
+	bgt	30$		;He's not a wizard, then
+	mov	#CORCMN,r1	;Yes, r1 -> core common buffer
+	clr	r2		;Get common length
+	bisb	(r1)+,r2	;r2 := number of bytes in common
+	beq	40$		;If zero, common is empty
+	mov	#defcmd,r3	;Common exists, get a buffer copy
+20$:	movb	(r1)+,(r3)+	;Copy bytes to local buffer
+	dec	r2		;Counting them all the while
+	bne	20$		;Keep on trucking
+	br	40$		;Continue main sequence
+
+25$:	.mcall	.settop		; For RT-11 native			;44	
+	.settop	#-1		; Get memory limit (always even)	;44
+	mov	r0,$$mlim	; Set it up (sic: ignore free word)	;44
+;
+; Here for native RT11 or to prompt for a command on RSTS/E RT11
+;
+30$:				; Here to prompt on RSTS/E, too
+	tst	$$narg		; Don't ask for "Argv: " if set
+	bne	40$		; Br if user set the flag
+	mov	#defcmd,r1	; Presuppose "Argv:" prompt
+	mov	$$prmt,r0	; User's prompt if non NULL
+	beq	32$		; Null, use our's
+	mov	r0,r1		; r1 -> prompt start
+31$:	tstb	(r0)+		; Skip to the end
+	bne	31$		; All the way.
+	movb	#200,-(r0)	; Make it 200 for rt11 prompt
+32$:	.rctrlo			; Refresh lc bit (SPR 11-35833)
+;
+; There is a bug in .gtlin on RSTS/E V7.1.  Therefore, we use .ttyin	;29+
+; to read the line.  On entry, r2 -> command line.
+;
+34$:	tst	$$rsts		; On native rt11?
+	bne	35$		; Br if not
+	.gtlin	r2,r1		; Get the line (with prompt)
+
+;	Get RT-11 V5.x CCL command (without CSI munging)		;45+
+
+	j$bcct = ^o510		; command character count
+	j$bcst = ^o512		; command string
+	mov	#j$bcct,r0	;
+	mov	(r0)+,r1	; r1 = ccl count
+	beq	40$		; no CCL command
+341$:	movb	(r0)+,(r2)+	; move it
+	dec	r1		; count it
+	bne	341$		; more
+	clrb	(r2)		; terminate it				;45-
+	br	40$		; Main sequence
+;
+; RSTS/E only -- get the byte using .ttyin
+;
+35$:
+	.print	r1		; Prompt first
+3501$:
+	.ttyin			; Get a byte
+	cmpb	r0,#CR		; Return?
+	beq	35$		; Skip it if so
+	cmpb	r0,#LF		; Linefeed
+	beq	36$		; Exit if so
+	movb	r0,(r2)+	; Output the byte
+	cmp	r2,#cliend-1	; Too far?				;35
+	blo	3501$		; No, get the next byte
+36$:	clrb	(r2)		; Terminate the line			;29-
+
+40$:
+	cmp	(sp)+,(sp)+	; Pop .gval and .scca temp
+.endc									;RT11-
+;
+; Common code -- parse the command line and open stdin/stdout
+;
+docmd:
+	call	$$gcmd		;Parse it
+	cmp	r0,#-1		;Badly parsed?
+	beq	cmderr		;Sorry.
+	mov	r0,$$argc	;and save the count
+	add	#<4*2>,sp	;Clear the stack			;07/12
+;
+; Open standard streams.
+; Note that 'stderr' is already open.
+; It has to be to insure diagnostics get out.
+;
+
+	;printf	<"Opening input [%s]">,$$ifil
+	mov	#r,(sp)		;fopen(stdin, "r")			;07
+	mov	$$ifil,-(sp)
+	call	fopen
+	tst	(sp)+		;Pop temp				;07
+	mov	r0,stdin	;Save ioptr
+	bne	10$		;Ok
+	mov	$$ifil,-(sp)	;Input file				;29+
+	mov	#inptxt,-(sp)	;input message
+	br	iofail							;29-
+
+10$:
+	;printf	<"Opening output [%s]">,$$ofil
+	mov	#w,(sp)		;fopen(stdout, "w" or "a")		;07
+	mov	$$ofil,r0	;Get pointer to name
+	cmpb	(r0),#'>	;Append?
+	bne	20$		;Br if not
+	mov	#a,(sp)		;yes, say so
+	inc	r0		;and point to real name
+20$:	mov	r0,-(sp)
+	call	fopen
+	mov	r0,stdout
+	bne	go
+	mov	$$ofil,-(sp)	;Problem file				;29+
+	mov	#outtxt,-(sp)	;error message
+	br	iofail							;29-
+
+go:
+	jmp	cret$		;All finished
+
+;
+; iofail is entered with the stack as follows:				;29+
+;	0(sp)	#intext or #outtxt
+;	2(sp)	->filename
+;
+iofail:
+	mov	#badopn,-(sp)	;Format
+	mov	stderr,-(sp)	;to stderr
+	call	fprintf		;print it
+	add	#3.*2,sp	;clean the arguments
+	call	perror		;do error message, too
+	jmp	$$fail		;and exit				;29-
+
+cmderr:	mov	#badcmd,-(sp)
+
+fail:
+	mov	stderr,-(sp)	;Save ioptr and			;02
+	call	fprintf		;Put out message
+	jmp	$$fail		;and abort
+
+	.end
+

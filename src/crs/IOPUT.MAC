@@ -1,0 +1,250 @@
+	.title	$$put	Write a record -- RSX only
+.if ne RMSIO
+	.ident	"RMS011"
+.iff
+	.ident	/000011/
+.endc
+;
+;+
+;
+; Internal
+;
+; Index		Write a logical record
+;
+; Usage
+;
+;	mov	#bufadr,r0	;r0 -> buffer start
+;	mov	nbytes,r1	;r1 := number of bytes
+;	mov	#iov,r4		;r4 -> i/o vector
+;	call	$$put		;Internal put buffer routine
+;
+;	Return, r1..r4 preserved.
+;
+; Description
+;
+;	$$put is called by RSX-mode routines to write a record.
+;	$$put only runs under the RSX library.  Using it
+;	in RT11-mode will cause the job to abort with a BPT trap.
+;	The byte count may be zero for RSX Terminal I/O.
+;
+;	If output is to a terminal, stderr will be flushed (first).
+;
+;	If the RMS-11(V2) version is in use, $$put supports updating
+;	of records within an existing sequential file, if the new record
+;	is the same length as the old one.
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out from fflush.mac
+; 000002 02-Jul-82 MM	Newer library
+; 000003 24-Jul-82 MM	Fix extraneous newlines (ancient bug!)
+; 000004 09-Sep-82 MM	Flush stderr, too.
+;	 27-Oct-82 RBD	Change comments only. Regarding initial
+;			setting of VF$NEWL on stdout/stderr.
+; 000005 19-Dec-82 RBD	Set null carriage control byte on terminal
+;			output in "n" mode.
+; RMS006 17-Dec-83 RBD	Add RMS-11 (V2) code for P/OS etc.
+; RMS007 05-Feb-84 RBD	If PUT$ fails because file is not at EOF,
+;			convert it to an UPDATE$ and try again.
+;			Requires $FIND if just rewound ...
+; RMS008 09-Feb-84 RBD	Almost ... do a $FIND after a $UPDATE
+;			to advance to the next record.
+; RMS009 02-Mar-84 RBD	Change status check after $PUT & $UPDATE ops
+;			to accept any value greater than 1 as success.
+;			This allows things to work over DECnet (RMS DAP)
+;			with RSX hosts (VMS returns 1 as it should).
+; 000010 19-Jan-87 JMC  Change .psect for I/D space.
+; 000011 18-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if ne	rsx
+.if ne	RMSIO
+	.MCALL	$PUT	$UPDATE	$FIND	$STORE	$FETCH	$COMPARE	;06
+.iff
+	.MCALL	PUT$
+.endc
+	.MCALL	QIOW$S
+
+CR	=	015		; Carriage return		;03
+LF	=	012		; Line feed			;03
+
+	.psect	c$code,i,ro
+;
+; Write a record.  Calling sequence:
+;
+;	MOV	#BUFADR,R0	;R0 -> first byte of buffer
+;	MOV	NBYTES,R1	;R1 := number of bytes to do
+;	MOV	#IOV,R4		;R4 -> I/O vector
+;	CALL	$$PUT
+;
+; Return, all registers are preserved.
+;
+; Note: this routine understands newline stuff.  It does real live
+; QIO's on terminal devices.
+;
+$$put::
+	jsr	r5,$$svr1
+	mov	r0,r2			;Copy buffer address
+	add	r1,r2			;Point to just past buffer
+	bit	#VF$TTY,V$FLAG(r4)	;Terminal device		;02
+	beq	dodisk			;No, do a disk output
+	cmp	r4,stderr		;Is it stderr?
+	beq	5$			;yep, don't go forever.		;04+
+	mov	r4,-(sp)		;save old r4
+	mov	stderr,r4		;get stderr
+	call	$$flsh			;flush it
+	mov	(sp)+,r4		;restore our device
+5$:					;main sequence			;04-
+;
+; You may be wondering what is happening here:
+; The routines attempt to act reasonably on "real" terminals.
+; The following code (which may well be a contender for the
+; Guiness Book of Records "world's largest NOP") does the following:
+;
+; 1. If the user is controlling newlines directly, the carriage-
+;    control character is NULL.
+;
+; 2. Else, we control newlines.  The VF$NEWL flag indicates whether
+;    the previous line ended with a newline:
+;
+;       Carriage Control Character   EOL <LF> VF$NEWL becomes
+;	NUL	     ...		 no	0	0
+;	 $	<LF> ...		 no	1	0
+;	 +	     ... <CR>		yes	0	1
+;	 SP	<LF> ... <CR>		yes	1	1
+;
+; 4. If a linefeed was erased from the record, and the record
+;    was or became empty, a dummy single-byte record is created
+;    as RSX gets unhappy only doing carriage control.
+;
+; 5. Finally, the monitor-level QIOW routine is called to output
+;    the record and appropriate carriage-control.  All this work
+;    is then undone in the terminal service.
+;
+; VF$NEWL is erased by the scget() routine in screen.mac to prevent
+; the "cursor" from moving when reading from the terminal after a prompt.
+;
+	bit	#VF$NOS,V$FLAG(r4)	;User does all newline stuff?	;02
+	beq	10$			;Branch if we do it
+	tst	r1			;Was there anything?
+;;;	beq	putxit			;Duck out if not.		;11+
+	bne	.+6
+	jmp	putxit							;11-
+	clr	r2			;Set NULL carriage control	;05
+	mov	#IO.WAL,r3		;Get the QIO operation -- write all.
+	br	30$			;Off we go
+;
+10$:	mov	#IO.WVB,r3		;Write virtual block.
+	mov	#cctab,-(sp)		;CC table start
+	bit	#VF$NEWL,V$FLAG(r4)	;Was flag set?
+	beq	12$			;Br if not
+	inc	(sp)			;Yes, increment the flag
+12$:	bic	#VF$NEWL,V$FLAG(r4)	;Ain't set now
+	tst	r1			;Empty record?
+	bne	13$			;Continue if not
+	mov	#hack+1,r2		;Get a legal address...
+13$:	cmpb	-(r2),#LF		;Record ends with '\n'?
+	bne	14$			;Nope.
+	add	#2,(sp)			;Yes, step the flag and
+	bis	#VF$NEWL,V$FLAG(r4)	;set the flag for next time
+	dec	r1			;Erase '\n' from the string
+14$:	movb	@(sp)+,r2		;Get the cc byte.
+	tst	r1			;Is there a real record?
+	bgt	30$			;Output it if so.
+					;Strictly speaking this is
+					;incorrect as the count is unsigned.
+	tst	r2			;But if it's a NULL cc,
+;;;	beq	putxit			;Duck out.			;08+
+	bne	.+6
+	jmp	putxit							;08-
+	mov	#hack,r0		;Get the hack byte
+	mov	#1,r1			;Force one byte record
+;
+; Here to do I/O.  When we get here:
+;	R0	-> Output line
+;	R2	:= EOL byte
+;	R1	:= Byte count -- never zero
+;	R3	:= QIO operation
+; Somehow, I find it hard to believe that QIOW$S doesn't know that
+; the LUN is a byte.
+;
+30$:
+	movb	V$LUN(r4),r5		;Lun (R5 is restored by $$svr1)
+	QIOW$S	r3,r5,#1,,#$$iosb,,<r0,r1,r2>				;03-
+	bcc	putxit			;Common exit.
+	bis	#VF$ERR,V$FLAG(r4)	;Set error flag
+	movb	$$iosb,r0		;Error code
+	mov	r0,$$ferr		;Saved
+	br	putxit			;and exit			;02-
+;
+; Do a normal file output
+;
+dodisk:	bit	#VF$NOS,V$FLAG(r4) ;Never do linefeed?			;02
+	bne	10$			;No, user does it.
+	cmpb	-(r2),#12		;Linefeed terminated record?
+	bne	10$			;No, continue
+	dec	r1			;Yes, erase it (FCS puts it back)
+10$:	mov	r0,r2			;Hide Buffer address from PUT$
+	mov	r4,r0			;Locate the FDB
+.if ne	RMSIO
+	add	#V$RAB,r0		;r0 --> RAB			;06+
+	$STORE	R2,RBF,R0		;Set buffer address
+	$STORE	R1,RSZ,R0		;Set record length
+	$PUT	R0			;Put the record out
+	$COMPARE #SU$SUC,STS,R0		;OK?
+	ble	putxit			;(yes - accept anything >0)	;09
+	$COMPARE #ER$NEF,STS,R0		;Fail 'cause not at EOF		;07+
+	bne	20$			;(no, real failure)
+	$UPDATE	R0			;Writing inside file, update
+	$COMPARE #SU$SUC,STS,R0		;OK?
+	ble	15$			;(Yes, advance with $FIND)	;08/09
+	$COMPARE #ER$CUR,STS,R0		;Fail 'cause no current context?
+	bne	20$			;(no, real failure)		;09
+	$FIND	R0			;Yes, establish current context
+	$COMPARE #SU$SUC,STS,R0		;OK?
+	bgt	20$			;(no, give up if < 1)		;09
+	$UPDATE	R0			;Update
+	$COMPARE #SU$SUC,STS,R0		;OK?
+	bgt	20$			;(no, fail)			;08+/09
+
+;
+; Here, we advance sequentially following a successful $UPDATE
+;
+15$:	$FIND	R0			;Advance after update
+	$COMPARE #SU$SUC,STS,R0		;OK?
+	ble	putxit			;(ahhh ...)			;08-/09
+
+20$:	bis	#VF$ERR,V$FLAG(R4)	;Give up, it wont go.		;07-
+	$FETCH	R0,STS,R0		;Return status in r0		;06-
+.iff
+	add	#V$FDB,r0	;Now it's in R0
+	PUT$	r0,r2,r1	;Write the record
+	bcc	putxit		;Normal exit from directive		;02+
+	bis	#VF$ERR,V$FLAG(r4) ;Set error bit in IOV
+	movb	V$FDB+F.ERR(r4),r0 ;Error code
+.endc
+	mov	r0,$$ferr	;Store error code
+
+putxit:	return			;And exit -- $$svr1 restores registers	;02-
+
+	.psect	c$stcn,d,ro						;10
+;
+; Carriage control table.  hack is used for the dummy record RSX needs.	;03+
+hack:
+cctab:	.byte	000		; no <LF>, VF$NEWL == 0
+	.ascii	"$"		; no <LF>, VF$NEWL == 1 <LF> ...
+	.ascii	"+"		;    <LF>, VF$NEWL == 0      ... <CR>
+	.ascii	" "		;    <LF>, VF$NEWL == 1 <LF> ... <CR>
+
+.iff
+;
+; Just in case
+;
+	.psect	c$code,i,ro
+$$put::
+	crash
+
+.endc								;03-
+	.end

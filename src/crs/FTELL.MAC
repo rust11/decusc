@@ -1,0 +1,144 @@
+	.title	ftell	Get file position for subsequent seek
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+.iif	ndf	rmsio	rmsio	=	0	;Assume FCS
+.if ne rmsio
+	.ident	"RMS007"
+.iff
+	.ident	/000007/
+.endc
+
+;
+;+
+;
+; Index		Get file position for subsequent seek
+;
+; Usage
+;
+;	long
+;	ftell(iop);
+;	FILE		*iop;	/* What device to seek	*/
+;
+; Description
+;
+;	ftell() returns the position of the read/write pointer of
+;	the indicated file.  This value may be fed back to the
+;	file system by calling fseek().  Note that the value is
+;	a pointer to the record, not a block or byte pointer.  On RSX,
+;	the program should flush the current record before calling ftell().
+;	(Flush() is a noop on RT11.)
+;
+;	If reading lines of text, the correct sequence is:
+;
+;		position = ftell(fd);
+;		if (fgets(buffer, sizeof buffer, fd) != EOF) {
+;			/*
+;			 * 'position' locates the record
+;			 * read by the call to fgets()
+;			 */
+;		}
+;
+;	Make sure you declare ftell()
+;
+;		extern long ftell();
+;
+;	If you do not, it will return garbage.
+;
+; Bugs
+;
+;	On both systems, the value returned is the position of the file
+;	pointer (RFA), as a byte offset from the start of the file.
+;	Note, however, that on RSX systems the pointer is to the start
+;	of the current record.  It is not necessarily the case that
+;	the start of a text line equates to the start of a record.
+;	RSX supports many file record formats, including Fortran,
+;	print_file and "unformatted" (with embedded control
+;	information).  The latter files may have multiple text lines
+;	embedded in each record.  This is handled internally by
+;	the formatted read routines (i.e., fgets() and getc()).
+;	On RSX, the only way to be certain of the exact record/line
+;	correspondance is to use the fget() and fput() functions.
+;	The T utility program (in the tools library) shows another
+;	method of handling this problem.
+;
+;	On RSTS/E RT11 mode, ftell will not process "large" files
+;	(with more than 65535 blocks) correctly.
+;
+;	For RMS-11 versions, the sequence fseek() followed by ftell()
+;	on the same file, with no intervening reads or writes, will
+;	advance the position one record.  This is an unfortunate
+;	side-effect of the positioning hacks required to make the
+;	well-behaved RMS "look" like the crude UNIX positioning.
+;
+;-
+;
+; Edit history
+; 000001 13-Mar-80 MM	Initial edit
+; 000002 29-Jul-80 MM	Nothing like debugging
+; 000003 01-Aug-80 MM	Track IOV change
+; 000004 29-Jun-82 MM	Newer library, new rt11 ftell
+; RMS005 02-Jan-84 RBD	Add conditional support for RMS-11 I/O, mainly
+;			for use on P/OS.  It's a hack ... see 'bugs'.
+; RMS006 07-Feb-84 RBD	I learned how to use RFA access on RMS ... no
+;			more hack.
+; 000007 17-Jan-02 BQT	Changed for I/D space
+;
+
+.if ne rmsio
+	.mcall	$fetch	$find
+.endc
+
+	.psect	c$code,i,ro
+
+ftell::
+	jsr	r5,csv$
+	mov	c$pmtr+0(r5),r4	;r4 -> iop
+.if ne	rsx							;01
+
+.if ne	rmsio
+	mov	r4,r0		; r0 --> IOV				;05+
+	add	#v$rab,r0	; r0 --> RAB				;06--
+	$FIND	r0		; Advance to next record (GET$ gets this) ;06+
+	mov	O$RFA(r0),r2	; r2 = LSW of VBN
+	mov	O$RFA+2(r0),r1	; r1 = MSW of VBN
+	mov	O$RFA+4(r0),r3	; r3 = next byte in block		;05-/06-
+.iff
+	mov	r4,r0		;r0 -> fdb
+	add	#v$fdb,r0	;now it does
+	call	.mark		;Get fcs position:
+				;r1 high-order bits of vbn
+				;r2  low-order bits of vbn
+				;r3 next byte in this block
+.endc	;ne rmsio							;06
+
+	bit	#vf$fil,v$flag(r4) ;A file device?			;04
+	beq	10$		;no, a true disk
+	sub	#1,r2		;fix block number
+	sbc	r1		;both halves.
+10$:
+.iff									;04+
+	clr	r1		;(No high-order block number)
+	tst	v$bptr(r4)	;Live buffer?
+	bne	5$		;Br if so.
+	clr	r0		;Nope, empty file is at [0,0]
+	br	30$		;take common exit
+5$:
+	mov	v$bptr(r4),r3	;Get offset to
+	sub	v$base(r4),r3	;current free byte.
+	mov	v$bnbr(r4),r2	;Here's the low-order block number
+	bit	#VF$WRT,v$flag(r4) ;Writing?
+	bne	10$		;yes, got the right block
+	dec	r2		;reading -- block is off by 1
+10$:
+.endc									;04-
+	mov	#9.,r0		;shift
+20$:	asl	r2		;vbn
+	rol	r1		;left
+	dec	r0		;nine
+	bgt	20$		;bits
+	add	r3,r2		;Then add in byte pointer
+	adc	r1		;Both halves.
+	mov	r1,r0		;return a long
+	mov	r2,r1		;in the right place.
+30$:				;Jump here for RT11 rewind		;04
+	jmp	cret$		;and back we go.
+	.end

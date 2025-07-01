@@ -1,0 +1,42 @@
+	.title	frec	Return True if record-oriented file
+	.ident	/000005/
+;
+;+
+;
+; Index		Test if record-oriented file
+;
+; Usage
+;
+;	frec(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;	Return 1 if the file is record-oriented.
+;	Note: in this context, record-oriented files are
+;	not file-structured disks, nor are they the user's
+;	console terminal.  Other terminals, along with devices
+;	such as line-printers, qualify, however.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 10-Mar-80 MM	Conversion for the newer library
+; 000003 08-Oct-81 MM	Bummed code
+; 000004 01-Jul-82 MM	For the newer library
+; 000005 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+frec::
+	clr	r0
+	mov	2(sp),r1					;04
+	bit	#VF$REC,V$FLAG(sp)				;03/04
+	beq	10$
+	inc	r0
+10$:
+	return							;03
+	.end

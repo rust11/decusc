@@ -1,0 +1,38 @@
+	.title	clearerr	Clear file error flags
+	.ident	/000005/
+;
+;+
+;
+; Index		Clear open file's error flags
+;
+; Usage
+;
+;	clearerr(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;	Clear the error flags for an open file.  This may be needed
+;	for interaction with the user's console terminal.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 07-Jan-81 MM	Initial edit
+; 000002 09-Feb-81 MM	Dumb typo
+; 000003 14-Jan-82 MM	Clear eof bit in fdb, too
+; 000004 27-Jun-82 MM	For the new library.
+; 000005 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+cleare::								;02
+	mov	2(sp),r0
+	bic	#VF$EOF+VF$ERR,V$FLAG(r0)				;04
+.if ne	RSX								;03
+	bicb	#10,F.BKP1+V$FDB(r0) ;Clear FDB internal eof bit	;03
+.endc									;03
+	return
+	.end

@@ -1,0 +1,88 @@
+;???;	CCS:FIXES is not up to date
+FIXES.TXT - A list of the changes I've made to DECUS-C
+
+CCS:CC000.MAC
+; 29  4-Feb-04 IJH	Extend pool space for RT-11 (OVRJOB)
+
+CCS:CC001.MAC
+; 27 17-Jun-11 IJH	Increase macro buffer size. See RUST.MAC.
+
+CCS:CC0RT.MAC
+; 22  4-Feb-04 IJH	Increase parser pool space for RT-11.
+
+CCS:CC100.MAC
+; 29 04-Feb-04 IJH	"static int ();" was treated as function definition.
+;			Now parsed correctly as declaration (like "extern").
+;			Sticky on subsequent function definition, indeed
+;			anything else would be type/class conflict.
+; 30 15-Feb-04 IJH	Permit redundant comma before closing brace in data
+;			initializers. Standard C behaviour.
+; 31 28-Feb-04 IJH	One of three loops to skip "bad input" was calling
+;			SCAN rather than ESCAN and got stuck on OP.CST which
+;			is what ESCAN was explicitly designed to handle.
+
+CCS:CC101
+; 13 22-Jan-04 IJH	Disable psect/dsect/ident statements in RUST build. 
+;			These symbols clash with existing applications. Use
+;			"pragma psect" etc instead.....
+; 14 11-Jun-09 IJH	Add // comments
+; 15 03-Apr-15 IJH	Add Standard C "size_t" type (synonym for "unsigned")
+;			Remove redundant forced lower case in KWS:
+
+CCS:CC107
+			New two line module to return end address of parser.
+			Required because of RT-11 LINKER treatment of overlay labels.
+
+CCS:CC300
+; 20 04-Feb-04 IJH	Add ARB .SERR/.HERR code 
+
+
+CLS:CSV.MAC
+; 08 IJH		Fudged exit code at DIVL.MAC exit: did not match C$RET.
+;			Note on dependency added at C$SAV. Comment only.
+; 09 IJH	Use .END to invoke $$MAIN. RT-11 only.
+
+
+CLS:RT11.EIS	C$AUTO = -10 (was -6). See CLS:CSV.MAC
+		RMSIO = 0
+CRS:RT11.EIS	Update to CLS:RT11.EIS
+
+CRS:DTOA.MAC	;??	Now in CLIB.OBJ
+		;2022	Now in FLIB.OBJ
+
+CRS:FCLOSE.MAC	;18	ARB flush fix		-- label
+CRS:FSEEK.MAC	#18	Allow seek on files opened for write.
+
+
+CRS:INIT.MAC	;43	.even typo
+CRS:INIT.MAC	;44	.settop
+CRS:INIT.MAC	;45	Add CCL command
+; 000043 11-Dec-03 IJH	Even up PC before definition of $$ngmc:
+; 000044  1-Feb-04 IJH	Use .SETTOP to determine $$mend for RT-11
+; 000045 25-Feb-04 IJH	Support RT-11 V5.x CCL interface to get command without
+;			CSI mangling.
+
+CRS:IOFOPT.MAC	;05	Add "b" to fopen() mode
+CRS:IOPUTC.MAC	;15	;vf$bzy - typo
+CRS:SUPORT.MAC	;14	Now in CLIB.OBJ
+
+CCS:C1EXT.MAC	mut$c	Auto-detect main() without arguments and suppress
+CCS:C2MAI.MAC	mut$c	 "Argv" prompt. Alternative to "$$narg = 1"
+CLS:MUTE.MAC	mut$c
+CRS:INIT.MAC	mut$c		
+
+CRS:DOSCAN.MAC	;11	00007b dispatched hex to octal decode--had BPL/BEQ,
+				-changed to BEQ/BPL
+; 000011 27-Jul-24 IJH		00007b dispatched hex to octal decode (because
+;				branch order BPL/BEQ was wrong. BEQ needed
+;				to be first.
+CCS:LDATE.MAC
+; 000003 01-Mar-25 IJH	RT-11 Y2K update and correct month mask
+
+CRS:RT11.MAC
+CLS:RT11.MAC
+; 000001 12-Mar-25 IJH	Add C$$CRA conditional and change CRASH from 
+;			<BPT> to <CALL C$RASH>. See CSV.MAC.
+CLS:CSAV.MAC
+; 10 IJH	Add C$$CRA replacing CRASH <BPT> with a message.
+ 

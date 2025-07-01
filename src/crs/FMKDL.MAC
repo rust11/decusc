@@ -1,0 +1,99 @@
+	.title	fmkdl	Mark file for deletion -- obsolete
+	.ident	/000005/
+;
+;+
+;
+; Index		Mark file for deletion
+;
+; Usage
+;
+;	fmkdl(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;
+;	fmkdl() closes and deletes the specified file.
+;	Returns 0 on success, -1 on error.
+;
+;	This routine is obsolete.  New programs should call
+;	delete() instead.  To delete an existing file, the program
+;	may execute:
+;
+;		char	buffer[80];
+;		...
+;		fgetname(iop, buffer);
+;		fclose(iop);
+;		delete(buffer);
+;
+; Bugs
+;
+;	On RT11, the job is aborted with an error message if the
+;	file wouldn't parse.  $$ferr is set to "file not found"
+;	if the program tries to delete something (like the line-printer)
+;	that it shouldn't.  Note that RT11 does not flush the
+;	last buffer before deleting the file.
+;
+;	On VMS compatibility mode, the file must be in the user's
+;	default directory.
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 27-Mar-80 MM	Merged libraries, added RT11 support
+; 000003 21-May-80 MM	Track $$fcls change
+; 000004 27-Jun-82 MM	Newer library
+; 000005 17-Jan-02 BQT	Changed for I/D space
+;
+
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+.if ne	rsx							;02
+
+	.psect	c$code,i,ro
+
+fmkdl::
+	jsr	r5,csv$		;Linkage.			;01+
+	mov	c$pmtr+0(r5),r4	;Grab pointer to file.
+	mov	r4,r0		;Copy to r0
+	clr	$$ferr		;Assume no error yet
+	add	#v$fdb,r0	;r0 -> fdb
+	call	.dlfnb		;Delete/close the file
+	bcc	10$		;Die if error
+	movb	f.err(r0),r0	;Get error code, sign extended
+	mov	r0,$$ferr	;Save the giblets.
+10$:	clr	r0		;remove the iov			;05+
+	call	$$fcls		;Close cleanup			;01-
+	jmp	cret$		;return to caller		;05-
+
+.iff
+
+	.psect	c$code,i,ro
+
+	.mcall	.csispc, .close, .delete
+
+fmkdl::
+	jsr	r5,csv$		;Linkage
+	mov	c$pmtr+0(r5),r4	;Get IOV
+	.close	v$lun(r4)	;Close it (why flush buffers?)
+	sub	#39.*2,sp	;Get a csi area
+	mov	sp,r1		;r1 -> csi area
+	clr	-(sp)		;Get a (fake) default extension
+	mov	sp,r2		;r2 -> default extension
+	.csispc	r1,r2,v$name(r4) ;Parse the file name
+	bcs	20$		;Bug if it won't parse
+	mov	r1,r2		;Get another pointer to scratch area
+	add	#<3*5*2>,r2	;r1 -> first input area
+	.delete	r1,v$lun(r4),r2	;Delete it
+	bcc	10$		;Go on if ok
+	mov	#E$$FNF,$$ferr	;Set "file not found"
+10$:	clr	r0		;delete the iov			;05+
+	call	$$fcls		;Do close cleanup
+	jmp	cret$		;return to caller		;05-
+
+20$:	mov	v$name(r4),-(sp) ;Why won't it parse?		;04+
+	call	perror		;urk
+	CRASH							;04-
+
+.endc								;02-
+	.end

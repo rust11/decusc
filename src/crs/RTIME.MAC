@@ -1,0 +1,135 @@
+	.title	$$rtim	Date and time conversion
+	.ident	/000011/
+;
+;+
+;
+; Index		Date and time conversion
+;
+; Usage
+;
+;	$$rtim(buffer);
+;	struct TIME {
+;		int	year;	/* G.TIYR  year - 1900	*/
+;		int	month;	/* G.TIMO  Jan. = 1	*/
+;		int	day;	/* G.TIDA		*/
+;		int	hour;	/* G.TIHR  00 .. 23	*/
+;		int	minute;	/* G.TIMI  00 .. 59	*/
+;		int	second;	/* G.TISC  00 .. 59	*/
+;		int	tick;	/* G.TICT  00 .. tsec-1	*/
+;		int	tsec;	/* G.TICP  tick/second	*/
+;	} buffer;
+;
+; Description
+;
+;	Stores the current time of day in the buffer.  The format
+;	is compatible with the RSX11-M GTIM$ executive service.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-May-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the new library
+; 000003 27-Mar-80 MM	Merged libraries.
+; 000004 04-Jun-80 MM	Renamed rxtime
+; 000005 08-Jul-80 MM	Renamed rtime, added RT11 support
+; 000006 09-Jul-80 MM	Use .gval to get RT11 config. word
+; 000007 21-Jul-80 MM	Use global $$tick for RT11 clock freq.
+; 000008 23-Jul-80 MM	Made $$div2 a seperate routine
+; 000009 16-Feb-82 MM	Now called $$rtim (my name will be cursed)
+; 000010 19-Jan-87 JMC  Change .psect for I/D space.
+; 000011 19-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+
+.if ne	rsx							;03
+	.psect	c$code,i,ro
+	.mcall	GTIM$S
+$$rtim::							;05/09
+	jsr	r5,csv$						;02
+	GTIM$S	C$PMTR+0(r5)
+	bcs	10$
+	clr	r0
+	br	20$
+10$:
+	mov	#-1,r0
+20$:
+	jmp	cret$						;02
+
+.iff								;03/05+
+;
+; The algorithm was modified from the RT11 monitor by C. Guldenschuh
+;
+
+;
+; Define offsets into the time buffer, note that this matches RSX11-M
+;
+G.TIYR	=	0		; Year
+G.TIMO	=	2		; Month
+G.TIDA	=	4		; Date
+G.TIHR	=	6		; Hour
+G.TIMI	=	10		; Minute
+G.TISC	=	12		; Second
+G.TICT	=	14		; Ticks
+G.TICP	=	16		; Ticks per second
+
+	.mcall	.date, .gtim					;07
+
+	.psect	c$data,d,rw					;10
+t.o.d.:	.blkw	2		; Work area, gets .time value
+
+	.psect	c$code,i,ro
+
+$$rtim::							;09
+	jsr	r5,csv$		; Link environments
+	mov	C$PMTR+0(r5),r4	; R4 -> output buffer
+	.date			; Get the date
+	bit	#37,r0		; Did we get a date?
+	bne	10$		; Br if so
+	clr	G.TIDA(r4)	; Urk, no date
+	clr	G.TIMO(r4)	; No month,
+	clr	G.TIYR(r4)	; No year
+	br	20$		; Try for the time
+
+10$:
+	mov	(sp),r3		; Grab top value
+	mov	r0,-(sp)	; Make it 5 3-bit fields
+	bic	#177740,(sp)	; Mask out what we want
+	asr	r0		; Remove what we got
+	asr	r0		;
+	asr	r0		;
+	asr	r0		;
+	asr	r0
+	bne	10$		; Keep on if there's more
+	mov	r3,G.TIDA(r4)	; Return the day
+	mov	(sp)+,G.TIMO(r4) ; and the month
+	tst	(sp)+		; Pop the day off the stack
+	add	#72.,(sp)	; Convert year from RT11 format
+	mov	(sp)+,G.TIYR(r4) ; Return the year
+;
+; Next, get the time of day
+;
+20$:
+	mov	r4,r1		; R1 -> return buffer
+	add	#G.TIHR,r1	; R1 -> work area for .gtim
+	.gtim	r1,#t.o.d.	; Get time of day
+	mov	$$tick,r2	; Get clock frequency			;07
+	mov	r2,G.TICP(r4)	; Return ticks/second
+	mov	t.o.d.,r0	; High-order time
+	mov	t.o.d.+2,r1	; Low-order time
+	call	$$div2		; Divide 'em out
+	mov	r2,G.TICT(r4)	; Remainder is ticks in this second
+	mov	#60.,r2		; Divide by 60
+	call	$$div2		; to get
+	mov	r2,G.TISC(r4)	; seconds
+	mov	#60.,r2		; Divide by 60
+	call	$$div2		; to get
+	mov	r2,G.TIMI(r4)	; minutes
+	mov	#60.,r2		; Divide by 60
+	call	$$div2		; to get
+	mov	r2,G.TIHR(r4)	; hours
+	clr	r0		; Ok return
+	jmp	cret$		; and return to caller
+.endc								;03/05-
+	.end

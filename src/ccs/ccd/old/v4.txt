@@ -1,0 +1,92 @@
+directories and files
+
+	CCD:		documents
+	CCG:		compiler gold standard
+	CCO: ->		original compiler files
+
+[5,4]	CCS: CCB:	compiler & assembler
+[5,5]	CPS: CPB:	preprocessor
+[5,2]	CCH:		headers
+[5,15]	CLS: CLB: 	common library
+[5,16]	CRS: CRB:	runtime library
+	CCK:		distribution compiler kit
+	CLK:		distribution library kit
+	CCF:		Alan Baldwin's fixes
+
+ANSI	CC0RT.MAC	-C CFLAG
+	CC000.MAC	-C FLAG
+			HELP ???
+	CC1HD.MAC	C$ANSI
+	CC1GB.MAC	EDSIZ.
+;	CC105.MAC	GETC and UNGETC
+;	CC106.MAC	New module
+
+	ccd:comlib.com	compiler/assembler library
+	ccd:cc.com	compiler
+	ccd:as.com	assembler
+
+good things
+	separate member name space
+	void implemented
+DONE:
+auto-initializers
+	Collect initializers
+	Process initializers lexically after last auto processed
+
+WORK:
+data constant expression initializers
+	Use CONXPR
+function prototypes:
+	Internally redeclare as types
+auto-initializer compounds
+	Reshape as static data initializer
+	Use runtime copy to initialize
+static initializer expressions
+
+preprocessor macro arguments
+	use pp.c - it has a lot of ansii support
+standard ansii headers
+	write portable headers minus native stuff
+standard library
+	look at C version of library
+
+structure values
+	not this time
+block autos
+	not this time
+100 EXDEFN 25$	
+
+100 GDECLR 25$	Identifies function (a,b,c) and collects parameters.
+		Stores them in PARMS
+100 EXDEFN 28$	Defines and emits function symbol	
+
+100  CFUNC	Collects function parameter declarations
+		Checks for opening "{"
+		Calls STATE with #1 flag to compile statement
+102   STATE 	Sees flag and calls DECLS
+102    DECLS	Picks up autos 
+		Massages parameters and autos
+		Emits function header
+
+o  What we want to do is incrementally massage rather than
+   leaving it all to the end.
+o  We also need to store a look-ahead marker for the function.
+   The coder will then look ahead to find that.
+
+o  The next task is to understand the structures passed to the coder.
+
+
+AS	
+
+as0	asroo	
+as1	ascmd	overlay
+as2	asfil
+as3a	asasm	overlay
+as3b	asexp
+as3c	aslex
+as3d	asobj	
+as3e	aslst
+as3f	assym
+as3g	ashsh
+as3h	asisd
+

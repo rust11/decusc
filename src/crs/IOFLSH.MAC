@@ -1,0 +1,163 @@
+	.title	$$flsh	Flush output buffers
+	.ident	/000011/
+;
+;+
+;
+; Internal
+;
+; Index		Flush output buffers
+;
+; Usage
+;	mov	#iov,r4		;r4 -> i/o vector
+;	call	$$flsh		;Internal flush routine
+;
+;	Return, all registers preserved.
+;
+; Description
+;
+;	$$flsh is called by other file I/O routines to flush
+;	the current record buffer.  If this is the first call
+;	to an output routine for this file, $$flsh will be called
+;	and will allocate a buffer.
+;
+;	On RSX, if the file is open to the "command terminal", the
+;	flush is to stderr.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out from fflush.mac
+; 000002 19-Jan-82 MM	Put back wrierr table
+; 000003 01-Jul-82 MM	Newer library -- many changes
+; 000004 24-Jul-82 MM	Magic for RSX Terminal output
+; 000005 19-Aug-82 MM	More magic for RSX terminal output
+; 000006 29-Sep-82 MM	Buffer busy unused
+; 000007 12-Oct-82 MM	More RSX terminal hack
+; 000008 22-Nov-82 TTC	Only flush buffer if not at EOF.
+; 000009 06-Jan-83 MM/BH Forgot to remove VF$BZY.
+; 000010 09-Apr-87 JMC  force C$STRN psect to data type
+; 000011 18-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if ne	rsx
+
+	.MCALL	PUT$
+
+	.psect	c$code,i,ro
+
+$$FLSH::								;02
+	MOV	R0,-(SP)		;Preserve registers
+	MOV	R1,-(SP)		;on entrance.
+	MOV	R4,-(SP)		;Save IOV as well		;07+
+	BIT 	#VF$CMD,V$FLAG(R4)	;If it's a terminal
+	BEQ	5$			;Br if not
+	MOV	STDERR,R4		;Do stderr
+5$:									;07-
+	MOV	V$BASE(R4),R0		;Get record buffer address.
+	BNE	10$			;Br if there is a buffer
+	CALL	$$ABUF			;Get a buffer
+	BNE	10$			;Continue if ok			;05
+;
+; No buffer space available -- we must exit back to the original caller.
+;
+	CLR	R0			;Return zero (or NULL)
+	JMP	CRET$			;Die.
+;
+; On a file, open for append, a get may set the EOF bit. If
+; this happens, the buffer has no valid data and the counter
+; is set to zero. However, a following put will decrement the
+; count making negative, and think there is no room left in
+; the buffer and that it should be flushed. We avoid flushing the
+; garbage buffer by checking if the EOF bit is set.
+;
+10$:
+	BIT	#VF$EOF,V$FLAG(R4)	; At EOF?			;08+
+	BEQ	12$			; No, o.k. to flush buffer
+	BIC	#VF$EOF,V$FLAG(R4)	; Yes, clear bit and don't flush
+	BR	17$							;08-
+12$:	MOV	V$RBSZ(R4),R1		;Get buffer size
+	SUB	V$BCNT(R4),R1		;R1 := bytes actually in buffer
+	BNE	15$			;Flush if there's data		;04+
+	BIT	#VF$TTY,V$FLAG(R4)	;Empty record if it's not a terminal,
+	BEQ	20$			;Nothing to flush.
+	BIT	#VF$NEWL,V$FLAG(R4)	;If there isn't a pending linefeed,
+	BEQ	20$			;Nothing to flush.
+15$:									;04-
+	CALL	$$PUT			;Write it out			;02
+17$:	MOV	V$BASE(R4),V$BPTR(R4)	;Current free pointer is at start
+	MOV	V$RBSZ(R4),V$BCNT(R4)	;Lots of space left
+;
+20$:	MOV	(SP)+,R4		;Restore old IOV		;07
+	MOV	(SP)+,R1		;Restore registers
+	MOV	(SP)+,R0		;and
+	RTS	PC			;Return.
+.iff
+	.psect	c$stcn,d,ro					       ;02+,10
+wrierr:	.byte	E$$EOF,E$$ERR,E$$FAT
+	.psect	c$code,i,ro						;02-
+;
+; Come here when the buffer is full to .WRITW (or .PRINT) it to the file.
+; On entry, r4 -> iov
+; All registers preserved
+;
+	.MCALL	.WRITW, .PRINT
+$$FLSH::
+	MOV	R0,-(SP)		; save r0
+	MOV	V$FLAG(R4),R0		; Get the flag
+	BIT	#VF$REA,R0		; Input file?
+	BNE	50$			; isn't flushed.
+	TST	V$BASE(r4)		; First time here?		;06
+	BNE	5$			; NO, test the buffer		;06
+	CALL	$$ABUF			; Yes, allocate
+	BCC	50$			; Ok, return to caller.
+	JMP	CRET$			; No, fail by returning to caller.
+5$:
+	CMP	V$BCNT(R4),V$RBSZ(R4)	; Empty buffer			;06
+	BEQ	50$			; Br if so			;06
+	BIT	#VF$TTY,R0	 	; Flushing the tty?
+	BNE	20$			; Is special
+	CLR	-(SP)			; start making arg block for EMT
+	MOV	V$BPTR(R4),R0		; Get the end of buffer
+	SUB	V$BASE(R4),R0		; R0 = number of bytes of data in buff
+	INC	R0			; make R0 be number of words
+	ASR	R0			; Divide by 2 to get words
+	BCS	10$			; branch if number of bytes was even
+	CLRB	@V$BPTR(R4)		; otherwise force even
+10$:	MOV	R0,-(SP)		; word count to arg block
+	MOV	V$BASE(R4),-(SP) 	; buff pointer to arg block
+	MOV	V$BNBR(R4),-(SP) 	; blockno
+	MOV	V$LUN(R4),-(SP)		; channel
+	BIS	#9. * 400,(SP)		; funct byte -- write
+	MOV	SP,R0			; R0 -> arg block
+	.WRITW
+	ROR	R0			; Save the error code
+	ADD	#5*2,SP			; Pop off arg block
+	TST	R0			; r0 sign bit set on error
+	BPL	30$			; branch if buffer was written OK
+	MOVB	@#52,R0			; Get RT11 error code
+	MOVB	WRIERR(R0),$$FERR 	; Set our error code
+	BIS	#VF$ERR,V$FLAG(R4)	; Flag it in the iov
+	BR	40$			; And exit
+;
+; Flush the TTY,  note that this code assumes that the data buffer
+; has a guard byte following the actual buffer
+;
+20$:
+	MOVB	#200,@V$BPTR(R4)	; Terminate the buffer
+	.PRINT	V$BASE(R4)		; And output it
+
+30$:
+	INC	V$BNBR(R4)		; bump blockno
+
+40$:
+	MOV	V$BASE(R4),V$BPTR(R4)	; Initialize free pointer
+	MOV	V$RBSZ(R4),V$BCNT(R4)	; nunused = 512.
+;;	BIC	#VF$BZY,V$FLAG(R4)	; Not busy now			;09
+;
+50$:
+	MOV	(SP)+,R0		; Get R0 back
+	RETURN
+.endc
+	.END

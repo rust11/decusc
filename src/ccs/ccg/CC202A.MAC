@@ -1,0 +1,321 @@
+.IIF	NDF	RSX	RSX	=	1	;Assume RSX	;01+
+	.TITLE	CC202A
+	.ident	/X02.08/
+
+	.NLIST	BEX, CND
+	.ENABL	LC, GBL
+
+;
+; C COMPILER.
+; REGISTER ALLOCATION ROUTINES FOR THE CODE GENERATOR
+;
+; VERSION X02
+;
+; CLIFFORD C. GESCHKE	02-Sep-81
+;
+; Edit History
+; 01 10-Feb-82 MM	Merged Unimation sources
+; 02 08-Mar-82 CCG	Corrected register allocation bug for
+;			 long ops whan only R3 and R4 are allocated
+;			 as register var's.
+; 03 19-Apr-82 CCG	Fixed bug in general register init.
+;			 Allow register 1 to be allocated.
+;			 Added meaningful error message.
+;			 Removed frereg stuff.
+; 04 20-Oct-82 CCG	Fixed bug in register pair allocation.
+; 05 23-Nov-82 CCG	Added ALLSAV and ALLRES routines.
+; 06 20-Dec-82 CCG	Fixed bug in allocating R0,R1 as a pair.
+; 07 30-Jan-83 MM	Merged Unimation and Dec sources, no real changes.
+; 08 14-Jun-84 MM	sob -> .sob
+;
+	.GLOBL	GRINIT
+	.GLOBL	FRINIT
+	.GLOBL	GETREG
+	.GLOBL	GREGP
+	.GLOBL	MREGP
+	.GLOBL	ALLSAV
+	.GLOBL	ALLRES
+
+	.GLOBL	HFPRA
+	.GLOBL	HGPRA
+	.GLOBL	FHGPR
+	.GLOBL	MDEBUG
+	.GLOBL	LFLAG
+
+	.MCALL	CALLR
+
+; Register allocation proceeds as follows:
+;
+;  A map of the avaiable registers is kept at all times.
+;  General registers are allocated on a first-fit basis beginning with
+;  the register specified in FHGPR.  Register pairs (for longs) are
+;  always allocated odd/even pairs.  If the maps indicate that all registers
+;  are used, something is wrong with the allocation/tree cost,
+;  and an error message is typed.
+;
+;  Floating point registers are also allocated on a first fit basis beginning
+;  with AC3 through AC1.  If none of these registers are available,
+;  something is wrong with the allocation/tree cost, and an error message
+;  is typed.
+;  All floating point regs are deallocated after a function call.
+;
+
+; *****BEGIN CRITICAL ORDER*****
+HFPRA:	.BLKW	1
+HGPRA:	.BLKW	1
+FHGPR:	.BLKW	1
+GRMAP:	.BLKW	2
+FRMAP:	.BLKW	2
+GRP23:	.BLKB	1	; Flag indicates R2 and R3 are allocated as a pair
+	.EVEN
+SAVNUM = .-HFPRA
+; *****END CRITICAL ORDER*****
+
+ERR01:	.ASCIZ	"General register allocation error"
+ERR02:	.ASCIZ	"Floating register allocation error"
+
+	.EVEN
+
+;+
+; ** GRINIT -- GETREG GENERAL REGISTER INITIALIZE
+;
+; This routine initializes the GETREG general register maps.
+; It should be called before attempting to compile a tree
+;
+; There are no input or output parameters
+; All registers are preserved
+;-
+
+GRINIT:
+	MOV	FHGPR,HGPRA	; SET NUMBER OF GEN REGS AVAILABLE	;03+
+	CLR	GRMAP		; CLEAR MAP
+	CLR	GRMAP+2
+	CLRB	GRP23		; CLEAR PAIR FLAG
+	RETURN								;03-
+
+;+
+; ** FRINIT -- GETREG FLOATING POINT REGISTER INITIALIZE
+;
+; This routine initializes the GETREG floatig point register maps.
+; It should be called before attempting to compile a tree
+;
+; There are no input or output parameters
+; All registers are preserved
+;-
+
+FRINIT:	MOV	#3,HFPRA	; SET HIGHEST FLOATING POINT TO USE	;03+
+	CLR	FRMAP		; CLEAR MAP
+	CLR	FRMAP+2		; CLEAR MAP
+	RETURN								;03-
+
+; ALLSAV -- Save register allocation status on stack		;05+
+;
+; Called by:	CALL	ALLSAV
+;
+; Returns with 8 words pushed on stack
+
+ALLSAV:	SUB	#SAVNUM,SP	;MAKE ROOM FOR SAVE
+	MOV	SAVNUM(SP),(SP) ;MOVE RETURN ADDRESS
+	MOV	R0,-(SP)	;SAVE REGS
+	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+
+	MOV	SP,R0		;POINT TO AREA ON STACK
+	ADD	#8.,R0
+	MOV	#HFPRA,R1 	;POINT TO SAVE AREA
+	MOV	#SAVNUM/2,R2	;GET SAVE COUNT
+
+10$:	MOV	(R1)+,(R0)+	;PUSH VALUE
+	.SOB	R2,10$							;08
+
+	MOV	(SP)+,R2	;RESTORE REGS
+	MOV	(SP)+,R1
+	MOV	(SP)+,R0
+	RETURN
+
+; ALLRES -- Restore register allocation status from stack
+;
+; Called by:	CALL	ALLRES
+;
+; Pops 8 words from stack
+
+ALLRES:	MOV	R0,-(SP)	;SAVE REGS
+	MOV	R1,-(SP)
+	MOV	R2,-(SP)
+
+	MOV	SP,R0		;POINT TO SAVE AREA
+	ADD	#8.,R0
+	MOV	#HFPRA,R1	;GET START OF SAVE AREA
+	MOV	#SAVNUM/2,R2	;GET SAVE COUNT
+
+10$:	MOV	(R0)+,(R1)+	;POP VALUE
+	.SOB	R2,10$							;08
+
+	MOV	(SP)+,R2	;RESTORE REGS
+	MOV	(SP)+,R1
+	MOV	(SP)+,R0
+
+	MOV	(SP),SAVNUM(SP)	;MOVE RETURN ADDRESS
+	ADD	#SAVNUM,SP	;POP STACK
+
+	RETURN
+
+;+
+; ** GETREG - GET A REGISTER
+;
+; ALLOCATE A REGISTER OF THE CORRECT TYPE TO HOLD THE RESULT
+; OF THE SPECIFIED TREE.
+;
+; INPUTS:
+;	R5=TREE
+;
+; OUTPUTS:
+;	R4=REGISTER
+;-
+GETREG:
+	tstb lflag
+	beq 1$
+	mov r2,-(sp)
+	mov r0,-(sp)
+	mov #100$,r2
+	call mdebug
+1$:
+	CMP	(R5),#OP.IND	;TOP A "*"
+	BEQ	10$		;GET 1 REG
+
+	CMPB	E.TYPE(R5),#TY.LNG ;CHECK THE TYPE
+	BHI	60$		;BR IF FLOATING
+	BLO	10$		; SKIP IF SINGLE
+
+	CALL	GREGP		; GET REGISTER PAIR
+	BR	99$
+
+; Allocate one general reg
+
+10$:	MOV	FHGPR,R4	; GET MAX POSSIBLE REG
+	BR	25$
+
+20$:	TSTB	GRMAP-1(R4)	; SEE IF THIS ONE IS FREE		;03
+	BEQ	30$		; EXIT LOOP IF GOT ONE
+	DEC	R4		; LOOP
+25$:	BGT	20$		; LOOP IF > 0				;03
+
+; Something is wrong, type an error					;03+
+
+	MOV	#ERR01,R0	;SHOULDN'T HAPPEN
+	JMP	ABTREE							;03-
+
+30$:	DECB	GRMAP-1(R4)	; FLAG REG AS USED			;03
+	DEC	HGPRA		; ONE LESS REG AVAILABLE
+	BR	99$		; SKIP IF OK
+
+; Allocate a floating point reg
+;
+60$:	MOV	#3,R4		; GET MAX POSSIBLE REG
+
+70$:	TSTB	FRMAP-1(R4)	; IS THIS ONE FREE
+	BEQ	80$		; EXIT LOOP IF SO
+	.SOB	R4,70$							;08
+
+; Something is wrong, type an error					;03+
+
+	MOV	#ERR02,R0	;SHOULDN'T HAPPEN
+	JMP	ABTREE							;03-
+
+80$:	DECB	FRMAP-1(R4)	; ALLOCATE THIS REG
+	DEC	HFPRA		; DEC COUNT
+
+99$:
+.if ne	0								;07
+	tstb	lflag
+	beq	61$
+	mov	#101$,r0
+	call	codstr
+	mov	r4,r0
+	call	codnum
+	call	codnl
+	mov	(sp)+,r0
+	mov	(sp)+,r2
+.endc									;07
+61$:
+	RETURN			;DONE
+100$: .asciz "/getreg entry"<12>
+101$: .asciz "/getreg allocated r"
+.even
+
+;+
+; GREGP - Allocate an odd/even pair of general regs
+;-
+
+GREGP:	CMP	FHGPR,#3	; ARE R2 OR R3 POSSIBLE?		;02
+	BLT	40$		; NO					;02
+									;02--
+	MOV	#2,R4		; MAKE IT R2
+
+	TSTB	GRMAP+1		; R2 OK?				;03+
+	BNE	40$		; SKIP IF NOT
+	TSTB	GRMAP+2		; R3 OK?				;03-
+	BEQ	50$		; SKIP IF SO
+
+40$:	CLR	R4		; RETURN R0,R1				;02
+	TSTB	GRMAP		; IS R1 STILL FREE?			;04+
+	BNE	99$		; NO, JUST USE IT AGAIN
+
+	DECB	GRMAP		; FLAG R1 AS USED
+	DEC	HGPRA		; ONE LESS REG AVAILABLE		;04-
+	BR	99$
+
+50$:	DECB	GRMAP+1		; FLAG BOTH REGS BUSY			;03
+	DECB	GRMAP+2							;03
+	DECB	GRP23		; SET R2,R3 ARE A PAIR FLAG
+	SUB	#2,HGPRA	; TWO LESS REGS AVAILABLE
+
+99$:	RETURN
+
+;+
+; MREGP	Make a register pair if possible.
+;
+;   Inputs:	R4 contains a register to be included in the pair.
+;   Outputs:	R4 contains the even register of the pair.
+;
+;   If no other regs were available, R0/R1 are returned.
+;
+;   Preserves all regs except R4.
+;-
+
+MREGP:	MOV	R4,-(SP)	; SAVE THE ARG
+	BIC	#1,R4		; MAKE IT EVEN
+;;	BEQ	99$		; IF ZERO, JUST USE IT			;06
+
+	CMP	R4,#2		; IS IT R2 OR R3
+	BNE	90$		; NO, USE R0,R1
+
+	TSTB	GRP23		; IS IT ALREADY A PAIR?
+	BNE	99$		; YES, WE HAVE IT
+
+	CMP	R4,FHGPR	; ANY HOPE OF INCLUDING THIS ONE IN A PAIR?
+	BHIS	90$		; NO, USE R0,R1
+
+	CMP	R4,@SP		; IS THIS THE "OTHER" REG?
+	BNE	10$		; SKIP IF SO
+	INC	R4		; IT IS NOW
+
+10$:	TSTB	GRMAP-1(R4)	; IS THE "OTHER" REG FREE?		;03
+	BNE	90$		; NOPE, USE R0, R1
+	DECB	GRP23		; SET "R2,R3 ARE A PAIR" FLAG		;04+
+	BR	95$		; FLAG REG
+
+; Must use R0,R1.  Check if R1 is free.
+
+90$:	MOV	#1,R4		; ALLOCATE R1
+	TSTB	GRMAP		; IS R1 FREE?
+	BNE	98$		; NO, JUST USE IT AGAIN			;06
+
+95$:	DECB	GRMAP-1(R4)	; FLAG THE "OTHER" AS BUSY
+	DEC	HGPRA		; ONE LESS REG AVAILABLE
+98$:	BIC	#1,R4		; MAKE SURE WE RETURN THE EVEN REG	;04-;06
+
+99$:	TST	(SP)+		; POP THE OLD ARG
+	RETURN
+
+	.END

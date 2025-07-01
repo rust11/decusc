@@ -1,0 +1,66 @@
+	.title	strncmp	String Compare With Count
+	.ident	/000004/
+;
+;+
+;
+; Index		Compare strings, with count
+;
+; Usage
+;
+;	int
+;	strncmp(s1, s2, count);
+;	char		*s1;
+;	char		*s2;
+;	unsigned int	count;
+;
+; Description
+;
+;	Compare at most count bytes between two strings, returning:
+;
+;		-1 if s1  < s2
+;		 0 if s1 == s2
+;		+1 if s1  > s2
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 21-Oct-81 MM	Initial edit
+; 000002 31-Dec-81 MM	Finally debugged
+; 000003  8-Jul-82 JSL	Use .sob
+; 000004 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+strncmp::
+	mov	r3,-(sp)		; Get a temp
+	mov	r2,-(sp)		; Get another
+	clr	r0			; Assume equality		;03+
+	mov	6+4(sp),r2		; Get count
+	beq	equal			; Zero limit - equal		;03-
+	mov	2+4(sp),r3		; r3 -> string 1
+	mov	4+4(sp),r1		; r1 -> string 2
+
+10$:
+	cmpb	(r3)+,(r1)		; Compare one byte
+	bne	unequal			; Not equal exit
+	tstb	(r1)+			; Still equal, at end?
+	beq	equal			; Equal 'till the bitter end.	;03+
+	.sob	r2,10$			; Continue if more
+	br	equal			; Equal up to limit		;03-
+
+unequal:
+	blo	less			; br if string1 < string2
+	inc	r0			; (sp) := +1 (string1 > string2)
+	br	equal			; and exit
+
+less:
+	dec	r0			; (sp) := -1 (string1 < string2)
+	.br	equal			; Fall through			;03
+	
+equal:	
+	mov	(sp)+,r2		; Restore temp
+	mov	(sp)+,r3		; Restore other temp
+	return
+	.end

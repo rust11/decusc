@@ -1,0 +1,68 @@
+	.title	floor	floor, ceil -- floor and ceiling functions
+	.ident	/000002/
+;
+;+
+;
+; Index		Floor and Ceiling Floating Point Functions
+; Index		floor(x) largest value <= x
+; Index		ceil(x) smallest value >= x
+;
+; Usage
+;
+;	double
+;	floor(val)
+;	double		val;
+;
+;	double
+;	ceil(val)
+;	double		val;
+;
+; Description
+;
+;	Floor(val) returns the largest integer (as a floating point
+;	number) which is not greater than the argument.
+;
+;	Ceil(val) returns the smallest integer (as a floating point
+;	number) which is not less than the argument.
+;
+; Bugs
+;
+;-
+; Edit history
+;
+; 000001 27-Dec-83 MM	Initial creation
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+floor::
+	stfps	-(sp)		; Save fpu status
+	setd			; Make sure we're in double mode
+	ldd	4(sp),r0	; Pick up the value
+	call	xfloor		; Do it.
+	ldfps	(sp)+		; Restore fpu status
+	return
+
+ceil::
+	stfps	-(sp)		; Save fpu status
+	setd			; Make sure we're in double mode
+	ldd	4(sp),r0	; Pick up the value
+	negd	r0		; Negate
+	call	xfloor		; Do it.
+	negd	r0		; Negate result
+	ldfps	(sp)+		; Restore fpu status
+	return
+
+xfloor:	tstd	r0		; Negative argument?
+	cfcc			; Get codes
+	blt	10$		; Yes, do it the hard way.
+	modd	#^F1.0,r0	; Modulus
+	ldd	r1,r0		; Get result
+	return			; and exit.
+
+10$:	modd	#^F1.0,r0	; Modulus
+	cfcc			; Get codes
+	beq	20$		; Equal stays the same
+	subd	#^F1.0,r1	; Decrease the result
+20$:	ldd	r1,r0		; Get the result
+	return			; All done
+	.end

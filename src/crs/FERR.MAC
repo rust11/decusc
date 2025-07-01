@@ -1,0 +1,32 @@
+	.title	ferr	Test for file error
+	.ident	/000005/
+;
+;+
+;
+; Index		Test for file error
+;
+; Usage
+;
+;	ferr(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;	Return 1 if an error has been seen on the indicated file.
+;
+; Bugs
+;
+;	Obsolete, use ferror() instead.
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 10-Mar-80 MM	Conversion for the newer library
+; 000003 08-Oct-81 MM	Bummed code
+; 000004 27-Jun-82 MM	Newer library
+; 000005 17-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+ferr::	jmp	ferror							;04
+	.end

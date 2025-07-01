@@ -1,0 +1,132 @@
+.IIF	NDF	RSX	RSX	=	0	;Assume RT11	;01 +
+	.TITLE	$FDBTA
+	.ident	/x01.02/
+
+	.enabl	lc, gbl
+	.nlist	bex, cnd
+	.list	meb
+
+;
+; Utility Routines
+; Filename (in FDB) to Ascii.  Used in the compiler/assembler library
+;
+; Version x01
+;
+; David G. Conroy	12-Dec-77
+;
+; Edit history
+; 01 1-Aug-79 MM	Added RT11 support
+; 02 3-Aug-79 MM	More cooperation with $c5ta
+;
+	.globl	$fdbta
+
+.IF NE	RSX							;01
+	.mcall	call
+	.mcall	callr
+	.mcall	return
+	.mcall	nbof$l
+.IFF								;01 +
+.MACRO	CALL	ARG1,ARG2
+.IF B	ARG2
+	  JSR	PC,ARG1
+.IFF
+	  JSR	ARG1,ARG2
+.ENDC
+.ENDM	CALL
+
+.MACRO	CALLR	ARG1
+	  JMP	ARG1
+.ENDM
+
+.MACRO	RETURN	ARG1
+.IF B	ARG1
+	  RTS	PC
+.IFF
+	  RTS	ARG1
+.ENDC
+.ENDM	RETURN
+.ENDC								;01 -
+
+.IF NE	RSX							;01
+	nbof$l
+.ENDC								;01
+
+;+
+; ** $fdbta -- filename (in FDB) to ascii
+;
+; Inputs:
+;	r0=fdb pointer
+;	r1=pointer to buffer
+;
+; Outputs:
+;	r1=updated
+;
+; Caveat: (RSX)
+;	The directory name is not converted. The filename block
+; contains only the directory ID. This could perhaps be used to
+; perform a QIO$ Read Attributes to get the name, but this  has
+; not been done yet.
+;
+; Caveat: (RT11/RSTS)
+;	The RSTS/E P,PN and/or logical device name is
+;	not converted.
+;-
+
+
+$fdbta:
+	mov	r0,-(sp)	;Save
+	mov	r2,-(sp)	;$C5TA uses r2
+	mov	r3,-(sp)
+.IF NE	RSX							;01
+	mov	r0,r3		;Get fnb pointer in r3
+	add	#f.fnb,r3
+	movb	n.dvnm(r3),(r1)+;Move device name
+	movb	n.dvnm+1(r3),(r1)+
+	mov	n.unit(r3),r0	;Unit number
+	call	$itoc
+	movb	#':,(r1)+	;Syntactic colon
+	mov	n.fnam(r3),r0	;Convert file name		;02
+	call	$c5ta
+	mov	n.fnam+2(r3),r0					;02
+	call	$c5ta
+	mov	n.fnam+4(r3),r0					;02
+	call	$c5ta
+	call	20$		;Trim off blanks
+	movb	#'.,(r1)+	;The dot
+	mov	n.ftyp(r3),r0	;The file type			;02
+	call	$c5ta
+	call	20$		;Trim blanks
+	mov	n.fver(r3),r0	;Version number
+	bmi	10$		;Assume any -ve is -1
+	movb	#';,(r1)+	;Convert version number
+	call	$itoc
+
+10$:
+.IFF								;01 +
+	mov	-(r0),r3	;r3 -> file data block
+	mov	(r3)+,r0	;r0 := device name/unit		;02
+	beq	10$		;branch if none
+	call	$c5ta		;convert it
+	call	20$		;trim blanks
+	movb	#':,(r1)+	;and the colon			;02
+10$:	mov	(r3)+,r0	;first part of filename		;02
+	call	$c5ta		;do it
+	mov	(r3)+,r0	;and now the			;02
+	call	$c5ta		;rest of the name
+	call	20$		;trim blanks and put
+	movb	#'.,(r1)+	;a little tiny dot
+	mov	(r3)+,r0	;finally the			;02
+	call	$c5ta		;extension
+	call	20$		;trimmed, of course.
+	clrb	(r1)		;terminate the string.
+.ENDC								;01 -
+	mov	(sp)+,r3	;Restore
+	mov	(sp)+,r2
+	mov	(sp)+,r0
+	return			;Done
+
+20$:	cmpb	#' ,-(r1)	;Subroutine to trim blanks	;02
+	beq	20$
+	inc	r1						;02
+	return
+	.end

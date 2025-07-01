@@ -1,0 +1,43 @@
+	.title	streq	String Equality Test
+	.ident	/000002/
+;
+;+
+;
+; Index		Test strings for equality
+;
+; Usage
+;
+;	streq(a, b);
+;	char		*a;
+;	char		*b;
+;
+; Description
+;
+;	Return TRUE if the strings are equal.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+streq::
+	mov	2(sp),r0	; Pick up 'a'
+	mov	4(sp),r1	; And 'b'
+
+10$:
+	cmpb	(r0)+,(r1)	; Are they the same
+	bne	20$		; No
+	tstb	(r1)+		; At the end of the string
+	bne	10$		; No
+	mov	#1,r0		; Make value 'true'
+	return			; and exit
+
+20$:
+	clr	r0		; Return 'false'
+	return			; Back to user
+	.end

@@ -1,0 +1,45 @@
+	.title	isspace	Return non-zero if the character is "whitespace"
+	.ident	/000004/
+;
+;+
+;
+; Index		Test for whitespace argument
+;
+; Usage
+;
+;	isspace(c);
+;	int		c;
+;
+; Description
+;
+;	Return non-zero if c is a whitespace character.  These consist of
+;	space, backspace, newline, tab, and form-feed.  The carriage
+;	return ('\r') is also included.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 10-Mar-82 MM	Use ctype
+; 000002 06-Jun-82 MM	Include carriage return, don't mask parity
+; 000003 07-Jun-82 MM	Redone
+; 000004 14-Jan-02 BQT	Changed for I/D space
+;
+; The following definitions must match ctype.mac and ctype.h
+;
+U	=	0001		; UPPER case alpha
+L	=	0002		; lower case alpha
+D	=	0004		; digit
+S	=	0010		; whitespace (tab, backspace, lf, etc)
+P	=	0020		; punctuation
+C	=	0040		; control
+X	=	0100		; hex alpha
+B	=	0200		; blank
+
+	.psect	c$code,i,ro
+
+isspace::
+	mov	#S,r0			; Get the flags			;03
+	jmp	$$ctype			; Do it				;03
+	.end

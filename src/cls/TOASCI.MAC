@@ -1,0 +1,31 @@
+	.title	toascii	Convert to 7-bit Ascii
+	.ident	/000002/
+;
+;+
+;
+; Index		Convert to 7-bit Ascii
+;
+; Usage
+;
+;	toascii(c);
+;	int		c;
+;
+; Description
+;
+;	Remove the parity bit from c.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-82 MM	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+toascii::
+	mov	2(sp),r0
+	bic	#177600,r0
+	rts	pc
+	.end

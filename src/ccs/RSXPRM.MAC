@@ -1,0 +1,7 @@
+C$$SXT = 1 ; Use SXT and SOB instructions.
+C$$EIS = 1 ; Use EIS.
+C$$FLT = 1 ; Double precision by default.
+C$$FPP = 1 ; Do float constant folding.
+	.MACRO	INCDIR
+	.ASCIZ	"C:"
+	.ENDM	INCDIR

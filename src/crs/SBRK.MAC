@@ -1,0 +1,130 @@
+	.title	sbrk	Allocate memory from operating system
+	.ident	/000005/
+;+
+;
+; Index		Allocate memory from operating system
+;
+; Usage
+;
+;	char *
+;	sbrk(amount)
+;	int		amount;
+;
+; Description
+;
+;	sbrk() allocates the indicated amount of memory from
+;	the operating system.  The allocation is permanent.
+;
+; Diagnostics
+;
+;	NULL is returned if the memory requested is not available.
+;	There is no "shortened" return.
+;
+; Bugs
+;
+; Internal
+;
+;	Sbrk() does not modify its argument.
+;
+;
+;-
+; Edit history
+; 000001 28-Jul-80 MM	From scratch
+; 000002 09-Oct-80 MM	Vax emulation can wrap increment to zero
+; 000003 13-Dec-80 MM	sbreak(0) can get messed up in strange circumstances
+; 000004 28-May-81 MM	added sbrk() as an alternate entry.
+; 000005 19-Jan-02 BQT	Changed for I/D space.
+;			Bugfix.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+
+	.psect	c$code,i,ro
+.if ne	rsx
+	.mcall	GPRT$S, EXTK$S
+.iff
+	.mcall	.settop
+HIMEM	=	50			; RT11 top of memory
+.iftf
+
+sbrk::
+	jsr	r5,csv$			; Link environments
+10$:
+	mov	C$PMTR+0(r5),r1		; Bytes needed
+	inc	r1			; Round it up
+	bic	#1,r1			; to a word value
+	mov	$$mtop,r0		; Current top of free memory
+	mov	r0,r2			; Scratch
+	add	r1,r2			; New top, if successful
+	bcs	fail			; Die if > 177777 (on vms)	;02
+	cmp	r2,$$mlim		; Check against limit.
+	bhi	fail			; Die if > limit.
+	cmp	r2,$$mend		; Is there room?
+	blo	gotcha			; Good
+;
+; No room just now, get some
+;
+	mov	r1,r2			; Save size for later
+	bne	15$			; Continue if real growth	;03+
+	inc	r1			; Get at least one word
+15$:					; Else RSX-11M lowers the boom	;03-
+	add	#377,r1			; Get grow increment
+	clrb	r1			; Round to next 1/4 K boundary
+	mov	r1,r3			; Save it for now
+.ift
+	ror	r1			; Convert to Core clicks
+	ror	r1			;
+	ror	r1			;
+	ror	r1			;
+	ror	r1			;
+	ror	r1			;
+	EXTK$S	r1			; Get memory
+	bcs	fail			; No memory left
+	add	r3,$$mend		; Save new base of free memory.
+	add	r0,r2			; Get new free memory start
+;;	br	gotcha
+
+.iff
+	mov	$$mend,r4		; Current top of memory
+	add	r4,r1			; Desired new top of memory
+	bcs	fail			; Don't let it wrap		;02
+	.settop	r1			; Ask for it by name
+	cmp	r0,r1			; Did we get it
+	beq	20$			; Yes, continue
+;
+; If we're running on RSTS/E, do a .getcor to grow the job
+;
+	tst	$$rsts			; RSTS/E
+	beq	30$			; No, out of space
+	.settop	r4			; Return current space to RT11
+	mov	r1,r0			; Requested top of memory
+	add	#7777,r0		; Round up to next 2K boundary
+	ash	#-11.,r0		; divide by 2048 (RSTS has EIS)
+	bic	#177740,r0		; Just want the K part
+	emt	366			; .getcor
+	bcs	30$			; Fail if .getcor fails
+	.settop	r1			; Ask for it again
+	cmp	r0,r1			; Did we get it
+	bne	30$			; No, exit
+20$:
+	tst	(r0)+			; Get first word past free space
+	mov	r0,$$mend		; and update $$mend
+	br	10$			; Restart to get memory
+;
+; RT11 out of space
+;
+30$:
+	.settop	r4			; Return "current top" to RT11
+	clr	r0			; return NULL to caller
+	br	exit			; and exit
+
+.endc
+
+gotcha:
+	mov	r2,$$mtop		; Save free memory start
+exit:
+	jmp	cret$			; And exit
+
+fail:
+	clr	r0			; Couldn't get memory
+	br	exit			; so die already
+	.end

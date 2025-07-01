@@ -1,0 +1,92 @@
+	.title	$$clfu	Flush last record before closing
+	.ident	/000007/
+;
+;+
+;
+; Internal
+;
+; Index		Flush last record before closing file
+;
+; Usage
+;
+;	mov	#iov,r4		;r4 -> i/o vector
+;	call	$$cflu		;Flush buffers for close
+;
+; Description
+;
+;	Flush the output buffer if the file is open for output.
+;	On RSX, the code may be conditionally compiled so that
+;	the last buffer is fixed so it is SEE compatible.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out from fclose
+; 000002 08-Feb-82 MM/SDR Incorporated Unimation SEE changes
+; 000003 29-Jun-82 MM	Newer library -- even flush "u" files
+; 000004 09-Aug-82 MM	Don't stuff -1 on RSTS (stream format files)
+; 000005 16-Sep-82 MM/RBD Conditionally compile SEE stuff
+; 000006 22-Dec-82 RBD	Fix buffer full test for RT11
+; 000007 18-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.iif	ndf	UNIMATION UNIMATION = 	0	;Don't assume UNIMATION
+;
+; $$cflu is called to flush out the last record on output files
+; It is called by $$clos, and by fspool().
+;
+	.psect	c$code,i,ro
+
+$$cflu::
+	bit	#VF$WRT,V$FLAG(r4) ;Is it an output file?		;03
+	beq	flurtn		;Skip flush if not			;02+
+.if ne	rsx
+;;	bit	#VF$NBF,V$FLAG(r4) ;RSX	Yes, is it "u"			;03
+;;	bne	flurtn		;RSX	Yes, user did buffering, we don't ;03
+	bit	#VF$NOS,V$FLAG(r4)	;RSX	"n" (binary) mode?	;03
+	bne	clflsh		;RSX	Yes, flush the last record
+.if eq	UNIMATION							;04+
+	br	flurtn		;RSX	Take normal exit, instead
+.iff									;04-
+;
+; Make the record file SEE compatible by inserting -1 in a partially-filled
+; last block.
+;
+	tst	V$FDB+F.FFBY(r4)	; Is the last block filled?
+	beq	flurtn			; Exit if so
+	tst	$$rsts			; RSTS files are stream format	;04
+	bne	flurtn			; Just exit if so		;04
+	mov	#-1,@V$FDB+F.NREC(r4)	; Insert -1 at end of file
+	clr	V$FDB+F.FFBY(r4)	; Zero out free byte indicator
+	inc	V$FDB+F.EFBK+2(r4)	; and increment next block counter
+	br	flurtn			; Let FCS close$ do the work	;02-
+.endc					; End UNIMATION hack		;04
+.iff
+	bit	#VF$FIL,V$FLAG(r4) ;RT11	Disk file?		;03
+	beq	clflsh		;RT11	Br if not			;02
+;
+; Fill the last block with nulls if it's a disk file
+;
+	mov	r4,r2		;RT11	R2 -> IOV
+	add	#V$BPTR,r2	;RT11	R2 -> current free byte
+	tst	(r2)		;RT11	Untouched?
+	beq	flurtn		;RT11	Skip it if so			;02
+	tst	-(r2)		;RT11	Buffer already full?		;06
+	ble	clflsh		;RT11	(yes, no null fill needed)	;06
+
+20$:
+	tst	(r2)+		;RT11	Is it full now?
+	ble	clflsh		;RT11	Write it if done		;02
+	clrb	@(r2)+		;RT11	Clear the byte
+	inc	-(r2)		;RT11	Step BPTR to the next one
+	dec	-(r2)		;RT11	Drop BCNT
+	br	20$		;RT11	And try some more
+
+.endc
+clflsh:									;02
+	call	$$flsh		;	Flush out line buffer.
+flurtn:									;02
+	rts	pc		;	And exit
+	.end

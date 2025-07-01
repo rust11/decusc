@@ -1,0 +1,57 @@
+	.title	zero	Clear a block of memory
+	.ident	/000003/
+;
+;+
+;
+; Index		Clear a block of memory
+;
+; Usage
+;
+;	zero(addr, nbytes);
+;	char		*addr;
+;	unsigned int	nbytes;
+;
+; Description:
+;
+;	Clear the block of core.  No value is returned.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 26-Mar-80 MM	Conversion for the new library
+; 000002  8-Jul-82 JSL	nbytes is really unsigned; handle it right.   Use .sob
+; 000003 15-Jan-02 BQT	Changed for I/D space
+;
+; P. Hays		3 April 79
+; D. Conroy	        4 October 79
+;
+	.psect	c$code,i,ro
+
+zero::
+	mov	4(sp),r1	; Get bytecount
+	beq	90$		;	leave if nothing to do
+
+	mov	2(sp),r0	; Get pointer to coreblock
+	bit	#1,r0		;	check for odd address.
+	beq	10$
+	clrb	(r0)+		; If so, clear the odd starting byte,
+	dec	r1		; and decrement the bytecount.
+10$:
+	bit	#1,r1		; Is the bytecount odd?
+	beq	20$
+	dec	r1		; If so, get address of odd ending byte,
+	mov	r1,-(sp)
+	add	r0,(sp)
+	clrb	@(sp)+		;	and clear that one.
+20$:
+	clc			; Make sure ror shifts in a 0		;02
+	ror	r1		; Convert bytecount to wordcount.	;02
+	beq	90$		;	Leave if nothing to clear	->
+30$:
+	clr	(r0)+		; Clear a word
+	.sob	r1,30$		;	Again?				;02
+90$:
+	return
+	.end

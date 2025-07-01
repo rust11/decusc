@@ -1,0 +1,93 @@
+.IIF	NDF	RSX	RSX	=	0	;Assume RT11
+	.TITLE	RDLINE	Read a line of input
+	.ident	/000001/	; 28-Jul-79 Original edit
+	.ENABL	LC, GBL
+	.LIST	MEB
+	.NLIST	BEX, CND
+;
+; RDLINE reads a line of data from the current input file.
+; it assembles differently for RT11 and RSX support.
+; Calling sequence:
+;
+;	MOV	MAXLEN,-(SP)	;Maximum number of bytes to get
+;	MOV	BUFFER,-(SP)	;Line buffer to get data
+;	MOV	FDB,R0		;R0 -> file data block
+;	CALL	RDLINE
+;	BIT	(SP)+,(SP)+	;Remove junk from the stack
+;	BCS	ERR		;Jump if an error occurred
+;	...			;Here on normal return
+;	CLRB	BUFFER(R0)	;R0 has the number of bytes gotten.
+;
+; ERR:	TST	R0		;Error return, code in R0
+;	BEQ	EOF		;Branch if end of file
+;	...			;Trouble here
+;
+; On a normal return, R0 has the length of the line.  The line is
+; not otherwise terminated.
+;
+; Edit history
+; 01 28-Jul-79 MM	Original edit
+;
+BUFFER	=	20		;Where buffer address is on the stack
+MAXLEN	=	22		;Where maximum length is on the stack
+;
+.IF	NE	RSX
+	.MCALL	GET$S
+.IFF
+	.GLOBL	SAVREG
+	.GLOBL	GETC0
+	.GLOBL	$MSG
+CR	=	15
+LF	=	12
+FF	=	14
+;
+.IFTF
+RDLINE::
+.IFT
+	GET$S	R0,2(SP),4(SP)	;Get the record
+	BCS	10$		;Branch on error
+	MOV	F.NRBD(R0),R0	;Return size in R0
+	RTS	PC		;Exit to caller
+
+10$:	MOVB	F.ERR(R0),R0	;Get the error code
+	CMPB	R0,#IE.EOF	;Is it End of file?
+	BNE	20$		;No, really die
+	CLR	R0		;Yes, return 0
+20$:	SEC			;Always return C-bit
+	RTS	PC		;and exit
+.IFF
+	JSR	R5,SAVREG	;Save registers
+	MOV	SP,R5		;Remember SP for error return
+	MOV	R0,R1		;R1 -> FDB
+	MOV	BUFFER(SP),R2	;R2 -> User line buffer
+	MOV	MAXLEN(SP),R3	;R3 := Maximum bytes to get
+	BLE	30$		;He's gotta be joking
+;
+10$:	JSR	PC,GETC0	;Get a byte
+	BIC	#177600,R0	;Clear parity bit
+	BEQ	10$		;Ignore nulls
+	CMPB	R0,#CR		;Carriage return?
+	BEQ	10$		;is ignored.
+	CMPB	R0,#LF		;Line feed
+	BEQ	20$		;Terminates record
+	CMPB	R0,#FF		;Form feed
+	BEQ	20$		;Terminates things too
+	DEC	R3		;Real byte to store
+	BLT	30$		;Exit if no room
+	MOVB	R0,(R2)+	;Do it
+	BR	10$		;And do another, too.
+;
+20$:	SUB	BUFFER(SP),R2	;How many bytes read
+	MOV	R2,2(SP)	;Put in R0 for caller
+	CLC			;Good exit
+	RTS	PC		;and back we go.
+;
+30$:	MOV	#MSG01,R0	;Get funny line message
+	JSR	PC,$MSG		;Print it out
+	CLR	R0		;Fake end of file
+	SEC			;Carry set
+	RTS	PC		;And return.
+MSG01:	.ASCIZ	/Long input line./
+	.EVEN
+.ENDC
+	.END

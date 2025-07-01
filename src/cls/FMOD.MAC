@@ -1,0 +1,39 @@
+	.title	fmod	Floating Modulus
+	.ident	/000002/
+;
+;+
+;
+; Index		Floating modulus
+;
+; Usage
+;
+;	double
+;	fmod(a, b)
+;	double		a;
+;	double		b;
+;
+; Description
+;
+;	Returns a modulus b
+;
+; Bugs
+;
+;-
+; Edit history
+;
+; 000001 27-Dec-83 MM	Initial creation
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+fmod::
+	stfps	-(sp)		; Save fpu status
+	setd			; Make sure we're in double mode
+	ldd	4(sp),r0	; Pick up a
+	divd	14(sp),r0	; divide by b
+	modd	#^F1.0,r0	; Get integer part into r1
+	muld	14(sp),r0	; Multiply by b
+	ldd	4(sp),r0	; Get back a again
+	subd	r1,r0		; Finalize result
+	ldfps	(sp)+		; Restore fpu status
+	return
+	.end

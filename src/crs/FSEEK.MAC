@@ -1,0 +1,210 @@
+	.title	fseek	Reposition file pointer (seek)
+.iif	ndf	rsx	rsx	=	1	;Assume rsx11m
+.iif	ndf	rmsio	rmsio	=	0	;Assume FCS-11
+.if ne rmsio
+	.ident	"RMS015"
+.iff
+	.ident	/000015/
+.endc
+;
+;+
+;
+; Index		Reposition file pointer (seek)
+;
+; Usage
+;
+;	fseek(iop, offset, param);
+;	FILE		*iop;	/* What device to seek	*/
+;	long		offset;	/* New read position	*/
+;	int		param;	/* Zero for abs. seek	*/
+;
+; Description
+;
+;	fseek() moves the file pointer to the indicated position.
+;	The position must have been returned by ftell() or equal
+;	zero for rewind.  Param must be zero.  The file/device must
+;	be seekable.
+;
+;	fseek() returns zero if correct, EOF if an error occurs.
+;	If no error occurred, error and eof flags are reset.
+;
+;	flseek() is an alternate entry with identical parameters
+;	and actions.
+;
+;	Note that on RSX, fseek() can be used to open a file for
+;	update by a sequence such as:
+;
+;		fd = fopen("file.nam", "a");
+;		fseek(fd, 0L, 0);	/* Rewind file	*/
+;
+;	If the file was opened on RSX using the 'n' mode switch, it will
+;	be opened using file attributes "fixed 512-byte records with
+;	no carriage control".  The offset pointer is thus
+;	a virtual byte number and fseek may be used to freely reposition
+;	the file pointer.
+;
+; Bugs
+;	For RMS-11 versions, the sequence fseek() followed by ftell()
+;	on the same file, with no intervening reads or writes, will
+;	advance the position one record.  This is an unfortunate
+;	side-effect of the positioning hacks required to make the
+;	well-behaved RMS "look" like the crude UNIX positioning.
+;
+;-
+;
+; Edit history
+; 000001 13-Mar-80 MM	Initial edit
+; 000002 27-Jun-80 MM	$$get returns -1 on error
+; 000003 01-Aug-80 MM	Track IOV change
+; 000004 05-Mar-81 RBD	Clear V$BCNT to force a new read
+; 000005 17-Jun-81 RBD	... but only on RSX
+; 000006 25-Aug-81 RBD	Allow seek on writeable rsx files
+; 000007 29-Jun-82 MM	New library, use virtual byte pointer for rt11
+; 000008 03-Aug-82 MM	Painfully dumb typo
+; 000009 29-Sep-82 MM	Changed buffer busy test
+; 000010 08-Jun-83 RBD	Don't clear V$BCNT (on RSX) if file open in
+;			"u" mode. Forces a spurious read.
+; RMS011 01-Jan-84 RBD	Add conditional support for RMS-11(V2) on RSX and
+;			(particularly) P/OS.  It's a hack ... see 'bugs'.
+; RMS012 20-Jan-84 RBD	Add call to RMS $REWIND if file has banged into
+;			EOF.
+; RMS013 07-Feb-84 RBD	Well ... I've finally learned to use RFA access
+;			on RMS-11.  I thought it worked only on relative
+;			and indexed files ... No more IRAB/IFAB hacks.
+; 000014 17-Jan-02 BQT	Changed for I/D space. Clear R0 on exit.
+; 000015 07-Feb-05 IJH	Permit seek to output files (vf$wrt) for RUST build. 
+
+.iif ndf RUST,RUST=0							;15
+
+.if ne rmsio
+	.mcall	$fetch	$store	$find	$rewind
+.endc
+
+	.psect	c$code,i,ro
+
+flseek::
+fseek::
+	jsr	r5,csv$
+	mov	c$pmtr+0(r5),r4	;r4 -> iop
+	mov	#-1,r0		;expect the worst
+	tst	c$pmtr+6(r5)	;parameter = 0?
+	bne	40$		;nope, die.			;07
+
+.if ne	rsx
+	bit	#vf$rec,v$flag(r4) ;will it seek?		;03/06/07
+	bne	40$		;nope, can't seek.		;07
+
+.if eq	rmsio								;11
+	bit	#vf$wrt,v$flag(r4) ;is it open for write/append	;06+/07
+	beq	5$		;no, continue
+	bisb	#FD.INS,F.RACC+V$FDB(r4) ;yes, set "don't truncate"
+.endc									;11
+
+5$:				;main sequence				;06-
+	mov	c$pmtr+2(r5),r1	;r1 := high-order vbn
+	mov	c$pmtr+4(r5),r2	;r2 :=  low-order vbn
+	mov	r2,r3		;r3 := byte offset in block
+	bic	#^C777,r3	;now it does
+	mov	#9.,r0		;do a long shift
+10$:	asr	r1		;of the
+	ror	r2		;long block
+	dec	r0		;number
+	bgt	10$		;
+	bit	#vf$fil,v$flag(r4) ;File or device			;07
+	beq	20$		;Br if device
+	add	#1,r2		;File, make origin
+	adc	r1		;1
+20$:
+
+.if ne rmsio
+	mov	r4,r0		; r0 --> IOV				;11+
+	add	#v$rab,r0	; r0 --> RAB
+	bit	#vf$eof,v$flag(r4) ;At EOF?				;13+
+	beq	210$		; (no)
+	$REWIND	r0		; Yes, rewind first
+	bic	#vf$eof,v$flag(r0)
+210$:	$STORE	#RB$RFA,RAC,r0	; Switch to RFA access mode
+	;
+	; Move the 32-bit block number and the byte offset to
+	; the RAB as these three words make up an RFA.
+	;
+	mov	r2,O$RFA(r0)	; Cram LSW of new block number
+	mov	r1,O$RFA+2(r0)	; Cram MSW of new block number
+	mov	r3,O$RFA+4(r0)	; Cram new byte offset
+	$FIND	r0		; Reposition by RFA
+	$STORE	#RB$SEQ,RAC,r0	; Switch back to SEQ access		;13-
+.iff	;(FCS code follows)
+	mov	r4,r0		;r0 -> fdb
+	add	#v$fdb,r0	;now it does
+	call	.point		;seek away
+.iftf	;(Common code)
+	bit	#vf$nbf,v$flag(r4)  ; Open in "u" mode:			;10
+	bne	22$		;(yes, don't force read!)		;10
+	clr	v$bcnt(r4)	;force $$get to read the record	        ;04/05
+22$:									;13+
+.ift	;(RMS only)
+	$FETCH	r0,STS,r0	;Get RMS completion status
+	cmp	r0,#SU$SUC	;OK?
+	bne	40$		;(no, pass back RMS error)
+.endc	;(Common)
+	clr	r0		;Normal return			     ;07/10/13-
+.iff
+;
+; RT11
+;
+.if ne RUST
+	bit	#vf$rec+vf$tty,v$flag(r4) 	;will it seek?		;15
+.iff
+	bit	#vf$rec+vf$tty+vf$wrt,v$flag(r4) ;will it seek?		;03/07
+.endc
+	bne	40$		;not a chance				;07
+;
+; Make sure there's a buffer to read into.
+;
+	tst	v$base(r4)	;Already set a buffer?			;07+
+	bne	3$		;yup.					;08
+	call	$$abuf		;allocate a default buffer
+	bcc	3$		;continue if ok
+	com	r0		;return -1
+	br	40$		;and exit
+3$:									;07-
+;
+; Since this is a stream i/o package, we don't bother to
+; check the busy bit and flush the current buffer.
+;
+	mov	c$pmtr+2(r5),r1	;High order byte offset			;07+
+	mov	c$pmtr+4(r5),r0	;Low order byte offset
+	mov	r0,r3		;Grab a copy
+	bic	#^C777,r3	;r3 has buffer offset
+	mov	#9.,r2		;Shift counter
+5$:	asr	r1		;Long shift
+	ror	r0		; to locate the
+	dec	r2		;  block
+	bgt	5$		;   number
+	tst	V$BCNT(r4)	; Is the buffer empty?			;09/07-
+	beq	10$		;Yes, always read
+	inc	r0		;Check against current (i.e. next) block
+	cmp	r0,v$bnbr(r4)	;Trying to get the block that's in?
+	beq	20$		;Yes, skip the read
+	dec	r0		;No, reget the correct number
+;
+10$:
+	call	$$get		;Go for it
+	tst	r0		;ok return?
+	bmi	40$		;no, die.				;02
+;
+20$:
+	mov	v$rbsz(r4),v$bcnt(r4) ;Setup free count
+	sub	r3,v$bcnt(r4)	;Load free count			;07+
+	add	v$base(r4),r3	;Load free pointer
+	mov	r3,v$bptr(r4)	;and put it away.			;07-
+;
+.endc
+;
+; Normal return
+;
+	bic	#vf$eor,v$flag(r4) ;Clear error and eof flags		;07
+	clr	r0
+;
+40$:	jmp	cret$		;back we go.
+	.end

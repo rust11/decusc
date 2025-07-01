@@ -1,0 +1,141 @@
+	.title	$$flun	Allocate a logical unit for fopen
+	.ident	/000003/
+;
+;+
+;
+; Internal
+;
+; Index		Allocate a logical unit
+;
+; Usage
+;
+;	mov	iov,r4	;r4 -> iov if any, else r4 := 0
+;	call	$$flun	;Get a Lun slot, initialize fdb
+;			;return, r4 -> iov, r3 := lun
+;			;r0, r1 random
+;			;error: return to caller via $$fope
+;			;Note: available RSX luns start at 2,
+;			;while RT11 luns start at zero.
+;
+; Description
+;
+;	Perform all initialization needed to allocate a new
+;	file descriptor.
+;
+; Bugs
+;
+;	In RSX modes, the maximum number of files that may be simultaneously
+;	open is defined at assembly time by a macro (FSRSZ$) which is
+;	expanded when fopen.mac is assembled.  The default FSRSZ$
+;	parameter is 4.  This may be modified by using the task builder
+;	/ACTFIL=n option.  The default FSRSZ$ value may be specified
+;	when the RSX library is built by editing assembly parameter
+;	N$$FIL in RSX.MAC.
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out from fopen.mac
+; 000002 01-Jul-82 MM	Newer library
+; 000003 18-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+;
+;
+; ** $$FLUN
+;
+; Search for a free LUN and setup IOV/FDB
+;
+; Calling sequence:
+;
+;	mov	options,$$optf	; option bits
+;	mov	iov,r4		; r4 -> iov (or NULL if none)
+;	call	$$flun		; Get lun slot
+;
+; Return:
+;	r3 := lun number
+;	r4 -> iov
+;	r0, r1 destroyed
+;
+; On error, return NULL to fopen() caller
+;
+; Find a free lun slot and initialize IOV pointers
+;
+; Note that the lun number may be used as in index into $$luns.
+; However, the correspondance between lun number and $$luns offset
+; differs for RSX and RT11 I/O:
+;
+;	RSX:	$$luns+0 == lun number 2
+;	RT11:	$$luns+0 == lun number 0
+;
+; The reason for this is twofold:  On RSX, stderr is opened as lun 1
+; and is not present in $$luns.  On RT11, stderr is permanently
+; assigned to the console terminal and channels are numbered starting
+; at zero.
+;
+; This correspondance is tested in fclose().
+;
+
+.if eq	rsx
+	.MCALL	.WAIT
+.endc
+	.psect	c$code,i,ro
+
+$$FLUN::
+	MOV	R4,R0		;Need IOV pointer in R0			;08
+	BEQ	10$		;Br if no IOV yet
+	MOV	V$LUN(R4),R3	;R3 needs lun number for fopen
+	BR	40$		;Continue
+;
+10$:				;Fopen called, find a lun
+.if ne	rsx
+	MOV	$$NLUN,R0	;RSX	Highest lun number
+.iftf
+	MOV	#$$LUNS,R1	;	Lun buffer pointer
+;
+; Scan lun slots
+;
+20$:
+.ift
+	DEC	R0		;RSX	Any slots left?
+	BGT	30$		;RSX	Yes
+	MOV	#IE.ILU,R0	;RSX	No, "illegal logical unit"
+.iff
+	CMP	R1,#$$LUNE	;RT11	is R3 at the end?
+	BLO	30$		;RT11	No, look at this one
+	MOV	#E$$NOC,R0	;RT11	Yes, sorry about that
+.iftf
+	JMP	$$FOPE		;	Just exit
+
+30$:
+	TST	(R1)+		;	In use now?
+	BNE	20$		;	Yes, try another
+	MOV	R1,R3		;	Get the channel number
+.ift
+	SUB	#$$LUNS-2,R3	;RSX	Get lun number * 2 (first = lun 2)
+.iff
+	SUB	#$$LUNS+2,R3	;RT11	R3 has lun * 2
+.iftf
+	ASR	R3		;	R3 has lun
+.iff
+	.WAIT	R3		;RT11	On RT11, we also check if it's in use
+	BCC	20$		;RT11	.wait returns ok if in use
+.iftf
+	MOV	#V$SIZE,R0	;	Get the extended file data block
+	CALL	$$FALO		;	Get core
+	MOV	R0,-(R1)	;	Set in lun table		;08
+
+40$:				;	Continue here if freopen
+	MOV	R0,R4		;	R4 -> IOV area			;08
+.endc
+
+	MOV	R4,R1		;	Another copy of iov pointer
+	ADD	#V$SIZE,R1	;	End of it
+
+50$:
+	CLR	(R0)+		;	Clean out
+	CMP	R0,R1		;	The
+	BLO	50$		;	IOV + FDB
+	MOVB	R3,V$LUN(R4)	;	Remember the LUN
+	RETURN			;	Back to caller
+	.end

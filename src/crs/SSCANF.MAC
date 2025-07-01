@@ -1,0 +1,55 @@
+	.title	sscanf	Formatted input conversion
+	.ident	/000003/
+;+
+;
+; Index		Formatted input conversion
+;
+; Usage
+;
+;	sscanf(buf, fmt, pointer(s))
+;	char		*buf;	/* Output buffer	*/
+;	char		*fmt;	/* Format string	*/
+;
+; Description
+;
+;	sscanf() parses the input string, in buf, according to the indicated
+;	format descriptor, storing the results in the pointer arguments.
+;	It returns the number of successfully assigned input items.
+;
+;	See the description of scanf() for further documentation.
+;
+; Diagnostics
+;
+;	Sscanf() returns -1 if the end of the input string was detected
+;	and no data was stored.  It returns -2 if a palpably
+;	incorrect format, such as "%" is encountered.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 02-Jul-82 MM		Split out from scanf.
+; 000002 03-Aug-82 MM		.doscan -> $$scan
+; 000003 19-Jan-02 BQT		Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+sscanf::
+	jsr	r5,csv$			; Link routines
+	mov	#VF$STRG!VF$REA,-(sp)	; Build iov, V$FLAG
+	clr	-(sp)			; V$BASE
+	mov	C$PMTR+0(r5),r0		; r0 -> string
+	mov	r0,-(sp)		; V$BPTR
+10$:	tstb	(r0)+			; end of string?
+	bne	10$			; keep on going
+	mov	r0,-(sp)		; stack -> end of string+1
+	sub	2(sp),(sp)		; V$BCNT
+	mov	sp,r4			; iov
+	mov	r4,-(sp)		; arg for _doscan
+	mov	#C$PMTR+4,-(sp)		; arg offset
+	add	r5,(sp)			; -> args
+	mov	C$PMTR+2(r5),-(sp)	; format
+	call	$$scan			; do it				;02
+	jmp	cret$			; and exit
+	.end

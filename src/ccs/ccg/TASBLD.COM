@@ -1,0 +1,14 @@
+!
+! Link the assembler
+!
+! Prepared by:
+!		Bob Denny
+!		 3-Jul-80
+!
+R LINK
+OU:AS,MP:AS=OB:AS0,OU:TCOMLB/K:34/C
+OB:AS1,AS2,OU:TCOMLB/O:1/C
+OB:AS3A,AS3B,AS3C/O:1/C
+OB:AS3D,AS3E,AS3F,AS3G,AS3H,OU:TCOMLB
+^C
+

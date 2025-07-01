@@ -1,0 +1,77 @@
+	.title	unwind	Execute non-local goto
+	.ident	/000005/
+;
+;+
+;
+; Index		Execute non-local goto
+;
+; Usage
+;
+;	setexit();
+;
+;	unwind();
+;
+; Description:
+;
+;	These routines are useful for dealing with errors and interrupts
+;	encountered in a low-level subroutine of a program.
+;
+;	setexit() saves its stack environment in a static place for later
+;	use by unwind().  It returns 0.
+;
+;	Unwind() restores the environment saved by the last call of setexit().
+;	It then returns in such a way that execution continues as if the
+;	call of setexit() had just returned.  All accessible data have values
+;	as of the time unwind() was called.  The return from setexit() will
+;	have the value 1.  For example:
+;
+;		if (setexit()) {
+;				/* Unwind called	*/
+;		}
+;		else {
+;				/* Setexit setup called */
+;		}
+;
+;	The routine that called setexit() must still be active when unwind()
+;	is called.
+;
+; Bugs
+;
+;	Obsolete -- use setjmp/longjmp instead.
+;
+;-
+; EDIT HISTORY
+;
+; 00001		  JMT	Original
+; 00002	31-Jul-78 JMT	Bug fix
+; 00003 07-Mar-80 MM	Setexit returns 0, unwind 1
+; 00004 19-Jan-87 JMC   Change .psect for I/D space.
+; 00005 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+SETEXIT::
+	MOV	#SAVE, R0		; R0 -> static save area
+	MOV	(SP), (R0)+		; save PC
+	MOV	SP, (R0)+
+	MOV	R5, (R0)+
+	MOV	R4, (R0)+
+	MOV	R3, (R0)+
+	MOV	R2, (R0)
+	CLR	R0			; Return 0
+	RTS	PC			; to our caller
+
+UNWIND::
+	MOV	#SAVE+14, R1		; R1 -> beyond static save area
+	MOV	-(R1), R2		; restore regs
+	MOV	-(R1), R3
+	MOV	-(R1), R4
+	MOV	-(R1), R5
+	MOV	-(R1), SP
+	MOV	#1,R0			; Return 1
+	JMP	@-(R1)			; to the last caller of setexit
+
+	.psect	c$data,d,rw						;04
+
+SAVE:	.BLKW	6
+	.END

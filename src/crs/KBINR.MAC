@@ -1,0 +1,250 @@
+	.title	kbinr	Terminal Input Without Wait
+	.ident	/000007/
+;
+;+
+;
+; Index		Delimiter-free terminal read without waiting
+;
+; Usage
+;
+;	int
+;	kbinr();
+;
+; Description
+;
+;	If a character has been typed on the console terminal,
+;	return it (without echoing or waiting).  If no character
+;	is available, kbin() returns -1 (EOF).
+;
+;	Note the following:
+;
+;	This routine is very inefficient, as it requests operating-system
+;	service for every character entered.
+;
+;	Typing Control/C (or Control/Y on VMS) will cause the program
+;	to exit immediately.
+;
+;	On RT-11, the operating system expands <return> to a carriage return
+;	line feed sequence.  This will be stripped by kbin() to
+;	just <return> ('\r' in C).  Thus, if the user program reads
+;	'\n', a <line-feed> was typed.  Note that this is unlike the
+;	general C library.
+;
+; Bugs
+;
+;	On RSX-11M, this routine depends on the fact that the console
+;	terminal was assigned to LUN 1.
+;
+;	On RSX-11M and VMS emulation mode, the typed character will not
+;	be echoed.   On RSTS/E and RT11 modes, it may have already
+;	been echoed by the operating system if the terminal user typed
+;	before the program requests input.
+;
+;-
+;
+; Edit history
+; 000001 13-Apr-81 MM	Initial edit
+; 000002 04-May-81 MM	Typo
+; 000003 26-Feb-82 MM	RSTS bugs
+; 000004 02-Jul-82 MM	Newer library
+; 000005 09-Aug-82 MM	RSTS RT uses native (undone, see init.mac, edit 30)
+; 000006 19-Jan-87 JMC  Change .psect for I/D space.
+; 000007 19-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+;
+; set rstsxx non-zero if on rsx or to do rsts native i/o on rt11	;05+
+;
+rstsxx	=	rsx							;05-
+
+LF	=	012		; Magic line feed control character
+CR	=	015		; Magic carriage control character
+CTRLC	=	003		; Exit (needed for RSX)
+
+.if ne	rstsxx								;05
+	.psect	c$data,d,rw						;06
+buff:	.blkw	1		; One-byte input area
+.endc									;05
+
+.if ne	rsx
+	.mcall	qio$s, exit$s, rdaf$s, wtlo$s, mrkt$s, cmkt$s, qiow$s
+	.mcall	astx$s, enar$s, dsar$s
+TF.RNE	=	20		; Can't do this with ttsym$ on RSTS 7.0
+
+	.psect	c$data,d,rw						;06
+efnbuf:	.blkw	4		; For event flags
+	.psect	c$stcn,d,ro
+death:	.asciz	"C-kbinr-error exit, i/o status block = %06o"
+
+	.list	meb,bex
+	.psect	c$code,i,ro
+kbinr::
+	tst	$$rsts		; On RSTS/E, do it
+	bne	isrsts		; using .READ's
+	mov	#-1,buff	; Preset "nothing" in the buffer
+;
+; Setup a one-second timeout, setting event flag 2 if it times out
+; Then try to read, setting event flag 1 if success.  Note that, while
+; this is inefficient, it will work on earlier versions of RSX-11M.
+;
+	mrkt$s	#2,#1,#2,#tmoast ; Setup a one-second timeout (EFN 2)
+	bcs	die		; Urk
+				; Try to read, set EFN 1 if success
+	qio$s	#IO.RAL!TF.RNE,#1,#1,,#$$iosb,,<#buff,#1>
+	bcs	die		; Abort if QIO fails
+;
+; Wait for either event flag to complete
+;
+	wtlo$s	0,#3		; Wait for either
+	dsar$s			; Don't allow mark time ast
+	rdaf$s	#efnbuf		; Get the flags
+	bit	efnbuf,#2	; Did we timeout?
+	bne	20$		; Yes
+	cmkt$s			; No, cancel mark time
+20$:
+	mov	buff,r0		; Get the byte just in case
+	cmp	r0,#-1		; Did anything get read?
+	beq	40$		; No, just exit
+	bic	#177400,r0	; Clear out junk (keep 8 bits)		;04
+	cmpb	$$iosb,#IS.SUC	; I/O status return code
+	beq	30$		; Good for you
+	cmpb	$$iosb,#IE.ABO	; Aborted by KILL (??)
+	bne	die		; Urk
+	mov	#-1,r0
+30$:
+	cmp	r0,#CTRLC	; Abort?
+	beq	byebye		; Urk.
+40$:
+	enar$s			; Enable ast recognition
+	return			; done.
+
+die:
+	mov	$$iosb,-(sp)	; Sorry
+	mov	#death,-(sp)	;  about
+	call	error		;   that
+
+byebye:
+	jmp	exit		; all she wrote.
+
+;
+; Timeout comes here, cancel the pending readin.  (Note: on VMS compatibility
+; mode, the original qio$s seems to return success) The input buffer still
+; contains -1 which is used to flag "didn't read".
+;
+tmoast:
+	qiow$s	#IO.KIL,#1,#1,,#$$iosb,,<#buff,#1>
+	bcs	die		; Urk
+	tst	(sp)+		; Drop mark time EFN
+	astx$s			; Exit
+.iff
+	.mcall	.ttyin,.ttinr						;02
+
+JSW	=	044		; Job status word
+SPEC	=	010100		; Enable console special mode
+
+kbinr::
+.if ne	rstsxx			; Don't have to do this now		;05+
+	tst	$$rsts		; If we're running under RSTS
+	bne	isrsts		; Do it natively.
+.endc									;05-
+	bis	#SPEC,@#JSW	; Single character, no wait mode
+	.ttinr								;02
+	bic	#SPEC,@#JSW	; Leave single char. mode
+	bcs	20$		; (BIC doesn't touch C-bit)
+	cmp	r0,#CR		; Got one, <return>?
+	bne	10$		; no, exit.
+	.ttyin			; yes, flush <LF>
+	mov	#CR,r0		; recover <CR>
+10$:
+	return			; done.
+
+20$:	mov	#-1,r0		; No char. available, return -1
+	return			; done.
+
+.if ne	rstsxx								;05+
+byebye:
+	jmp	exit		; all she wrote.
+.endc									;05-
+.endc
+
+.if ne	rstsxx								;05+
+;
+; Special input for RSTS/E						;03+
+;
+
+firqb	=	402		; RSTS FIRQB, byte zero has error code
+xrb	=	442		; RSTS transfer request block
+xrlen	=	0
+xrbc	=	2
+xrloc	=	4
+xrci	=	6
+xrblk	=	10
+xrtime	=	12
+xrmod	=	14
+
+.macro	.PRIV								;05+
+.if eq	rsx
+	EMT	0377		; Next emt is for rsts
+.endc
+.endm	.PRIV
+
+.macro	.TTECH
+	.PRIV
+	EMT	020		; Set Echo on
+.endm	.TTECH
+
+.macro	.TTNCH
+	.PRIV
+	EMT	022		; Turn off echoing
+.endm	.TTNCH
+
+.macro	.TTDDT
+	.PRIV
+	EMT	024		; Enter ODT submode -- delimiter-free
+.endm	.TTDDT
+
+.macro	.READ
+	.PRIV
+	EMT	002		; Read
+.endm	.READ								;05-
+
+isrsts:
+	call	readin		; Get a character
+	cmp	r0,#CTRLC	; Exit trap?
+	beq	byebye		; Exit if so
+;
+; Note: <CR> is followed by <LF>
+;
+	cmp	r0,#CR		; If it's not a return
+	bne	10$		; continue,
+	call	readin		; Return, dump the <LF>
+	mov	#CR,r0		; and return a RETURN
+10$:
+	return			; Exit from RSTS/E readin
+;
+; Actually read a character, returns character in r0.
+; returns -1 if no character was available.  Uses r1.
+;
+readin:
+	.TTNCH			; No echo
+	.TTDDT			; Enter one-shot single char. mode
+	mov	#xrb,r0		; r0 -> transfer request block
+	mov	#1,(r0)+	; XRLEN	Buffer length for one byte
+	clr	(r0)+		; XRBC	Must be zero for .read
+	mov	#buff,(r0)+	; XRLOC	Buffer start address
+	clr	(r0)+		; XRCI	Channel number zero = console
+	clr	(r0)+		; XRBLK	Block (record) for disks
+	clr	(r0)+		; XRTIME Timeout, ignored
+	mov	#8192.,(r0)	; XRMOD	RECORD 8192. -- no wait
+	.READ			; Go for it.
+	movb	@#firqb,r1	; Get return status
+	.TTECH			; Set echo on
+	clr	r0		; Get the character			;04
+	bisb	buff,r0		; (8 bits for newer terminals)		;04
+	tst	r1		; Error from .read?
+	beq	10$		; Continue if ok
+	mov	#-1,r0		; Yes, set error return value
+10$:
+	rts	pc		; and return				;03-
+.endc				;					;05-
+	.end

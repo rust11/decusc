@@ -1,0 +1,72 @@
+	.title	isalloc	Check If a Pointer Points to Allocated Memory
+	.ident	/000003/
+;
+;+
+;
+; Index		Check if a pointer points to allocated memory
+;
+; Usage
+;
+;	int
+;	isalloc(buff)
+;	char *buff;
+;
+; Description
+;
+;	isalloc() returns 1 if buff is a pointer to a block of memory
+;	allocated by calloc(), malloc(), or realloc() that has not been
+;	freed (by free()); -1 if it is a (recently) freed allocated block;
+;	and 0 otherwise.
+;
+;	isalloc(NULL) == 0.
+;
+;	isalloc(p) will remain -1 after a call of free(p) at least until the
+;	next call to calloc(), malloc(), etc.  Beyond that, its value is not
+;	predictable.  Pointers for which isalloc() is non-zero are exactly
+;	those that may safely be passed to realloc().
+;
+;	The test done by isalloc() is definitive, unlike the tests done by,
+;	for example, free() and msize(), which will yield false positives
+;	at least 25% of the time.  However, isalloc() is slower.
+;
+; Bugs
+;
+;	Not portable.
+;-
+;
+; Edit history
+; 000001 11-Jul-82 JSL	Initial edit
+; 000002 12-Feb-83 JSL	Saved a couple of bytes (while fixing the documenta-
+;			tion)
+; 000003 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+	.globl	$$alhd		;Beginning of memory allocation chain
+
+isallo::
+	mov	2(sp),r0	; Get pointer
+	beq	30$		; NULL, return it as a 0 response
+	sub	#2,r0		; r0 := header address
+				; Note:  Don't assume r0 is even!
+	mov	#$$alhd,r1	; r1 -> next block
+;
+10$:
+	mov	(r1),r1		; Link up
+	bic	#1,r1		; Clear busy bit
+	cmp	r0,r1		; Is the next one ours?
+	beq	20$		; Got you
+	cmp	r1,#$$alhd	; At the end?
+	bne	10$		; No, go loop some more	
+;
+	clr	r0		; Sorry, no luck
+	br	30$		; Return that 0
+
+20$:
+	mov	#1,r0		; Assume it's allocated
+	bit	#1,(r1)		; Is it, though?
+	bne	30$		; Yup
+	neg	r0		; Nope					;02
+30$:
+	return
+	.end

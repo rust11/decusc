@@ -1,0 +1,77 @@
+	.title	$$qiow	Call RSX executive service
+	.ident	/000004/
+;
+;+
+;
+; Internal
+;
+; Index		Call RSX executive service
+;
+; Usage
+;
+;	mov	<I/O function code>,r0
+;	mov	IOV pointer,r4
+;	mov	<iopl parameters> onto the stack, right to left
+;	call	$$qiow
+;	bcs	<error>
+;
+; Description
+;
+;	Issue a qio$ directive for all I/O requests needing such.
+;	Uses r0, r1.
+;
+;	This routine is used only in the RSX library.  Using it
+;	in the RT11 library will cause the program to abort with
+;	by executing a BPT instruction.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-May-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the new library
+; 000003 27-Mar-80 MM	Merged libraries
+; 000004 18-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if ne	rsx							;03
+
+	.psect	c$code,i,ro
+
+$$qiow::							;02
+	mov	(sp)+,r1		;Return address
+	clr	-(sp)
+	mov	r4,-(sp)
+	add	#V$IOSB,(sp)
+	mov	#1,-(sp)
+	clr	-(sp)			;23-May
+	bisb	V$LUN(r4),(sp)
+	mov	r0,-(sp)
+	mov	#3.+<12.*256.>,-(sp)
+	emt	377
+	bcc	10$
+	mov	$dsw,r0
+	br	30$
+
+10$:
+	movb	V$IOSB(r4),r0
+	cmp	r0,#IS.SUC
+	bne	20$
+	clc
+	br	30$
+
+20$:
+	sec
+
+30$:
+	jmp	(r1)
+
+.iff								;03+
+	.psect	c$code,i,ro
+
+$$qiow::
+	CRASH
+
+.endc								;03-
+	.end

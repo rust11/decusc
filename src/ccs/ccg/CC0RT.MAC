@@ -1,0 +1,851 @@
+.IIF	NDF	RSX	RSX	=	1	;Assume RSX
+	.TITLE	CC0RT
+	.ident	/X01.21/
+	.NLIST	BEX, CND
+	.LIST	MEB
+	.ENABL	LC, GBL
+;;;	.LIST	CND		;Debugging only
+
+;
+; C COMPILER
+; ROOT
+;
+; VERSION X01
+;
+; DAVID G. CONROY	13-JAN-78
+;
+; EDIT HISTORY
+; 01 19-Jul-79 MM	Unix/RSX compilation mode
+; 02 30-Jul-79 MM	Added RSX/RT11 support
+; 03 28-Aug-79 MM	RT11 defaults to Unix calling sequence
+; 04 10-Sep-79 MM	RT11 dumps registers/stack on Trap4 or Trap 10
+; 05 10-Sep-79 MM	Intermediate files are now .tmp and .tm1
+; 06 04-Mar-80 MM	Updated for latest and greatest C
+; 07 04-Mar-80 MM	Remove UNIX/RSX calling sequence stuff
+; 08 02-Jun-80 MM	Added EFLAG and FFLAG for EIS/FPU
+; 09 28-Dec-80 RBD	Added AFLAG for chaining to AS
+; 10 30-Dec-80 RBD	Added meter/timer support for RT-11
+; 11 31-Dec-80 RBD	Add exit with status. Bypass CC300 if wrapup is
+;			entered with 'severe' status. Do .SRESET
+;			instead. See code in CC000, FATAL:.
+; 12 16-Feb-81 RBD	Make sure EXIT$S is there, too
+; 13 23-Feb-81 MM	Inline EIS hacks etc.
+; 14 19-Oct-81 MM	Moved DOOPEN to root for RT11
+; u1 19-Oct-81 CCG	Added switch to disable preprocessor.
+; 15 08-Feb-82 MM	Changed switches around, incorporated intent of u1
+; 16 01-Mar-82 RBD	More switch changes. See CC000.
+; 17 24-Mar-82 MM	Still more switch changes
+; 18 15-Apr-82 MM	Added -r switch and changed date buf
+; 19 02-Jun-84 MM	Added pos global
+; 20 18-Mar-85 MM	Added CCFAIL, CCSTOP for fatal error w/o reg. dump
+; 21 29-May-85 MM	Changed out of memory error message for clarity.
+;
+; DELETED							;07+
+;;; Define default for -U/-R flag.  If UNIX is zero, the compiler
+;;; will assume -R (Conroy's original calling sequences).  If UNIX
+;;; is non-zero, the compiler will assume UNIX/Whitesmiths sequences.
+;;;
+;;.IF NE	RSX						;03
+;;.IIF	NDF	UNIX	UNIX	=	0	;Assume -R
+;;.IFF								;03
+;;.IIF	NDF	UNIX	UNIX	=	1	;Assume /U	;03
+;;.ENDC								;03
+;								;07-
+
+	.GLOBL	XSTAT						;11
+;	.GLOBL	CCABRT						;20
+;	.GLOBL	CCABR1						;06/20
+	.GLOBL	CCFAIL						;20
+	.GLOBL	CCSTOP						;20
+	.GLOBL	CCERR
+	.GLOBL	CCTTY
+	.GLOBL	CCWRAP						;15
+
+	.GLOBL	TODPTR						;06+
+	.GLOBL	TODBUF
+	.GLOBL	TPS						;06-
+
+	.GLOBL	NERRS
+	.GLOBL	AFLAG						;09
+	.GLOBL	EFLAG						;08
+	.GLOBL	FFLAG						;08
+	.GLOBL	HELPFL						;16
+	.GLOBL	IFLAG
+	.GLOBL	VFLAG
+	.GLOBL	PFLAG
+	.GLOBL	RFLAG
+	.GLOBL	SFLAG
+	.GLOBL	TFLAG
+	.GLOBL	MFLAG						;06+
+	.GLOBL	LFLAG
+	.GLOBL	DEBUGF						;06-/15
+;;	.GLOBL	UFLAG		;Unix/RSX			;01/07
+	.GLOBL	WFLAG						;17
+	.GLOBL	XFLAG						;15
+	.GLOBL	$$POS						;19
+	.GLOBL	P0IN						;02 +
+	.GLOBL	P0OUT
+	.GLOBL	P1IN
+	.GLOBL	P1OUT
+	.GLOBL	P2IN
+	.GLOBL	P2OUT
+	.GLOBL	$MSG
+	.GLOBL	$DENY
+	.GLOBL	DATBUF						;13
+	.GLOBL	DATDEF						;13
+.IF EQ RSX
+	.GLOBL	FREMEM
+	.GLOBL	FRETOP
+	.GLOBL	DOOPEN						;14
+.ENDC
+	.GLOBL	$ERROR						;02 -
+
+.IF NE RSX							;02
+	.MCALL	CALL
+	.MCALL	CALLR
+	.MCALL	RETURN
+	.MCALL	FSRSZ$
+	.MCALL	FDBDF$
+	.MCALL	PUT$S
+	.MCALL	FDOP$A
+	.MCALL	QIO$
+	.MCALL	WTSE$S
+	.MCALL	DIR$
+	.MCALL	EXST$S						;11
+	.MCALL	EXIT$S						;12
+	.MCALL	SVTK$S
+	.MCALL	GTIM$S
+
+	FSRSZ$	4
+	.GLOBL	EFDB
+	.GLOBL	P0TMP
+
+;
+; Global data
+;
+; RSX file name discipline:
+;
+; Each pass has one input and one output file, named P0IN, P0OUT, etc.
+; They are as follows:
+;
+;	P0IN	AFDB	Preprocessor input file
+;	P0OUT	SFDB	Preprocessor output file
+;	P0TMP	IFDB	Preprocessor include file
+;	P1IN	SFDB	Syntax analyzer input file
+;	P1OUT	IFDB	Syntax analyzer output file
+;	P2IN	IFDB	Code generator input file
+;	P2OUT	AFDB	Code generator compilation output
+;								;02 -
+
+EFDB:	FDBDF$			;ERROR STREAM
+	FDOP$A	2		;
+
+P0OUT:								;02
+P1IN:								;02
+SFDB::	FDBDF$			;SOURCE STREAM
+	FDOP$A	3		;
+
+P0TMP:
+P1OUT:								;02
+P2IN:								;02
+IFDB::	FDBDF$			;INTERMEDIATE STREAM
+	FDOP$A	4		;
+
+P0IN:								;02
+P2OUT:								;02
+AFDB::	FDBDF$			;ASM OUTPUT STREAM
+	FDOP$A	5		;
+
+TODPTR:	.WORD	TODBUF		;TIME POINTER			;06+
+TODBUF:	.BLKW	8.		;TIME BUFFER
+TPS:	.BLKW	1		;TICKS PER SECOND		;06-
+
+.IFF								;02
+	.MCALL	.PRINT .SRESET .PROTECT .TRPSET .EXIT
+	.MCALL	 .ENTER						;14
+;								;10+
+; Definitions for accessing tix/sec from monitor:
+;
+	.MCALL	.GTIM	.GVAL
+;
+	CONFIG = 300		;OFFSET IN RMON TO CONFIGURATION WORD
+	C.50HZ = 40		;BIT 5 = 1 FOR 50HZ.
+	C.CLOK = 100000		;BIT 15 = 1 IF CLOCK OK
+;								;10-
+
+	.GLOBL	CSIBLK
+	.GLOBL	CMDLIN
+
+CSIBLK:	.BLKW	39.		;Main Command string block goes here
+OBLK	==	CSIBLK+<0*5*2>	;.S	Output		entry in CSI block
+IBLK	==	CSIBLK+<1*5*2>	;.TM1	Intermediate	entry in CSI block
+SBLK	==	CSIBLK+<2*5*2>	;.TMP	Expanded source	entry in CSI block
+CBLK	==	CSIBLK+<3*5*2>	;.C	Original source	entry in CSI block
+
+	.GLOBL	DEFEXT		;Globalize so CC001 can find it
+DEFEXT:	.RAD50	/C/		;Default extensions (all source files)
+	.RAD50	/S/		;ASM format output file
+	.RAD50	/TM1/		;intermediate file		;05
+	.RAD50	/TMP/		;expanded source file		;05
+
+CMDLIN:	.BLKB	82.		;Command line goes here
+	.EVEN
+
+
+;
+; Define data buffers.  The format is given in GETC0 and PUTC0
+; The order of entries is extremely important
+;
+FDB$CH	==	0		;Channel number.  FDB points here
+FDB$NM	==	FDB$CH-2	;File data block pointer in FDB block
+FDB$NF	==	FDB$CH+2	;Number of bytes left in the buffer
+FDB$FP	==	FDB$NF+2	;Address of the first free byte in the buffer
+FDB$BL	==	FDB$FP+2	;Next block to read/write
+FDB$BF	==	FDB$BL+2	;Buffer starts here
+
+; Note: there is another file data block in CC001.MAC
+
+.MACRO	FDB	CHANNEL,NAME,BLK	;Set up an FDB
+	.WORD	BLK		;Pointer to BLK
+NAME::	.WORD	CHANNEL		;Channel number for NAME
+	.WORD	0		;Free byte counter
+	.WORD	0		;Free byte pointer
+	.WORD	0		;Next block to get/put
+	.BLKB	512.		;The actual record buffer
+.ENDM
+
+;
+; RT11 file name discipline:
+;
+; Each pass has one input and one output file, named P0IN, P0OUT, etc.
+; They are as follows:
+;
+;	P0IN	CFDB	Preprocessor input file
+;	P0OUT	SFDB	Preprocessor output file
+;	P0TMP		Preprocessor include file (defined in CC001)
+;	P1IN	SFDB	Syntax analyzer input file
+;	P1OUT	IFDB	Syntax analyzer output file
+;	P2IN	IFDB	Code generator input file
+;	P2OUT	OFDB	Code generator compilation output
+;
+	FDB	0,OFDB,OBLK	;.S	output
+P2OUT	==	OFDB
+
+	FDB	1,IFDB,IBLK	;.TM1	work file
+P1OUT	==	IFDB
+P2IN	==	IFDB
+
+	FDB	2,SFDB,SBLK	;.TMP	expanded C source
+P0OUT	==	SFDB
+P1IN	==	SFDB
+
+	FDB	3,CFDB,CBLK	;.C	raw C source file
+P0IN	==	CFDB
+
+INC$CH	==	4		;.C include file channel number
+
+;
+; Meter timer information for RT-11				;10
+;
+TODPTR:	.WORD	TODBUF		;TIME POINTER			;06+
+TODBUF:	.BLKW	8.		;TIME BUFFER
+TPS:	.BLKW	1		;TICKS PER SECOND		;06-
+
+;
+; Work areas for RT11 file opening					;14+
+;
+
+RTAREA::
+	.BLKW	5
+
+IPMTR::
+	.WORD	IBLK
+	.WORD	IFLAG
+	.RAD50	/TM1/
+	.WORD	IFDB+FDB$CH
+	.WORD	RTMSG2
+
+OPMTR::
+	.WORD	OBLK
+	.WORD	RTAREA		;Fake, no flag needed
+	.RAD50	/S  /
+	.WORD	OFDB+FDB$CH
+	.WORD	RTMSG3
+;									;14-
+
+.ENDC								;02 -
+
+
+.IF EQ	RSX							;02
+	.PSECT	ALDATA,OVR,GBL	;Work area for alloc/free (in RT11) ;02+
+	.BLKW	3
+	.PSECT
+FREMEM:	.WORD	0		;Gets free memory base
+FRETOP:	.WORD	0		;Gets top of free memory	;02-
+.ENDC								;02
+
+$ERROR:	.WORD	0		;I/O errors go here
+NERRS:	.WORD	0		;ERROR COUNTER
+XSTAT:	.WORD	1		;EXIT STATUS(1=SUCCESS)	 	;11
+AFLAG:	.BYTE	0		;-A TOGGLE			;09
+DEBUGF:	.BYTE	0		;-Z TOGGLE (DEBUG)		;06+/15/16
+EFLAG:	.BYTE	C$$EIS		;-E TOGGLE			;08/13
+FFLAG:	.BYTE	C$$FLT		;-F TOGGLE			;08
+HELPFL:	.BYTE	0		;-H TOGGLE (HELP)		;16
+MFLAG:	.BYTE	0		;-M TOGGLE
+LFLAG:	.BYTE	0		;-L TOGGLE
+IFLAG:	.BYTE	0		;-I TOGGLE
+VFLAG:	.BYTE	1		;-V TOGGLE (DEFAULT)		;16
+WFLAG:	.BYTE	1		;-W TOGGLE (DEFAULT ON)		;17
+XFLAG:	.BYTE	0		;-X TOGGLE (METER)		;15
+PFLAG:	.BYTE	0		;-P TOGGLE
+RFLAG:	.BYTE	0		;-R TOGGLE (#define rsts)	;18
+SFLAG:	.BYTE	0		;-S TOGGLE
+TFLAG:	.BYTE	0		;-T TOGGLE
+;;UFLAG:	.BYTE	UNIX	;-U TOGGLE (OR -R TOGGLE)	;01/07
+$$POS:	.BYTE	0		;TRUE IF P/OS			;19
+DATDEF:	.ASCII	/_DATE /					;13+/18
+DATBUF:	.ASCIZ	/"Thu Feb 26 11:14:06 1981"/
+	.EVEN
+
+;
+; LOCAL DATA.
+;
+
+.IF NE	RSX							;02
+
+SST:	.WORD	CCSST0		;SST TRANSFER TABLE
+	.WORD	CCSST1		;
+	.WORD	CCSST2		;
+	.WORD	CCSST3		;
+	.WORD	CCSST4		;
+	.WORD	CCSST5		;
+	.WORD	CCSST6		;
+	.WORD	CCSST7		;
+
+TMP:	.BLKW	8.		;FOR GTIM$			;07
+MSGBUF:	.BLKB	64.		;MESSAGE OUTPUT BUFFER		;07
+
+.IFF								;10
+DPB:	.BLKW	2		;DPB FOR .GTIM IN 'STIMER'	;10
+.ENDC								;02
+
+LD0:	.BYTE	3,0		;PREPROCESSOR
+	.RAD50	/CC000 /	;
+LD1:	.BYTE	3,0		;PARSER
+	.RAD50	/CC100 /	;
+LD2:	.BYTE	3,0		;CODE GENERATOR
+	.RAD50	/CC200 /	;
+LD3:	.BYTE	3,0		;WRAPUP
+	.RAD50	/CC300 /	;
+
+.IF NE	RSX							;02
+TT:	QIO$	IO.WVB,1,1,,,,<0,0,40>
+.ENDC
+
+;
+; MESSAGES.
+;
+
+MSGTAB:	.WORD	100$, 110$, 120$, 130$, 140$, 150$, 160$, 170$	;13+
+100$:	.ASCIZ	'?CC-F-Odd address trap'
+110$:	.ASCIZ	'?CC-F-Memory protect trap'
+120$:	.ASCIZ	'?CC-F-BPT trap'
+130$:	.ASCIZ	'?CC-F-IOT trap'
+140$:	.ASCIZ	'?CC-F-Illegal operation trap'
+150$:	.ASCIZ	'?CC-F-EMT trap'
+160$:	.ASCIZ	'?CC-F-TRAP trap'
+170$:	.ASCIZ	'?CC-F-FIS trap'
+MSG04X:	.BYTE	0						;13-
+MSG01:	.ASCIZ	'?CC-F-Abort in phase 0'			;02
+MSG01X	=	MSG01+21.					;06
+.IF NE RSX							;02
+MSG02:	.ASCIZ	'?CC-F-Abort loading phase 0'
+MSG02X	=	MSG02+26.					;06
+.ENDC
+MSG03:	.ASCIZ	'?CC-F-Out of main memory'			;21
+.IF NE RSX
+MSG05:	.ASCIZ	'pc='						;06-
+MSG06:	.ASCIZ	'ps='
+MSG07:	.ASCIZ	'sp='
+MSG08:	.ASCIZ	'r0='
+MSG08X	=	MSG08+1.					;06-
+.IFF
+MSG04:	.ASCIZ	'?CC-F-Illegal memory reference'		;04+
+MSG05:	.ASCIZ	'?CC-F-Illegal instruction executed'
+MSG06:	.ASCIZ	'?CC-F-Intentional compiler abort'		;04-
+RTMSG2:	.ASCIZ	'?CC-F-Cannot open work file'
+RTMSG3:	.ASCIZ	'?CC-F-Cannot open output (.S) file'		;14-
+.ENDC
+	.EVEN
+
+
+;+
+; ** CCMAIN - MAINLINE
+;
+; THIS IS THE MAINLINE OF THE C COMPILER. IT READS IN EACH OVERLAY OF
+; THE COMPILER AND PASSES CONTROL TO IT.
+; CARE IS TAKEN TO ASSURE THAT THE LOAD FAILURE AND ABORT MESSAGES GO
+; SOMEWHERE THAT THE USER WILL SEE THEM, EVEN IF HE/SHE/IT SEES  THEM
+; TWICE.
+;-
+
+
+CCMAIN::
+.IF NE	RSX							;02
+	SVTK$S	#SST,#8.	;GRAB ALL SST VECTORS
+	CALL	STIMER		;STORE TIMER			;06
+
+	MOV	#EX$SUC,XSTAT	;ASSUME SUCCESS			;11
+	MOV	#LD0,R0		;LOAD PREPROCESSOR
+	CALL	$LOAD		;
+	BCS	10$		;BR ON LOAD FAILURE
+.IFF								;02
+	.SRESET							;02+
+	.TRPSET	#CSIBLK,#TRAP4	;Abort on trap to 4 or 10
+	.PROTECT #CSIBLK,#20	;Abort on IOT trap
+	BCS	10$		;If RT11 lets us
+	MOV	#TRAP20,@#20	;Load trap handler
+	CLR	@#22		;At priority zero
+10$:
+	MOV	#1,XSTAT	;Assume success			;11
+	MOV	#60.,TPS	;Assume 60Hz clock is present	;10+
+	.GVAL	#DPB,#CONFIG	;Get configuration word
+	BIT	#C.CLOK,R0	;Is there even a clock?
+	BNE	15$		; If so, check the tix/sec.
+	CLR	TPS		; No, set tix/sec to 0
+	BR	30$		; (no need to call STIMER)
+15$:	BIT	#C.50HZ,R0	;Is it a 50Hz clock?
+	BEQ	20$		; If not, we assumed correctly
+	MOV	#50.,TPS	; If so, set tix/sec at 50.
+20$:								;10-
+	CALL	STIMER		;STORE TIMER			;06
+30$:								;02-/10
+.IFTF								;02
+	CALL	CC000		;PREPROCESS
+	CALL	STIMER		;STORE TIMER			;06
+	TST	NERRS		;ANY ERRORS
+	BEQ	1$		;IF NOT, SKIP THE		;11
+	JMP	CCWRAP		; JUMP TO WRAP IT		;11
+1$:	INCB	MSG01X		;FIX PHASE NUMBERS		;02/06/11
+.IFT								;02
+	INCB	MSG02X		;				;02/06
+	MOV	#LD1,R0		;LOAD PARSER
+	CALL	$LOAD		;
+	BCS	10$		;BR ON LOAD FAILURE
+.IFTF								;02
+	CALL	CC100		;PARSE
+	CALL	STIMER		;STORE TIMER			;06
+	TST	NERRS		;ANY ERRORS
+	BNE	CCWRAP		;IF YES, QUIT
+	INCB	MSG01X		;FIX PHASE NUMBERS		;06
+.IFT								;02
+	INCB	MSG02X		;				;06
+	MOV	#LD2,R0		;LOAD CODE GENERATOR
+	CALL	$LOAD		;
+	BCS	10$		;BR ON LOAD FAILURE
+.IFTF
+	CALL	CC200		;CODE
+	CALL	STIMER		;STORE TIMER			;06
+	BR	CCWRAP		;DONE
+
+.IFT
+10$:	MOV	#MSG02,R0	;ERROR LOADING A PHASE
+	CALL	CCERR		;TO ERROR FILE
+	CALL	CCTTY		;TO TTY
+	MOV	#EX$SEV,XSTAT	;SEVERE ERROR			;11
+	BR	CCWRAP		;
+.ENDC								;02
+
+
+.SBTTL	Abort the compilation
+;+
+; ** CCSSTN - SST INTERCEPTOR (TRAP4 OR TRAP20 ON RT11)
+;
+; THERE ROUTINES INTERCEPT ALL COMPILER TRAPS. THE NAME OF THE GAME IS
+; TO GET YOUR FILES CLOSED.
+;
+; THE SST CATCH VECTORS POINT INTO THE ARRAY OF INCB INSTRUCTIONS; THE
+; ERROR CODE IN THE MESSAGE GETS COUNTED UP BY THEM.
+;-
+
+.IF NE	RSX							;02
+CCSST7:	INCB	MSG04X		;ADJUST THE MESSAGE		;02+/06+
+CCSST6:	INCB	MSG04X		;
+CCSST5:	INCB	MSG04X		;
+CCSST4:	INCB	MSG04X		;
+CCSST3:	INCB	MSG04X		;
+CCSST2:	INCB	MSG04X		;
+CCSST1:	INCB	MSG04X		;				;02-/06-
+CCSST0:								;13+
+	MOV	R2,-(SP)	;SAVE R2-R0			;06+
+	MOV	R1,-(SP)	;
+	MOV	R0,-(SP)	;
+	MOVB	MSG04X,R0	;ERROR TYPE
+	ASL	R0		;AS AN INDEX
+	MOV	MSGTAB(R0),R0	;FIND IT			;06-
+	BR	CCABRT		;THEN ABORT
+
+.IFF								;02
+TRAP4:	MOV	#MSG04,-(SP)	;Assume trap to 4		;02+/04+
+	BCS	10$		;Branch if it was T4
+	MOV	#MSG05,-(SP)	;Nope, it's a trap to 10
+10$:	CALL	REGDMP		;Registers at time of crash
+	CLR	-(SP)		;Dump the
+	CLR	-(SP)		; stack,
+	CALL	MEMDMP		;  too.
+	CMP	(SP)+,(SP)+	;Empty the stack
+	MOV	(SP)+,R0	;Get the message back
+	BR	CCABRT		;And do the dump		;04 -
+
+TRAP20:	MOV	#MSG06,R0	;IOT trap occurred
+	BR	CCABRT		;Do it				;02-
+
+.IFTF								;02
+;+
+; ** $DENY - $ALLOC DENIAL
+;
+; THIS ROUTINE IS INVOKED BY $ALLOC WHEN THERE IS NO CORE LEFT. THIS
+; IS A FATAL ERROR.
+; THE COMPILER IS ABORTED VIA THE USUAL ROUTE, WITH THE MESSAGE "OUT
+; OF SPACE" GOING TO THE USER.
+;-
+
+$DENY:	MOV	#MSG03,R0	;OUT OF SPACE
+	BR	CCFAIL		;Fail without register dump	;20
+
+;+
+; ** CCABRT - COMPILER ABORT
+; ** CCABR1 - COMPILER ABORT, NO MESSAGE (UNNEEDED NOW)		;20
+; ** CCFAIL - COMPILER ABORT, MESSAGE IN R0, NO REGISTER DUMP	;20
+; ** CCSTOP - COMPILER ABORT, NO MESSAGE, NO REGISTER DUMP	;20
+;
+; THIS ENTRY IS CALLED VIA A JUMP TO FINISH OFF THE COMPILER. CCERR
+; IS USED TO WRITE AN ABORT MESSAGE TO THE ERROR FILE (THE  MESSAGE
+; ALSO GOES TO THE TTY) AND WRAPUP IS INVOKED.
+; THE OPTION FLAGS ARE DIDDLED SO THAT NONE OF THE TEMP. FILES  ARE
+; DELETED BY CC300.
+;
+; INPUTS:
+;	R0=PTR TO ABORT MESSAGE (CCABRT AND CCFAIL ONLY)
+;-
+
+CCABRT:
+	CALL	CCTTY		;FORCE IT OUT
+; CCABR1:			;ENTRANCE AFTER MESSAGE DONE	;06/20
+	MOV	#MSG01,R0	;THEN ABORT IN PHASE X
+	CALL	CCTTY		;
+
+.IFT								;06
+								;06+
+;+
+; RSX Register dump
+;-
+	MOV	#MSGBUF,R2	;POINT AT BUFFER
+	MOV	#MSG05,R0	;PC
+	MOV	6(SP),R1	;
+	CALL	OCTAL		;
+	MOV	#MSG06,R0	;PS
+	MOV	10(SP),R1	;
+	CALL	OCTAL		;
+	MOV	#MSG07,R0	;SP
+	MOV	SP,R1		;
+	SUB	#12,R1		;(FIX OFFSET)
+	CALL	OCTAL		;
+	CLRB	-(R2)		;TO TTY
+	MOV	#MSGBUF,R0	;
+	CALL	CCTTY		;
+
+	MOV	#MSGBUF,R2	;BUFFER POINTER
+	MOV	(SP)+,R1	;R0
+	CALL	OCTAL1		;
+	MOV	(SP)+,R1	;R1
+	CALL	OCTAL2		;
+	MOV	(SP)+,R1	;R2
+	CALL	OCTAL2		;
+	MOV	R3,R1		;R3
+	CALL	OCTAL2		;
+	MOV	R4,R1		;R4
+	CALL	OCTAL2		;
+	MOV	R5,R1		;R5
+	CALL	OCTAL2		;
+	CLRB	-(R2)		;TO TTY
+	MOV	#MSGBUF,R0	;
+.IFTF								;20
+CCFAIL:				;COMPILER DECIDES TO ABORT	;20
+	CALL	CCTTY		;
+CCSTOP:				;ABORT EXIT, MESSAGE PRINTED	;20
+.IFT								;20
+	MOV	#EX$SEV,XSTAT	;EXIT 'SEVERE'			;11
+.IFF								;11
+	MOV	#8.,XSTAT	;EXIT 'SEVERE			;06-/11
+.IFTF								;06
+
+	CLR	NERRS		;INSURE NOTHING IS DELETED
+	INCB	IFLAG		;
+	INCB	SFLAG		;
+
+CCWRAP:				;COMMON CODE TO FINISH UP
+.IFT								;02
+	MOVB	#'3,MSG02X	;SET PHASE 3 IN MESSAGE		;02/06
+	MOV	#LD3,R0		;LOAD WRAPUP OVERLAY
+	CALL	$LOAD		;
+	BCS	30$		;BR ON LOAD FAILURE
+.IFF								;11
+	CMP	XSTAT,#8.	;SEVERE ALREADY?		;11+
+	BNE	20$		;IF NOT, CALL PHASE 3
+	.SRESET			;YES
+	BR	30$		;EXIT AS IS
+.IFTF								;02
+20$:	CALL	CC300		;WRAPUP
+.IFF								;02
+	CMP	XSTAT,#1.	;ANY HORRIBLE ERRORS?
+	BNE	30$		;IF SO, EXIT AS IS
+	TST	NERRS		;COMPILATION ERRORS?
+	BEQ	30$		;NONE, EXIT OK
+	MOV	#4,XSTAT	;YES, EXIT WIT'ERROR'
+30$:	MOVB	XSTAT,@#53	;SET STATUS			;11-
+	.EXIT			;ALL DONE			;02
+.IFT								;02
+	CMP	XSTAT,#EX$SUC	;ANY HORRIBLE ERRORS?		;11+
+	BNE	40$
+	TST	NERRS		;COMPILATION ERRORS?
+	BEQ	40$		;NONE, EXIT OK
+	MOV	#EX$ERR,XSTAT	;YES, EXIT WITH 'ERROR'
+	BR	40$		;				;11-
+
+30$:	MOV	#MSG02,R0	;CANNOT LOAD WRAPUP
+	CALL	CCTTY		;
+	MOV	#EX$SEV,XSTAT	;SEVERE ERROR!			;11
+40$:	EXST$S	XSTAT		;SO LONG			;11
+	EXIT$S			;JUST IN CASE			;12
+.ENDC
+
+
+.SBTTL	Error message writer
+;+
+; ** CCERR - WRITE OUT ERROR COMMENTS
+;
+; THIS ROUTINE IS USED BY ALL COMPILER PHASES TO PUT OUT MESSAGES TO
+; THE ERROR STREAM.
+;
+; INPUTS:
+;	R0=PTR TO MESSAGE STRING
+;-
+
+$MSG:
+
+.IF EQ	RSX
+CCTTY:				;CCTTY = CCERR FOR RT11		;02
+.ENDC
+
+CCERR:
+.IF NE	RSX							;02
+	MOV	R0,-(SP)	;SAVE THINGS
+	MOV	R1,-(SP)	;
+	MOV	R2,-(SP)	;
+	MOV	R0,R1		;POINTER
+	MOV	R0,R2		;COMPUTE LENGTH
+10$:	TSTB	(R2)+		;
+	BNE	10$		;
+	DEC	R2		;
+	SUB	R1,R2		;
+	PUT$S	#EFDB,R1,R2	;PUT OUT THE MESSAGE
+	MOV	(SP)+,R2	;RESTORE AND RETURN
+	MOV	(SP)+,R1	;
+	MOV	(SP)+,R0	;
+.IFF								;02
+	.PRINT	R0		;Isn't RT11 nice.		;02
+.ENDC								;02
+	RETURN			;
+
+
+.IF NE	RSX							;02
+.SBTTL	CCTTY Write messages to TI:
+;+
+; ** CCTTY - WRITE MESSAGE TO TI:
+;
+; THIS ROUTINE IS USED TO WRITE DISASTER MESSAGES TO THE TI:.  THIS
+; INCREASES THE CHANCES OF THE MESSAGE GETTING OUT.
+;
+; INPUTS:
+;	R0=PTR TO MESSAGE STRING
+;
+; USES:
+;	R0
+;-
+
+CCTTY:	MOV	R0,TT+Q.IOPL	;SET ADDRESS
+10$:	TSTB	(R0)+		;COMPUTE LENGTH OF MESSAGE
+	BNE	10$		;
+	DEC	R0		;
+	SUB	TT+Q.IOPL,R0	;
+	MOV	R0,TT+Q.IOPL+2	;SET INTO DPB
+	DIR$	#TT		;WRITE TO TI:
+	WTSE$S	#1		;
+	RETURN			;DONE
+.ENDC
+
+;+
+; ** STIMER -- STORE TIMER.
+;
+; GRAB THE CURRENT TIME OF DAY FROM THE SYSTEM, CONVERT IT TO CLOCK
+; TICKS AND SAVE THE VALUE IN THE NEXT FREE SLOT IN THE TIME BUFFER
+; (IGNORING OVERFLOW).
+;
+; USES:
+;	ALL
+;-
+
+STIMER:								;06
+.IF NE	RSX
+	GTIM$S	#TMP		;GET TIMES.
+	MOV	#TMP+G.TIHR,R4	;POINT AT HOURS.
+	CLR	R2		;GET LONG HOURS.
+	MOV	(R4)+,R3	;
+	MOV	#60.,R0		;ADD IN MINUTES.
+	CALL	$DMUL		;
+	ADD	(R4)+,R1	;
+	ADC	R0		;
+	MOV	R0,R2		;ADD IN SECONDS.
+	MOV	R1,R3		;
+	MOV	#60.,R0		;
+	CALL	$DMUL		;
+	ADD	(R4)+,R1	;
+	ADC	R0		;
+	MOV	R0,R2		;ADD IN TICKS.
+	MOV	R1,R3		;
+	MOV	TMP+G.TICP,R0	;
+	MOV	R0,TPS		;SAVE THEM.
+	CALL	$DMUL		;
+	ADD	(R4)+,R1	;
+	ADC	R0		;
+	MOV	R0,@TODPTR	;SAVE THIS LONG INTEGER.
+	ADD	#2,TODPTR	;
+	MOV	R1,@TODPTR	;
+	ADD	#2,TODPTR	;
+.IFF								;10
+	TST	TPS		;Clock present?			;10+
+	BNE	10$		; If so, go get a time hack
+	RETURN			; Nope, this call is a no-op
+10$:	.GTIM	#DPB,TODPTR	;Get tix past midnite
+	ADD	#4,TODPTR	;Point to next slot		;10-
+.ENDC								;06
+	RETURN			;FINISHED.			;06-
+
+.IF NE	RSX							;06
+;+
+; ** OCTAL  -- BINARY TO OCTAL ASCII
+; ** OCTAL1 -- BINARY TO OCTAL ASCII (ALTERNATE ENTRY)
+; ** OCTAL2 -- BINARY TO OCTAL ASCII (ALTERNATE ENTRY)
+;
+; THESE ROUTINES CONVERT A WORD TO OCTAL ASCII. THE MESSAGE POINTED TO
+; BY R0 IS COPIED TO THE BUFFER FIRST. THE ALTERNATE ENTRY OCTAL1 SETS
+; R0 TO MSG08 BEFORE DROPPING INTO OCTAL.  THE ALTERNARE ENTRY  OCTAL2
+; ALSO INCREMENTS THE REGISTER NUMBER IN THE MESSAGE.
+;
+; A BLANK IS PUT IN THE BUFFER AFTER THE CONVERTED DIGITS.
+;
+; INPUTS:
+;	R0=MESSAGE POINTER (OCTAL)
+;	R1=NUMBER
+;	R2=BUFFER POINTER
+;
+; OUTPUTS:
+;	R2=UPDATED
+;
+; USES:
+;	R0, R1
+;-
+
+OCTAL2:	INCB	MSG08X		;NEXT REGISTER			;06
+OCTAL1:	MOV	#MSG08,R0	;MESSAGE
+
+OCTAL:	MOVB	(R0)+,(R2)+	;COPY MESSAGE
+	BNE	OCTAL		;
+	DEC	R2		;
+
+	MOVB	#'0,(R2)	;TOP DIGIT
+	ASL	R1		;
+	ADCB	(R2)+		;
+	MOV	#5,-(SP)	;LOOP COUNTER
+10$:	MOV	#6,R0		;'0' >> 3
+	ASL	R1		;GET A DIGIT
+	ROL	R0		;
+	ASL	R1		;
+	ROL	R0		;
+	ASL	R1		;
+	ROL	R0		;
+	MOVB	R0,(R2)+	;TO BUFFER
+	DEC	(SP)		;LOOP UNTIL FINISHED
+	BNE	10$		;
+	TST	(SP)+		;REMOVE COUNTER
+
+	MOVB	#' ,(R2)+	;APPEND A BLANK
+	RETURN			;
+.ENDC								;06-
+
+.IF EQ	RSX							;14+
+;
+;+
+; ** DOOPEN ** Open output files for RT11
+;
+; Calling sequence:
+;
+;	MOV	#parameter area,	R1
+;	CALL	DOOPEN
+; Exit to user on error.  All registers used.
+;
+; The parameter area has the following format:
+;
+; AREA:	.WORD	CSI data block address
+; + 2	.WORD	Keep on present flag address
+; + 4	.WORD	Extension
+; + 6	.WORD	FDB address (has channel number)
+; +10	.WORD	Error message address
+;
+; If the file is present, it is opened and the keep flag is incremented.
+; If it is not present, a fake file name is built using the CBLK file
+; name parameters.  If something goes wrong, $MSG is called with the
+; error text and we die.
+;
+; Note that handler fetches were done in CC000 (before setting "top of
+; free memory").
+;
+DOOPEN::
+	MOV	(R1),R2		;R2 -> file data block
+	TST	(R2)		;Device?
+	BNE	10$		;Yes, there's a file there
+	TST	2(R2)		;File name?
+	BNE	10$		;Yes, there's a file there
+;
+; No file is present, make one up.
+;
+	MOV	#CBLK+2,R0	;Use input file name
+	MOV	#^RDK ,(R2)+	;Force to public disk
+	MOV	(R0)+,(R2)+	;Do the file name
+	MOV	(R0)+,(R2)+	;Both sides
+	MOV	4(R1),(R2)	;Use the real extension
+	MOV	(R1),R2		;Point R2 back to the device info.
+	BR	20$		;Rejoin main sequence
+
+;
+; A file was explicitly given. force "keep on exit"
+;
+
+10$:	INCB	@2(R1)		;Make sure the flag's on
+
+;
+; Now, open the file
+;
+
+20$:
+	.ENTER	#RTAREA,@6(R1),R2,10(R2) ;Open the file
+	BCS	40$		;Br if no go
+	RETURN			;gotcha
+
+40$:	.PRINT	10(R1)		;Sorry about that
+	MOV	#8.,XSTAT	;VERY serious error
+	JMP	CCWRAP		;Good bye
+.ENDC								;14-
+	.END	CCMAIN

@@ -1,0 +1,113 @@
+	.title	$$link	Print memory list
+	.ident	/000003/
+;
+;+
+;
+; Index		Print memory list
+;
+; Internal
+;
+; Usage
+;
+;	$$link();		/* Print memory list	*/
+;
+;	Return: all registers preserved
+;
+;
+; Description
+;
+;	Subroutine $$link() writes the allocation list onto stderr.
+;	It was written to debug malloc() but may be useful for
+;	debugging programs that write randomly in memory.
+;
+;	Note that it preserves all registers.
+;
+; Diagnostics
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 13-Aug-82 MM	Split out from malloc.mac
+; 000002 19-Jan-87 JMC  Change .psect for I/D space.
+; 000003 15-Jan-02 BQT	Changed for I/D space
+;
+;
+; Note: all registers are preserved.
+;
+
+	.psect	c$code,i,ro
+
+$$link::
+	mov	r4,-(sp)	; Save all
+	mov	r3,-(sp)	; registers
+	mov	r2,-(sp)	;
+	mov	r1,-(sp)	;
+	mov	r0,-(sp)	;
+	mov	#$$alhd,r4	; R4 -> next linkage
+	clr	r2		; R2 == newline count
+;
+; Output format:
+;  nnnnnn len	free block start, length
+;  nnnnnn+len	busy block start, length
+;
+; Four entries will be printed on each line
+;
+10$:
+	mov	(r4),r3		; Link + busy bit
+	inc	r2		; Step counter
+	bic	#^C<3>,r2	; Mod 4, zero means newline
+	mov	stderr,-(sp)	; To the console
+	clr	-(sp)		; Clean the stack
+	movb	link1(r2),(sp)	; Stuff the appropriate byte
+	call	putc		; Print it
+	cmp	(sp)+,(sp)+	; Clear the stack
+	mov	r3,r0		; Save it
+	bic	#1,r3		; Clear busy bit
+	mov	r3,-(sp)	; Next
+	sub	r4,(sp)		;  - this = true size
+	bic	r3,r0		; Just want busy bit
+	movb	link2(r0),-(sp)	; Stuff flag
+	mov	r4,-(sp)	; Current pointer
+	mov	#link3,-(sp)	; Format
+	mov	stderr,-(sp)	; To the console
+	call	fprintf
+	add	#<5*2>,sp	; Clear the stack
+	cmp	r3,#$$alhd	; At the end?
+	beq	30$		; Exit if so
+	cmp	r3,r4		; Screwed up?
+	blo	20$		; Urk
+	mov	r3,r4		; Get the next and
+	br	10$		; around we go	
+;
+20$:
+	mov	r3,-(sp)	; Bad pointer
+	mov	r4,-(sp)	; pointed from
+	mov	#link4,-(sp)	; format
+	mov	stderr,-(sp)	; To the console
+	call	fprintf
+	add	#<4*2>,sp	; clear the stack
+;
+30$:
+	mov	stderr,-(sp)	; You know where by now
+	mov	#12,-(sp)	; terminate with a newline
+	call	putc		;
+	cmp	(sp)+,(sp)+	; clear stack
+	mov	(sp)+,r0	; restore
+	mov	(sp)+,r1	; registers
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+40$:
+	return
+
+	.psect	c$data,d,rw						;02
+temp:	.word	0
+
+	.psect	c$stcn,d,ro
+link1:	.byte	11,12,11,11
+link2:	.ascii	/ +/
+link3:	.asciz	/%06o%c%d/
+link4:	.asciz	/?%06o->%06o/
+	.end

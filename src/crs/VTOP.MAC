@@ -1,0 +1,45 @@
+	.title	$$vtop	Define default for $$vtop
+	.ident	/000002/
+;
+;+
+;
+; Index		Define $$vtop default for RT11 startup
+;
+; Usage
+;
+;	int	$$vtop	= <value>;
+;	...
+;	main() {
+;		...
+;	}
+;
+; Description
+;
+;	To use RT11's virtual memory capabilities with Decus
+;	C programs, you may need to specify a smaller "top of
+;	memory" than the default To do this, include a global
+;	definition of $$vtop in your C program as follows:
+;
+;		int	$$vtop	= <value>;
+;
+;	where <value> is the desired "top of memory."
+;
+;	If your program does not define $$vtop, it will be defined
+;	so the program uses all available memory.
+;
+;	Note that $$vtop must be initilized at compilation time.
+;	It is tested by the initialization code before the main()
+;	program is called.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 25-Jun-85 MM	Initial edit
+; 000002 19-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$data,d,rw
+$$vtop::
+	.word	-2			;Grab all of memory
+	.end

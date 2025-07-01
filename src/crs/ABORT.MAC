@@ -1,0 +1,42 @@
+	.title	abort	Abort program with a BPT trap
+	.ident	/000005/
+;
+;+
+;
+; Index		Abort program with a BPT trap
+;
+; Usage
+;
+;	abort()
+;
+; Description
+;
+;	After closing all files, the program exits
+;	by executing a BPT trap.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-Mar-80 MM	Initial edit
+; 000002 ??-???-?? MM	Add looping test
+; 000003 18-Aug-80 MM	Globalized abort: entry.
+; 000004 19-Jan-87 JMC  Change .psect for I/D space.
+; 000005 15-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$data,d,rw						;04
+
+recall:	.word	-1		; Prevent looping
+
+	.psect	c$code,i,ro
+
+abort::									;03
+	inc	recall		; Here too often?			;02
+	bne	10$		; Br if twice or more			;02
+	jsr	r5,csv$		; Linkage.
+	call	$$cl16		; Close all files
+
+10$:									;02
+	CRASH			; Die.					;02
+	.end

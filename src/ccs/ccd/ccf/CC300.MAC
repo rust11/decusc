@@ -1,0 +1,474 @@
+.IIF	NDF	RSX	RSX	=	1	;Assume RSX	;01+
+	.TITLE	CC300
+	.ident	/X01.13/
+
+	.NLIST	BEX, CND
+	.ENABL	LC, GBL
+	.LIST	MEB						;01-
+
+;
+; C COMPILER
+; WRAPUP
+;
+; VERSION X01
+;
+; DAVID G. CONROY	13-JAN-78
+; LAST UPDATED:		30-APR-79
+;
+; Edit history
+; 01 31-Jul-79 MM	Added RT11 support
+; 02 10-Sep-79 MM	RT11 does true delete on temp files, msg on errors
+; 03 04-Mar-80 MM	New compiler stuff
+; 04 28-Dec-80 RBD	Add 'a' switch to chain to AS assembler. Minor bug in
+;			  .SRC file handling.
+; 05 30-Dec-80 RBD	Add meter/timer support for RT-11. Convert EIS
+;			instructions to calls to 'EIS box'. Supress display of
+;			tix if =0.
+; 06 31-Dec-80 RBD	Add task synchronization with spawned AS on RSX-11M.
+;			Add exit with status.
+; 07 11-Feb-81 LHP	SPWN$S and STSE$S macros not defined on RSTS/RSX.
+;			Replaced macros with in-line expansions.
+; 08 17-Apr-81 RBD	AS starts even if compiler errors
+; 09 19-Jan-82 MM	Removed call to JDIV to do 32-bit divide.  See ;05
+; u1 17-Sep-81 SDR	Close files so they are SEEable
+; 10 08-Feb-82 MM	Changed MFLAG to XFLAG, merged in Unimation changes
+; 11 20-Feb-82 MM	Don't chain to 1,54 (for RSX11-M PLUS)
+; 12 25-Mar-82 MM	Keep .s file if XFLAG set
+; 13 21-Oct-82 RBD	Supress phoney AS startup on errors.
+; a1 20-Feb-88 ARB	No hard errors at clean-up.
+;
+	.GLOBL	CC300
+	.GLOBL	METER						;03
+	.GLOBL	AFLAG	$FDBTA					;04
+	.GLOBL	$MULR1	$DIVR0					;05
+
+.IF NE	RSX							;01
+	.MCALL	RETURN
+	.MCALL	DELET$
+	.MCALL	CLOSE$
+;	.MCALL	SPWN$S						;04 ;07-
+;	.MCALL	STSE$S						;06 ;07-
+	.GLOBL	SEECLO						;u1/10
+.IFF								;01 +
+	.MCALL	.CLOSE, .SRESET, .DELETE			;02
+	.MCALL	.SERR,	.HERR					;arb01
+.ENDC								;01 -
+
+;								;03+
+; LOCAL DATA.
+;
+
+CTIME:	.BLKW	2.		;COMPILE TIME.
+MBUF:	.BLKB	80.		;FOR METER FORMATTING.
+
+INPH:	.ASCIZ	"Phase 0: "	;HEADER FOR METER.
+INPHX = INPH + 6						;03-
+
+.IF NE	RSX							;06+/09
+ASXIT:	.BLKW	10	;AS EXIT STATUS BLOCK FOR SPAWN		;06
+.ENDC								;06-
+;+
+; ** CC300 - WRAPUP
+;
+; THIS OVERLAY WRAPS UP THE COMPILATION. THE ERROR FILE IS CLOSED. THE
+; EXPANDED SOURCE FILE IS DELETED IF THE -S OPTION WAS NOT  SPECIFIED,
+; ELSE IT IS CLOSED. THE ASM OUTPUT FILE IS DELETED IF THERE WERE  ANY
+; ERRORS, ELSE IT IS CLOSED. THE PHASE 1 TO PHASE 2 INTERMEDIATE  FILE
+; IS DELETED IF THE -I OPTION WAS NOT SPECIFIED, ELSE IT IS CLOSED.
+; FINALLY, IF THERE WERE NO ERRORS AND IF THE 'A' SWITCH WAS SET,
+; THE AS ASSEMBLER IS CHAINED TO. FOR BOTH RT-11 AND RSX-11M, THE
+; CHAIN IS DONE BY PASSING A COMMAND LINE TO THE MONITOR. REQUIRES
+; NO SPECIAL CODE IN AS THIS WAY.
+;
+; FOR RT-11, THE COMMAND LINE "RUN C:AS <file>/D" IS PASSED TO KMON
+; PER THE PROCEDURE DESCRIBED IN THE RT-11 (V4) PROGRAMMER'S REFERENCE
+; MANUAL, SECTION 2.28 (.EXIT DIRECTIVE).
+;
+; FOR RSX-11M, MCR... IS SPAWNED WITH THE COMMAND LINE "XAS -D <file>"
+; NOTE THAT MCR... MUST HAVE A UIC OF [1,54]. CC THEN STOPS ITSELF,
+; WAITING FOR AS TO EXIT WITH STATUS. DURING THIS TIME, CC MAY BE
+; CHECKPOINTED. IF THERE IS ANY PROBLEM WITH AS, CC EXITS WITH
+; 'ERROR' STATUS.
+;-
+
+WORK:	.BLKW	40.		;WORK FOR .DELETE AND ERRORS	;02 +
+MSG01:	.ASCIZ	/?CC-W-/
+MSG02:	.ASCIZ	/ compilation error(s), no .S file written/
+.IF NE RSX			;CHAIN STRINGS			;04
+CHMSG:	.ASCII	"XAS -D "					;04+
+SFNAM:	.BLKB	32.
+	.EVEN
+CHLEN:	.BLKW	1
+MCRNAM:	.RAD50	"MCR..."
+SPFMSG:	.ASCIZ	"CC-E-Spawn failure"
+ASFMSG:	.ASCIZ	"CC-E-Error in AS assembly"			;04-/06
+.IFF								;04
+CHMSG:	.ASCIZ	"RUN C:AS "					;04
+.ENDC								;04
+	.EVEN							;02 -
+
+CC300:
+	TSTB	XFLAG		;-X				;03+/10
+	BEQ	5$		;NO
+	CALL	METER		;FORMAT METER INFORMATION.
+5$:								;03-
+.IF NE	RSX							;01
+	MOV	#EFDB,R0	;Close the error file		;u1
+	CALL	SEECLO						;
+
+	TSTB	MFLAG		;Preprocessor running?		;u1
+	BNE	20$		;Br if not.			;u1
+	MOV	#P0OUT,R0	;GET PTR TO EXPANDED SOURCE FDB
+	TSTB	SFLAG		;-S
+	BNE	10$		;
+	DELET$			;NO,  DELETE IT
+	BR	20$		;
+
+10$:	CALL	SEECLO		;Close it			;u1
+
+20$:	MOV	#P2OUT,R0	;GET PTR TO ASM OUTPUT FDB
+	TST	NERRS		;ANY ERRORS
+	BEQ	30$		;
+	TSTB	XFLAG		;BUT, ARE WE DEBUGGING?			;12
+	BNE	30$		;BR IF SO, DON'T DELETE IT.		;12
+	DELET$			;YES, DELETE IT
+	BR	40$		; AND FORGET IT.
+30$:	TSTB	AFLAG		;NO, CHAIN REQUESTED?			;04+
+	BEQ	35$		;NO
+	MOV	#SFNAM,R1	;R1 --> S-FILE NAME BUFFER
+	CALL	$FDBTA		;FILL IN S-FILE NAME IN PROTOTYPE CMD LINE
+	CLRB	(R1)+		;TERMINATE IT WITH A NULL
+	SUB	#CHMSG,R1	;R1 = LENGTH OF COMMAND LINE
+	MOV	R1,CHLEN	;SET IT
+35$:	CALL	SEECLO		;CLOSE THE S-FILE			;04-/u1
+
+40$:	MOV	#P1OUT,R0	;GET PTR TO INTERMEDIATE FDB
+	TSTB	IFLAG		;-I
+	BNE	50$		;
+	DELET$			;NO,  DELETE IT
+	BR	52$		;
+50$:	CALL	SEECLO		;YES, KEEP IT				;u1
+52$:	TST	NERRS		;ANY ERRORS?				;08/13
+	BNE	DONE		;DON'T CHAIN IF SO			;08
+	TSTB	AFLAG		;CHAIN REQUESTED?			;04+/13
+	BEQ	DONE		;IF NOT, SKIP THE SPAWN
+	MOV	#CHMSG,R0	;ECHO THE MCR COMMAND LINE
+	CALL	CCTTY
+;	SPWN$S	#MCRNAM,,,#0,#0,#2,,#ASXIT,#CHMSG,CHLEN 		;07+/11
+	CLR	-(SP)
+	MOV	CHLEN,-(SP)
+	MOV	#CHMSG,-(SP)
+	MOV	#ASXIT,-(SP)
+	CLR	-(SP)
+	MOV	#2,-(SP)
+;	MOVB	#54,-(SP)						;11+
+;	MOVB	#1,1(SP)
+	CLR	-(SP)							;11-
+	CLR	-(SP)
+	CLR	-(SP)
+	CLR	-(SP)
+	MOV	#MCRNAM,-(SP)
+	MOV	@(SP),-(SP)
+	ADD	#2,2(SP)
+	MOV	@2(SP),2(SP)
+	MOV	(PC)+,-(SP)
+	.BYTE	11.,13.
+	EMT	^O<377>							;07-
+	BCC	55$		;BRANCH IF SUCCESSFUL
+	MOV	#SPFMSG,R0	;TELL USER IT FAILED (BUT NOT WHY)
+	CALL	CCTTY
+	MOV	#EX$ERR,XSTAT	;EXIT WITH 'ERROR' STATUS
+	BR	DONE		;GET ON OUT
+55$:	;STSE$S	#2		;STOP OURSELVES				;07-
+	MOV	#2,-(SP)						;07+
+	MOV	(PC)+,-(SP)						;07+
+	.BYTE	135.,2							;07+
+	EMT	^O<377>							;07+
+	CMP	ASXIT,#EX$SUC	;AS EXIT OK??
+	BEQ	DONE		;IF SO, FINISH UP
+	MOV	#ASFMSG,R0	;NOPE, TELL USER AS FAILED
+	CALL	CCTTY
+	MOV	#EX$ERR,XSTAT	;EXIT WITH 'ERROR' STATUS
+.IFF								;01+
+;
+; Note: in RT11, a file disappears if it isn't closed at the finish.
+;
+	.SERR			;NO HARD ERRORS				;a1
+	TST	NERRS		;ANY ERRORS
+	BNE	10$		;YES, DON'T KEEP THE FILE, DON'T CHAIN ;04+
+				;NOPE ... OK
+	TSTB	AFLAG		;/A SWITCH GIVEN?
+	BEQ	8$		;SKIP THIS STUFF IF NOT.
+	MOV	#CHMSG,R0	;COPY START OF KMON COMMAND FOR AS TO
+	MOV	#512,R1		; CHAIN AREA.
+	MOV	R1,R2		;SAVE START POINTER FOR LATER
+7$:	MOVB	(R0)+,(R1)+	;COPY A BYTE
+	BNE	7$		; UP TO TERMINATING NULL
+	TSTB	-(R1)		;BACK UP TO NULL
+	MOV	#P2OUT,R0	;R0 -> S-FILE FDB
+	CALL	$FDBTA		;S-FILE NAME (ASCII) TO CHAIN AREA
+	MOVB	#'/,(R1)+	;THEN THE '/D' AND A NULL
+	MOVB	#'D,(R1)+
+	CLRB	(R1)+
+	SUB	R2,R1		;R1 = LENGTH OF COMMAND LINE
+	MOV	R1,-(R2)	;PUT LENGTH AT LOC 510 ACCORDING TO HOYLE ;04-
+
+8$:	.CLOSE	P2OUT+FDB$CH	;CLOSE OUT S-FILE
+
+10$:	.CLOSE	P0OUT+FDB$CH	;CLOSE .SRC FILE		;02 +
+	TSTB	SFLAG		;/S GIVEN: KEEP SOURCE FILE?
+	BNE	20$		;YES
+	.DELETE	#WORK,#4,#SBLK	;NO, DELETE THE FILE
+
+20$:	.CLOSE	P1OUT+FDB$CH	;CLOSE .INT FILE
+	TSTB	IFLAG		;/I GIVEN: KEEP INTERMEDIATE FILE?
+	BNE	30$		;YES
+	.DELETE	#WORK,#4,#IBLK	;NO, DELETE THE FILE		;02 -
+
+30$:	.SRESET			;DUMP ANY REMAINING FILES
+	.HERR			;NOW ALLOW HARD ERRORS			;a1
+	TST	HELPFL		;HELP PROCESSING ?			;a1
+	BEQ	40$							;a1
+	DEC	NERRS							;a1
+40$:	TST	NERRS		;ERRORS?			;04+	;a1
+	BNE	DONE		;IF SO, NO CHAIN
+	TSTB	AFLAG		;OK, CHAIN SWITCH SET?
+	BEQ	DONE		;IF NOT, SKIP THE CHAIN
+	MOV	#512,R0		;CHAIN, ECHO OUR COMMAND LINE
+	CALL	CCTTY
+	BIS	#4000,@#44	;ALERT KMON TO COMMAND LINE
+	CLR	R0		;MUST DO THIS			;04-
+.ENDC								;01 -
+
+DONE:	MOV	NERRS,R0	;ANY ERRORS			;02 +
+	BEQ	30$		;NO, EXIT
+	MOV	#WORK,R1	;YES, BUILD ERROR MESSAGE INTO
+	MOV	#MSG01,R2	;WORK BUFFER
+10$:	MOVB	(R2)+,(R1)+	;FIRST THE HEADER
+	BNE	10$		;ALL OF IT
+	DEC	R1		;BACK OFF A BIT
+	CALL	$ITOC		;THEN, STUFF NUMBER OF ERRORS
+	MOV	#MSG02,R2	;THEN
+20$:	MOVB	(R2)+,(R1)+	;THE TRAILER
+	BNE	20$		;ALL OF IT
+	MOV	#WORK,R0	;FINALLY, WRITE THE MESSAGE
+	CALL	CCTTY		;ON THE CONSOLE			;02 -
+30$:	RETURN			;TO CC0RT
+
+;								;03+
+;+
+; ** METER -- FORMAT METER INFORMATION.
+;
+; THIS ROUTINE FORMATS ANY METER INFORMATION ACCUMULATED BY VARIOUS
+; COMPILER PHASES. THE INFORMATION IS WRITTEN TO THE ERROR FILE.
+;
+; USES:
+;	ALL. (AND LOTS OF JUNKY MEMORY AND TIME. SORRY FOR THE HACKS -- RBD)
+;-
+
+METER:
+.IF EQ	RSX							;05
+	TST	TPS		;IF NO CLOCK			;05
+	BEQ	30$		;JUST DUCK.			;05
+.IFF								;05
+	CMP	TODPTR,#TODBUF+4;IF NO TIMES IN THE BUFFER
+	BLOS	30$		;JUST DUCK.
+.ENDC								;05
+	MOV	TODPTR,R5	;GET THE LAST TIME
+	MOV	-(R5),R3	;LOW
+	MOV	-(R5),R2	;HIGH
+	MOV	TODBUF,R0	;GET START TIME.
+	MOV	TODBUF+2,R1	;
+	CALL	DIFF		;COMPUTE TOTAL COMPILE TIME.
+	MOV	R2,CTIME	;SAVE IT
+	MOV	R3,CTIME+2	;
+
+	MOV	#TODBUF+4,R5	;POINT AT FIRST ENTRY.
+10$:	CMP	R5,TODPTR	;MORE TO DO?
+	BHIS	30$		;NO.
+
+	MOV	#MBUF,R4	;POINT AT MESSAGE BUFFER.
+	MOV	#INPH,R0	;HEADER.
+20$:	MOVB	(R0)+,(R4)+	;TO
+	BNE	20$		;OUTPUT
+	DEC	R4		;BUFFER
+	INCB	INPH+6		;FIX FOR NEXT PHASE.
+
+	MOV	-4(R5),R0	;START
+	MOV	-2(R5),R1	;TIME
+	MOV	(R5)+,R2	;END
+	MOV	(R5)+,R3	;TIME
+	CALL	DIFF		;COMPUTE RUN TIME.
+
+	MOV	R2,R0		;SET UP FOR CALL			;09+
+	MOV	R3,R1		;TO DDIV.
+	MOV	TPS,R2		;TICKS.
+	CALL	$$DIV2		;
+	MOV	R2,-(SP)	;SAVE TICKS.
+	MOV	#60.,R2		;SECONDS.
+	CALL	$$DIV2		;
+	MOV	R2,-(SP)	;SAVE SECONDS.
+	MOV	#60.,R2		;MINUTES
+	CALL	$$DIV2		;
+	MOV	R2,-(SP)	;SAVE MINUTES.
+	CALL	40$		;HOURS
+	MOVB	#':,(R4)+	;
+	MOV	(SP)+,R2	;THEN
+	CALL	40$		;MINUTES
+	MOVB	#':,(R4)+	;
+	MOV	(SP)+,R2	;THEN
+	CALL	40$		;SECONDS
+	MOVB	#'+,(R4)+	;
+	MOV	(SP)+,R2	;THEN
+	BEQ	25$		; (SKIP THE '+ ticks' if 0)	;05
+	CALL	50$		;FORMAT TICKS.
+
+25$:	CLRB	(R4)		;MAKE ASCIZ.			;05
+	MOV	#MBUF,R0	;THEN
+	CALL	CCERR		;SEND IT TO THE ERROR STREAM.
+	BR	10$		;MORE
+
+30$:	RETURN			;DONE
+
+40$:	MOV	R2,R3		;SXT TO R2,R3			;05+
+	CLR	R2
+	TST	R3
+	BGE	42$
+	MOV	#-1,R2
+42$:	MOV	R0,-(SP)	;DISGUSTING HACK FOR EIS BOX
+	MOV	R1,-(SP)
+	MOV	#10.,-(SP)	;DIVIDE R2|R3 BY 10(10)
+	MOV	R2,R0
+	MOV	R3,R1
+	CALL	$DIVR0
+	MOV	R0,R2
+	MOV	R1,R3
+	TST	(SP)+
+	MOV	(SP)+,R1
+	MOV	(SP)+,R0					;05-
+	ADD	#'0,R2		;MAKE
+	ADD	#'0,R3		;ASCII
+	MOVB	R2,(R4)+	;HI PART
+	MOVB	R3,(R4)+	;LO PART
+	RETURN			;DONE
+
+50$:	MOV	R2,R3		;SXT TO R2,R3			;05+
+	CLR	R2
+	TST	R3
+	BGE	52$
+	MOV	#-1,R2
+52$:	MOV	R0,-(SP)	;DISGUSTING HACK FOR EIS BOX
+	MOV	R1,-(SP)
+	MOV	#10.,-(SP)	;DIVIDE R2|R3 BY 10(10)
+	MOV	R2,R0
+	MOV	R3,R1
+	CALL	$DIVR0
+	MOV	R0,R2
+	MOV	R1,R3
+	TST	(SP)+
+	MOV	(SP)+,R1
+	MOV	(SP)+,R0					;05-
+	MOV	R3,-(SP)	;SAVE REMAINDER.
+	TST	R2		;IS QUOTIENT = 0?
+	BEQ	60$		;YES, START COMING UP.
+	CALL	50$		;ELSE RECURSE.
+60$:	MOV	(SP)+,R3	;GET REMAINDER.
+	ADD	#'0,R3		;TO ASCII.
+	MOVB	R3,(R4)+	;TO BUFFER.
+	RETURN			;DONE
+
+;+
+; ** DIFF -- TIME DIFFERENCE.
+;
+; SUBTRACT TWO TIMES, TAKING INTO ACCOUNT WRAP AROUND MIDNIGHT.
+;
+; INPUTS:
+;	R0=HI PART, SUBTRAHEND.
+;	R1=HI PART, SUBTRAHEND.
+;	R2=HI PART, MINUEND.
+;	R3=LO PART, MINUEND.
+;
+; OUTPUTS:
+;	R2=HI PART, DIFFERENCE.
+;	R3=LO PART, DIFFERENCE.
+;-
+
+DIFF:	SUB	R1,R3		;DOUBLE
+	SBC	R2		;PRECISION
+	SUB	R0,R2		;SUBTRACT
+	BPL	10$		;ALL OK.
+; WRAP AROUND MIDNITE
+	MOV	#117,R0		;ASSUME 60. TIX/SEC		;05+
+	MOV	#15000,R1	; 23615000(8) TIX/DAY
+	CMP	TPS,#60.	;IF IT IS
+	BEQ	5$		; WE WERE RIGHT
+	MOV	#101,R0		;NOT 60., ASSUME 50. TIX/SEC
+	MOV	#165400,R1	; 20365400(8) TIX/DAY
+5$:	ADD	R1,R3		;ADD TO				;05-
+	ADC	R2		;TIME
+	ADD	R0,R2		;DIFFERENCE.
+
+10$:	RETURN			;DONE
+
+;+
+;
+; Index		Unsigned division and modulus
+;
+; Usage
+;
+;	mov	hi_div,r0	;High-order dividend
+;	mov	lo_div,r1	;Low-order  dividend
+;	mov	divisor,r2	;Divisor
+;	jsr	pc,$$div2	;Perform the division
+;	mov	r0,hi_quotient	;High-order quotient
+;	mov	r1,lo_quotient	;Low-order  quotient
+;	mov	r2,remainder	;Remainder
+;
+; Description
+;
+;	Perform an unsigned double-precision division.
+;	This is needed for one of the library conversion routines.
+;
+; Bugs
+;
+;-
+;
+$$div2:
+	mov	#31.,-(sp)	; Set loop count
+	mov	r2,-(sp)	; Put divisor on stack
+	clr	r2		; Clear remainder
+10$:
+	asl	r1		; Double precision
+	rol	r0		; shift
+	rol	r2		; into the remainder
+	cmp	r2,(sp)		; Subtract out divisor?
+	blo	20$		; If lo, then no
+	sub	(sp),r2		; Subtract out divisor
+	inc	r1		; Add in low bit
+20$:
+	dec	2(sp)		; Decrement loop count
+	bpl	10$		; Br if more to do
+	cmp	(sp)+,(sp)+	; Clean up stack
+	rts	pc		; Back to caller
+.IF NE	RSX								;u1+
+;
+; ** SEECLO
+;
+; Close a file and make it SEEable
+; Entry:
+;	R0 -> FDB
+;
+
+SEECLO::
+	TST	F.BDB(R0)	; Is the file open?
+	BEQ	20$		; Br if not.
+	TST	F.FFBY(R0)	; Make record file SEE compatible
+	BEQ	10$		; Br if last block filled.
+	MOV	#-1,@F.NREC(R0)	; Insert -1 at end of file
+	CLR	F.FFBY(R0)	; Zero out free byte indicator
+	INC	F.EFBK+2(R0)	; Increment next-block count
+10$:	CLOSE$			; Close the file
+20$:	RETURN			; and exit
+.ENDC									;u1-
+	.END
+                                                                                                                                                         

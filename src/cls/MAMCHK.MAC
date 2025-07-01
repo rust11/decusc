@@ -1,0 +1,65 @@
+	.title	$$mchk	Verify memory allocation pointers
+	.ident	/000010/
+;
+;+
+;
+; Index		Verify memory allocation pointers
+;
+; Internal
+;
+; Usage
+;
+;	$$mchk();		/* Check memory list	*/
+;
+; Description
+;
+;
+;	Subroutine $$mchk() checks allocation list pointers.
+;	The program is crashed by calling error if something goes
+;	wrong.  $$mchk preserves all registers.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 13-Aug-82 MM	Split out from malloc.mac
+; 000008 ??        DLE	I found version 000008 with no edit history
+; 00008a 07-Jun-85 DLE	change .psect name from $stng to c$strn,d
+; 000009 19-Jan-87 JMC  Change .psect for I/D space.
+; 000010 15-Jan-02 BQT	Changed for I/D space
+;
+; $$mchk() -- verify memory allocation.
+;
+	.psect	c$code,i,ro
+;
+$$mchk::
+	tst	looper			; here too often?
+	bne	30$			; exit if so
+	mov	r0,-(sp)		; Grab a temp
+	mov	$$alhd,r0		; Start here.
+10$:	bic	#1,r0			; Make it a good pointer
+	cmp	(r0),r0			; Increasing in memory?
+	blo	20$			; Done or in trouble
+	mov	(r0),r0			; Good, try another
+	br	10$			; and try, try, again
+20$:	cmp	(r0),#$$alhd+1		; Correctly wrapped?
+	bne	40$			; Urk.
+	mov	(sp)+,r0		; Ok. restore the temp.
+30$:	return				; and exit.
+
+40$:
+	inc	looper			; lock out recalls.
+	call	regdmp			; dump registers
+	call	$$link			; Dump the chain, too.
+	clr	-(sp)			; and dump the
+	call	memdmp			; stack
+	mov	#nogood,-(sp)		; finally, just
+	call	error			; die.
+
+	.psect	c$data,d,rw						;09
+looper:	.word	0
+
+	.psect	c$stcn,d,ro						;09
+nogood:	.asciz	/memory wedged/
+	.end

@@ -1,0 +1,49 @@
+.IIF	NDF	RSX	RSX	=	0	;Assume RT11
+	.TITLE	REWIND	Rewind a file
+	.ident	/000002/
+	.ENABL	LC, GBL
+	.LIST	MEB
+	.NLIST	BEX, CND
+;
+; REWIND "rewinds" an input stream for rereading.
+;
+; Calling sequence
+;
+;	MOV	#FDB,R0		;R0 -> file data block
+;	CALL	REWIND		;Do it
+;
+; On return, other registers are preserved.
+; Note, there is no error indication.
+;
+; Edit history
+; 000001 28-Jul-79 MM	Original edit
+; 000002 10-Sep-79 MM	RT11 closes and reopens the file
+;
+;
+.IF	NE	RSX
+	.GLOBL	.POINT
+.IFTF
+	.GLOBL	SAVREG
+
+REWIND::
+	JSR	R5,SAVREG	;Save registers
+.IFT
+	CLR	R1
+	MOV	#1,R2
+	CLR	R3
+	CALL	.POINT
+.IFF
+	.MCALL	.CLOSE, .LOOKUP
+
+; Note: FDB$CH must equal zero
+
+	MOV	R0,R1		;Save fdb pointer		;02 +
+	.CLOSE	(R1)		;Close the channel
+	.LOOKUP	#CMDLIN,(R1),FDB$NM(R1) ;reopen the file	;02 -
+	CLR	FDB$NF(R1)	;No bytes left
+	CLR	FDB$FP(R1)	;Pointing nowhere
+	CLR	FDB$BL(R1)	;Block zero is next
+.IFTF
+	RETURN
+.ENDC
+	.END

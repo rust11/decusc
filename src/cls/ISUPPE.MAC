@@ -1,0 +1,44 @@
+	.title	isupper	Return TRUE if Upper-case alphabetic argument
+	.ident	/000005/
+;
+;+
+;
+; Index		Test for upper-case alphabetic argument
+;
+; Usage
+;
+;	isupper(c);
+;	int		c;
+;
+; Description
+;
+;	Return 1 if c is an Upper-case alphabetic character, 0 otherwise.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 10-Mar-82 MM	Use ctype
+; 000003 06-Jun-82 MM	Don't mask parity
+; 000004 07-Jun-82 MM	Redone
+; 000005 14-Jan-02 BQT	Changed for I/D space
+;
+; The following definitions must match ctype.mac and ctype.h
+;
+U	=	0001		; UPPER case alpha
+L	=	0002		; lower case alpha
+D	=	0004		; digit
+S	=	0010		; whitespace (tab, backspace, lf, etc)
+P	=	0020		; punctuation
+C	=	0040		; control
+X	=	0100		; hex alpha
+B	=	0200		; blank
+
+	.psect	c$code,i,ro
+
+isupper::
+	mov	#U,r0			; Get the mask			;04
+	jmp	$$ctype			; Do it				;04
+	.end

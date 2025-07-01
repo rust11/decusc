@@ -1,0 +1,62 @@
+	.title	salloc	Allocate local memory
+	.ident	/000002/
+;
+;+
+;
+; Usage
+;
+;	char *
+;	salloc(n);		/*   NULL if no space	*/
+;
+; Description
+;
+;	Allocate the requested number of bytes on the run-time stack,
+;	returning a pointer to the first byte allocated.  The storage
+;	will be reclaimed automatically when the function that called
+;	salloc() exits.
+;
+;	Note that storage so allocated cannot be explicitly freed.
+;
+;	salloc() returns NULL if allocating the requested space would
+;	cause the run-time stack to go below 1000 octal.
+;
+;	Note: it is essential that salloc() be called with a "clean
+;	stack".  I.e, the program must not execute
+;
+;		subr(salloc(10), 20);
+;
+;	Instead, it should execute
+;
+;		temp = salloc(10);
+;		subr(temp, 20);
+;
+; Diagnostics
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Oct-80 MM		From scratch
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+salloc::
+	mov	sp,r0		; r0 -> current stack
+	inc	2(sp)		; round up allocation request
+	bic	#1,2(sp)	; to the next higher even value
+	sub	2(sp),r0	; r0 -> new stack position
+	bcs	10$		; underflow is real trouble
+	cmp	r0,#1000	; will stack be too small?
+	blo	10$		; that's too bad.
+	mov	(sp),r1		; r1 := return address
+	mov	r0,sp		; drop the stack to make the allocation
+	cmp	(r0)+,(r0)+	; r0 -> base of allocation
+	mov	r1,(sp)		; actual return address
+	return			; normal return
+;
+10$:
+	clr	r0		; Can't allocate it
+	return			; just return
+	.end

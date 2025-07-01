@@ -1,0 +1,33 @@
+	.title	$$mute	Define default for $$mute
+	.ident	/000003/
+;
+;+
+;
+; Index		Define $$mute default for RT11 startup
+;
+; Usage
+;
+;	main() {...}
+;
+; Description
+;
+;	If the function main is defined with no formal parameters
+;	then the command prompt process will be supressed.
+;
+;	This source module was copied from NARG.MAC.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 25-Jul-80 MM	Initial edit
+; 000002 19-Jan-87 JMC  Change .psect for I/D space.
+; 000003 15-Jan-02 BQT	Changed for I/D space
+; 000004 03-Sep-22 IJH	Copied NARG.MAC to make MUTE.MAC
+;
+	.psect	c$data,d,rw						;02
+$$mute::
+	.word	0			; Enable Argv: prompt
+
+	.end

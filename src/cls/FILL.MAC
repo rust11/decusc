@@ -1,0 +1,67 @@
+	.title	fill	Fill a Block of Memory With a Character
+	.ident	/000002/
+;
+;+
+;
+; Index		Fill a block of memory with a character
+;
+; Usage
+;
+;	fill(addr, ch, count);
+;	char		*addr;
+;	char		ch;
+;	unsigned int	count;
+;
+; Description:
+;
+;	Fill the count characters of memory beginning at addr with the
+;	character ch.
+;
+;	Note:  To fill with zero bytes, you can use zero(), which is slightly
+;	faster.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 06-Aug-82 JSL	Creation; cribbed code from zero()
+; 000002 14-Jan-02 BQT	Changed for I/D space
+;
+;
+	.psect	c$code,i,ro
+
+fill::
+	mov	r2,-(sp)	; Get us a register
+	mov	6+2(sp),r1	; Get count
+	beq	fini		;	leave if nothing to do
+
+	clr	r2		; Get the character
+	bisb	4+2(sp),r2	;  - a byte
+	mov	r2,r0		; Copy it
+	swab	r0		; Move to top byte
+	bis	r0,r2		; Now we have <ch,ch> in r2
+
+	mov	2+2(sp),r0	; Get pointer to coreblock
+	bit	#1,r0		;	check for odd address.
+	beq	10$
+	movb	r2,(r0)+	; If so, fill the odd starting byte,
+	dec	r1		; and decrement the bytecount.
+10$:
+	bit	#1,r1		; Is the bytecount odd?
+	beq	20$
+	dec	r1		; If so, get address of odd ending byte,
+	mov	r1,-(sp)
+	add	r0,(sp)
+	movb	r2,@(sp)+	;	and fill that one.
+20$:
+	clc			; Make sure ror shifts in a 0
+	ror	r1		; Convert bytecount to wordcount.
+	beq	fini		;	Leave if nothing left to do	->
+30$:
+	mov	r2,(r0)+	; Fill a word
+	.sob	r1,30$		;	Again?
+fini:
+	mov	(sp)+,r2	; Restore register
+	return
+	.end

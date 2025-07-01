@@ -1,0 +1,59 @@
+	.title	asl$l	Shift long << long
+	.ident	/000003/
+;
+;+
+;
+; Internal
+;
+; Index		shift long by long
+;
+; Usage
+;
+;	long
+;	asl$l(l, n)
+;	long		l;
+;	long		n;
+;
+;	long
+;	asr$l(l, n)
+;	long		l;
+;	long		n;
+;
+; Description
+;
+;	Performs shifting of long by long.  Only the low-order six
+;	bits of the shift argument are examined.  This is compatible
+;	with the hardware ASH instruction.
+;
+;	Note that, if n is negative:
+;
+;		(l << n) == (l >> (-n))
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 07-Aug-80 MM	Added neg. shift and EIS
+; 000003 14-Jan-02 BQT	Changed for I/D space.
+;
+
+	.psect	c$code,i,ro
+.iif	ndf	C$$EIS	C$$EIS	=	0				;02+
+
+asr$l::
+	neg	10(sp)		;Reverse sign of shift (ignore high-order)
+
+asl$l::
+	mov	2(sp),r0
+	mov	4(sp),r1
+.if ne	C$$EIS
+	ashc	10(sp),r0	;Shift it
+	return
+.iff
+	mov	r2,-(sp)	;Save temp
+	mov	10+2(sp),r2	;Get shift count
+	jmp	$$asll		;Do long shift.
+.endc									;02-
+	.end

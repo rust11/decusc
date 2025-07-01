@@ -1,0 +1,49 @@
+	.title	$$narg	Define default for $$narg
+	.ident	/000003/
+;
+;+
+;
+; Index		Define $$narg default for RT11 startup
+;
+; Usage
+;
+;	int	$$narg	= <value>;
+;	...
+;	main() {
+;		...
+;	}
+;
+; Description
+;
+;	If no command line is provided when the program
+;	starts, the program will print a prompt on the command
+;	terminal, read one line and build the argv[] vector.
+;	If this is undesirable, include a global definition of
+;	$$narg in your C program as follows:
+;
+;		int	$$narg	=	1;
+;
+;	This will supress the command terminal read operation.
+;	The argv[] vector will be set to a dummy value.
+;
+;	If the user program does not define $$narg, it will be defined
+;	so as to enable the prompt.
+;
+;	Note that $$narg must be initilized at compilation time.
+;	It is tested by the initialization code before the main()
+;	program is called.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 25-Jul-80 MM	Initial edit
+; 000002 19-Jan-87 JMC  Change .psect for I/D space.
+; 000003 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$data,d,rw						;02
+$$narg::
+	.word	0			; Enable Argv: prompt
+
+	.end

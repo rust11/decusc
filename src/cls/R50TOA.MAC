@@ -1,0 +1,46 @@
+	.title	r50toa	Convert Radix-50 to Ascii
+	.ident	/000004/
+;
+;+
+;
+; Index		Convert Radix-50 to Ascii
+;
+; Usage
+;
+;	r50toa(buff, r5vec, r5cnt);
+;	char		*buff;	/* Output text buffer	*/
+;	int		*r5vec;	/* Input rad50 buffer	*/
+;	int		r5cnt;	/* How many rad50 words	*/
+;
+; Description:
+;
+;	Convert r5cnt words of radix 50 data to Ascii.  All letters
+;	will be in upper-case.  The output buffer will not be
+;	null-trailed, nor will blank fields be supressed.
+;
+; Bugs
+;
+;-
+; Edit history
+;
+; 000001 03-Aug-78 BAM	Original
+; 000002 27-Jun-80 MM	The "illegal" Rad50 character is now "?"
+; 000003 22-Aug-80 MM	Call (our own) $$c5ta -- all rewritten
+; 000004 15-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+r50toa::
+	mov	2(sp),r0	;r0 -> output area
+	br	20$		;and continue in the middle
+
+10$:
+	mov	@4(sp),r1	;Get the next word
+	add	#2,4(sp)	;and step to the next
+	call	$$c5ta		;Go convert it
+
+20$:
+	dec	6(sp)		;Count the word
+	bge	10$		;Br if more to do
+	return			;That's all
+	.end

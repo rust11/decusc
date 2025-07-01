@@ -1,0 +1,311 @@
+	.title	memdmp	Dump memory or registers
+	.ident	/000010/
+;
+;+
+;
+; Index		Dump memory or registers
+;
+; Usage
+;
+;	memdmp(start, end);	/* Memory dump routine	*/
+;	char		*start;	/* First to dump	*/
+;	char		*end;	/* Last to dump		*/
+;
+;	regdmp();		/* Register dump	*/
+;
+; Internal
+;
+;	call	regdmp		;Register dump
+;
+;	mov	#end,-(sp)	;Last address	(or first)
+;	mov	#start,-(sp)	;First address	(or last)
+;	call	memdmp		;Dump memory
+;
+;	mov	#start,r0	;First address	(or first)
+;	mov	#end,r1		;Last address	(or last)
+;	call	$$dump		;Dump memory
+;
+;	mov	value,r0	;What to convert
+;	mov	#buffer,r1	;Where it goes
+;	call	$$toct		;Convert it
+;
+;	Return:
+;		r0	unchanged
+;		r1	-> first free byte in buffer
+;		r2-r5	unchanged
+;
+; Description
+;
+;	Dump registers and/or memory.  All registers are preserved.
+;
+;	If memdmp is called with a zero argument, the stack will
+;	be dumped.
+;
+;	Memdmp and regdmp are independent of the C I/O library.
+;	However, on RSX, they assume that the console terminal
+;	has been assigned as LUN 1.
+;
+; Bugs
+;
+;	Condition codes are not preserved.
+;
+;-
+;
+; Edit history
+; 01 23-May-79 MM	C library bug fix
+; 02 03-Aug-79 MM	Adapted to C compiler, added RT11
+; 03 24-Aug-79 MM	RSX output now does qio for independence
+; 04 24-Sep-79 MM	memdmp(start,end) == memdmp(end,start)
+; 05 12-Jan-80 MM	Calls local savreg routine (self-contained)
+; 06 23-Jun-80 MM	Fix bug in dump memory offsetter
+; 07 14-Jul-80 MM	Dropped sob's
+; 08 18-Jul-80 MM/RBD	Globalized stuff for trap handler
+; 09 19-Jan-87 JMC      Change .psect for I/D space.
+; 10 19-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	RSX	RSX	=	1	;Assume RSX	;02/04
+.if ne	rsx							;02
+	.mcall	qiow$, dir$					;03 +
+.macro	rsxout	buf,len		;Write to the terminal
+	mov	buf,$$tt+q.iopl
+	mov	len,$$tt+q.iopl+2
+	dir$	#$$tt
+.endm	rsxout							;03 -
+.iff								;02
+	.mcall	.print						;02
+.endc
+;
+start	=	20		;Start address on stack
+end	=	22		;End address on stack
+;
+	.psect	c$code,i,ro
+
+memdmp::
+	jsr	r5,savreg	;Register save sequence		;02
+	mov	start(sp),r0	;Start address			;02
+	mov	end(sp),r1	;End address			;02
+	call	$$dump		;Do it				;06
+	rts	pc		;And return			;02
+;
+$$dump::
+	mov	r5,-(sp)	;Save all registers
+	mov	r4,-(sp)	;So a stack dump dumps
+	mov	r3,-(sp)	;Them, too.
+	mov	r2,-(sp)	;
+	mov	r1,-(sp)	;End address is on top of stack
+	mov	r0,r2		;Get start address
+	bne	10$		;Memory dump branches
+	mov	sp,r2		;No, it's a stack dump
+.if ne	rsx							;02 +
+	mov	sp,(sp)		;Fake: we can't find the initial
+	add	#100,(sp)	;stack in rsx11-m
+.iff
+	mov	@#42,(sp)	;End at the initial stack pointer
+.endc
+;
+; Common dump routine.
+;
+10$:	mov	r2,r0		;Get start address
+	mov	#m1,r1		;Where text goes
+	call	$$toct		;Make it readable		;06
+	mov	(sp),r0		;Get end address
+	mov	#m2,r1		;Where it goes
+	call	$$toct		;Print it			;06
+.if ne	rsx							;02
+	rsxout	#msg1,#msg1e-msg1	;Dummy line to start	;03
+	rsxout	#msg2,#msg2e-msg2	;Print header line	;03
+.iff								;02 +
+	.print	#msg1		;Dummy line to start
+	.print	#msg2		;Print header line
+.endc								;02 -
+;
+; Normalize memory to 20 octal boundaries
+;
+	cmp	(sp),r2		;End lower than start?		;04/06+
+	bhis	15$		;No, do it as planned
+	mov	r2,r0		;Yes, fix
+	mov	(sp),r2		; it
+	mov	r0,(sp)		;  up.				;04 -
+;
+15$:								;06
+	bic	#17,r2		;Round start down
+	add	#17,(sp)	;Round end
+	bic	#17,(sp)	;Up
+20$:
+	cmp	r2,(sp)		;Far enough?
+	bhi	40$		;If so, exit			;04
+	mov	#8.,r3		;Do eight words
+	mov	#line,r1	;To here
+	mov	r2,r0		;First, do the start address
+	call	$$toct		;Make it ascii			;06
+	movb	#'/,(r1)+	;Then some documentation
+;
+; Loop for each word to be dumped
+;
+30$:	movb	#' ,(r1)+	;First a space
+	mov	(r2)+,r0	;Then, do
+	call	$$toct		;The word			;06
+	dec	r3		;count it			;07
+	bne	30$		;and loop			;07
+.if ne	rsx							;02
+	rsxout	#line,#linee-line 	;Print the line		;03
+.iff								;02 +
+	.print	#line
+.endc								;02 -
+	br	20$		;Do next line, too
+;
+; Exit
+;
+40$:	tst	(sp)+		;Drop end address
+	mov	(sp)+,r2	;Restore original registers
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	return
+
+.sbttl	Register dump routine
+;
+regdmp::
+	mov	r5,-(sp)	;Save all registers
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)
+; Do the stack
+	mov	#6.,r3		;How many general registers
+	mov	sp,r2		;First register is at 0(sp)
+	mov	#$$regs+3,r1
+;
+10$:	mov	(r2)+,r0	;Get word to dump
+	call	$$toct		;Go for it			;06
+	add	#4,r1		;Space over " R?/"
+	dec	r3		;count it			;07
+	bne	10$		;and loop			;07
+	mov	sp,r0		;Get stack
+	add	#<7.*2>,r0	;When we were called
+	call	$$toct		;Do it, too			;06
+	add	#4,r1		;Skip to PC entry
+	mov	(r2)+,r0	;Get it in
+	call	$$toct						;06
+.if ne	rsx							;02
+	rsxout	#msg1,#msg1e-msg1	;Dummy line to start	;03
+	rsxout	#$$regs,#$$rege-$$regs	;Then the registers	;03/07
+.iff								;02 +
+	.print	#msg1		;Dummy line to start
+	.print	#$$regs		;Then the registers		;07
+.endc								;02 -
+	mov	(sp)+,r0	;Put them back
+	mov	(sp)+,r1
+	mov	(sp)+,r2
+	mov	(sp)+,r3
+	mov	(sp)+,r4
+	mov	(sp)+,r5
+	return
+
+	.sbttl	Convert integer to six octal digits
+;
+$$toct::
+	mov	r0,-(sp)	;Save r0 for return		;02+/06
+	movb	#30,(r1)	;Magic number gets shifted to "0" or "1"
+	sec			;This gets shifted around to force 6 digits
+	br	30$		;Join main sequence
+10$:	movb	#206,(r1)	;The "2" shifts into the carry to time loop
+20$:	asl	r0		;Drop a bit (sec above will keep us going)
+	rolb	(r1)		;Put a bit in
+	bcs	20$		;Keep going if more bits
+30$:	rol	r0		;Now for the last bit
+	rolb	(r1)+		;Stuff it into the string
+	cmp	r0,#100000	;Only the flag bit left?
+	bne	10$		;No, get another byte
+	mov	(sp)+,r0	;Restore r0			;02-
+	return			;and exit.
+
+;+
+;
+; General register save/restore routine
+;
+; Usage
+;
+;	JSR	R5,SAVREG
+;
+; On return, all registers are saved on the stack.  The caller's
+; Registers are as follows:
+;
+;	R0	02(SP)
+;	R1	04(SP)
+;	R2	06(SP)
+;	R3	10(SP)
+;	R4	12(SP)
+;	R5	14(SP)
+;	PC	16(SP)		Return to original user
+;
+; To exit a subroutine, execute:
+;
+;	RTS	PC
+;
+; On return to the original caller, the C-bit will be preserved.
+; Other bits will not.
+;
+
+SAVREG:
+	MOV	R4,-(SP)
+	MOV	R3,-(SP)
+	MOV	R2,-(SP)
+	MOV	R1,-(SP)
+	MOV	R0,-(SP)
+	MOV	R5,-(SP)	;Return to subroutine
+	MOV	14(SP),R5	;Get original R5 contents
+	JSR	PC,@(SP)+	;Co-routine call to subroutine
+	MOV	(SP)+,R0	;Return from subroutine
+	MOV	(SP)+,R1
+	MOV	(SP)+,R2
+	MOV	(SP)+,R3
+	MOV	(SP)+,R4
+	MOV	(SP)+,R5
+	RTS	PC
+
+;
+; Data areas
+;
+	.psect	c$strn,d,rw					;09
+msg1:	.ascii	" "
+.if ne	rsx							;02
+msg1e:
+.iff								;02 +
+	.byte	0
+.endc								;02 -
+;
+msg2:
+	.ascii	"Memory dump from "
+m1:	.ascii	"??????"
+	.ascii	" to "
+m2:	.ascii	"??????"
+	.ascii	":"
+.if ne	rsx							;02
+msg2e:
+.iff								;02 +
+	.byte	0
+.endc								;02 -
+;
+line:	.blkb	6.+1+<8.*7>
+.if ne	rsx							;02
+linee:
+.iff								;02 +
+	.byte	0
+.endc								;02 -
+;
+$$regs::							;07
+	.ascii	"R0/?????? R1/?????? R2/?????? R3/?????? "
+	.ascii	"R4/?????? R5/?????? SP/?????? PC/??????"
+.if ne	rsx							;02
+$$rege::							;07
+.endc								;02 -
+	.byte	0
+
+.if ne	rsx							;03 +
+	.psect	c$data,d,rw
+$$tt::								;07
+	qiow$	IO.WVB,1,1,,,,<0,0,40>
+.endc								;03 -
+	.end

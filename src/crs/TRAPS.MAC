@@ -1,0 +1,230 @@
+	.title	traps	Operating system trap handlers
+	.ident	/000007/
+;
+;+
+;
+; Index		Operating system trap handlers
+;
+; Usage
+;
+;   Internal
+;
+;	$$sstt::		; RSX synchronous trap
+;				; vector
+;
+;	$$t410::		; RT11 Entry after traps
+;				; to vectors 4 and 10
+;
+; Description
+;
+;	This module contains code which is executed after a synchronous
+;	trap is detected by the operating system.  All such traps are
+;	regarded as fatal errors and the program will be terminated.
+;
+;	This code is enabled by executing any function, such as main(),
+;	for which profiling was enabled when the function was compiled.
+;
+;	The following traps are processed:
+;
+;		Illegal memory reference (trap through vector 4)
+;		Illegal instruction (trap through vector 10)
+;		BPT (assuming a debugging aid is not present)
+;		IOT
+;		Illegal TRAP (this may be a Fortran error)
+;		Illegal EMT (RSX only)
+;		Floating point exception (RSX only)
+;		Memory management violation
+;
+;	Before exiting to the operating system, the registers at
+;	the time the trap occurred will be written, in octal,	
+;	to stdout.  Note also that a calling sequence traceback will be
+;	written to stdout by error().
+;
+;	If a trap occurred, the program will exit to the operating
+;	system with a "severe error" status.
+;
+;	Note that some errors, such as stack overflow or random jumps
+;	into the operating system, may cause the C program to be
+;	terminated without the C library regaining control.
+;
+;   Internal
+;
+;	The first call to pcsv$ will initialze trapping.  On RSX11-M,
+;	the SVTK$ executive service will be called.  On RT11, the
+;	.tprset monitor request will be executed.  As .trpset only
+;	traps illegal memory reference (trap to 4) and illegal
+;	instruction (trap to 10), the other interesting vectors
+;	are initialized by absolute references (.ASECT).
+;
+; Diagnostics
+;
+; Bugs
+;
+;   Internal
+;
+;	Don't forget to handle floating-point when it's implemented.
+;
+;-
+;
+; Edit history:
+; 000001 16-Jul-80 RB Denny	Written from scratch
+; 000002 18-Jul-80 MM		Various trivial changes
+; 000003 22-Jul-80 MM		Set exit status
+; 000004 21-Jul-80 MM		Don't loop
+; 000005 01-Jul-82 MM		Newer library
+; 000006 19-Jan-87 JMC		Change .psect for I/D space.
+; 000007 19-Jan-02 BQT		Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+
+	.psect	c$data,d,rw					;06
+reenter:
+	.word	1
+
+.if	ne	rsx
+	.psect	c$mwcn,d,ro
+;
+; SST trap table for RSX11-M
+;
+$$sstt::							;02
+	.word	NXMtrp
+	.word	MMUtrp
+	.word	BPTtrp
+	.word	IOTtrp
+	.word	ILItrp
+	.word	EMTtrp
+	.word	TRPtrp
+	.word	FPUtrp
+.iff
+	.mcall	.print
+;
+; RT11 trap vectors are initialized statically:
+;
+	.asect
+. = 014
+	.word	BPTtrp,177000
+. = 020
+	.word	IOTtrp,177000
+. = 034
+	.word	TRPtrp,177000
+. = 250
+	.word	MMUtrp,177000
+.endc								;02-
+	.psect	c$stcn,d,ro
+
+fmt:	.asciz	<12>"?C-%s"<12>			;Format for error()
+NXMmsg:	.asciz	"Odd or nonexistent address trap"
+MMUmsg:	.asciz	"Memory protect violation"
+BPTmsg:	.asciz	"BPT trap or C run-time library error"
+IOTmsg:	.asciz	"Illegal IOT"
+ILImsg:	.asciz	"Illegal Instruction"
+TRPmsg:	.asciz	"TRAP trap or FORTRAN error signal"
+.if ne	rsx
+EMTmsg:	.asciz	"Illegal EMT"
+FPUmsg:	.asciz	"FPP/FIS exception"
+.endc
+msg1:	.asciz	""
+
+;
+; Set up for the particular trap. The PC is needed for the register
+; dump but not thereafter.
+;
+	.psect	c$code,i,ro
+.if ne rsx
+NXMtrp:								;02+
+	mov	#NXMmsg,-(sp)	;Message pointer
+	br	traps
+
+ILItrp:
+	mov	#ILImsg,-(sp)	;Message pointer
+	br	traps
+.iff
+;
+; RT11 trap setup
+;
+
+$$t410::
+	mov	#NXMmsg,-(sp)	;Assume real trap to 4
+	bcc	traps
+	mov	#ILImsg,-(sp)	;Trap to 10, shove message
+	br	traps		;and exit
+
+.iftf
+MMUtrp:
+.ift
+	add	#6,sp		;Junk trap dependent parameters
+.iftf
+	mov	#MMUmsg,-(sp)	;Message pointer
+	br	traps
+
+BPTtrp:
+	mov	#BPTmsg,-(sp)	;Message pointer
+	br	traps
+
+IOTtrp:
+	mov	#IOTmsg,-(sp)	;Message pointer
+	br	traps
+
+.ift
+EMTtrp:
+	mov	#EMTmsg,(sp)	;Message pointer, overwrite trap-dep.
+	br	traps
+
+.iftf
+TRPtrp:
+.ift
+	mov	#TRPmsg,(sp)	;Message pointer, overwrite trap-dep.
+.iff
+	mov	#TRPmsg,-(sp)	;Message pointer
+				; Note: fall through to traps on RT11
+.ift
+	br	traps
+
+FPUtrp:
+	mov	#FPUmsg,-(sp)	;Message pointer
+				;Fall through to traps
+.endc									;02-
+
+;
+; Common trap handling completion. Register dump which shows the correct
+; pre-trap PC and SP.
+;
+traps:
+	bis	#E$$XFA,$$exst	;Severe error				;04/05
+	asr	reenter		;Here twice?
+	bcs	5$		;No, continue
+	jmp	$$fail		;yes, fail				;04-
+5$:	
+	mov	r5,-(sp)	;Stack 'em for the dump loop
+	mov	r4,-(sp)
+	mov	r3,-(sp)
+	mov	r2,-(sp)
+	mov	r1,-(sp)
+	mov	r0,-(sp)	;Old PC is at <7.*2> (sp) now
+				;Old sp is = current + <9.*2>
+; Do the stack
+	mov	#6.,r3		;How many general registers
+	mov	sp,r2		;First register is at 0(sp)
+	mov	#$$regs+3,r1						;02
+;
+10$:	mov	(r2)+,r0	;Get word to dump
+	call	$$toct		;Go for it
+	add	#4,r1		;Space over " R?/"
+	dec	r3
+	bne	10$
+	mov	sp,r0		;Get stack
+	add	#<9.*2>,r0	;Before the trap
+	call	$$toct		;Do it, too
+	add	#4,r1		;Skip to PC entry
+	mov	<7.*2>(sp),r0	;Get it in
+	call	$$toct
+	mov	#msg1,r0
+	call	$$msg
+	mov	#$$regs,r0
+	call	$$msg
+	add	#<5.*2>,sp	;Now just junk 'em
+	clr r0
+	call $$dump
+	mov	#fmt,(sp)	;Format goes on top.
+	call	error
+	.end

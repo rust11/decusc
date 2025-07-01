@@ -1,0 +1,12 @@
+;
+; Task build command file for C compiler.
+;
+CC,XCC/-SP/-SH/-WI=SR:XCCBLD/MP
+ASG=TI:1
+TASK=....CC
+STACK=512
+;
+; Patch SYSINC to change "#include <...>" location, currently C:
+;
+; GBLPAT SYSINC = ...
+;

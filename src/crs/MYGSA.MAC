@@ -1,0 +1,63 @@
+	.title	$$gsa	Get-space routine
+	.ident	/RMS002/
+	.enabl	lc
+;
+;+
+;
+; Index		RMS Get-space routine
+;
+; Usage
+;
+; Internal
+;
+;	Inputs:
+;		r0 --> pool free-space list (not used)
+;		r1 =   size (bytes) of requested/released block
+;		r2 =   0 if allocating a block, address of first
+;		       word being released if deallocating.
+;
+;	Outputs:
+;		Successful allocation:
+;			C-bit cleared and R0 --> allocated block
+;		Unsuccessful allocation:
+;			C-bit set
+;		Deallocation:
+;			Nothing returned
+;
+; Description
+;
+;	RMS-11 pool management routine. Used to allocate and deallocate
+;	space to meet the needs of RMS-11 operations.
+;-
+; Edit History
+; 000001 03-Feb-83 TTC	Initial edit
+; RMS001 17-Dec-83 RBD	Touched it 's all.
+; RMS002 19-Jan-02 BQT	Changed for I/D space.
+;
+
+	.mcall	gsa$, org$
+
+	org$	seq,<cre,del,fin,get,put,upd>
+
+	gsa$	$$gsa
+
+	.psect	c$code,i,ro
+
+$$gsa::
+	mov	r2,r0		; Allocation or deallocation requested?
+	beq	10$		; Branch if allocation
+	call	$$free		; otherwise, free the block
+	return			; and return.
+10$:
+	mov	r1,r0		; r0 = number of bytes to allocate
+	add	#3,r0		; Round up to 4-byte boundary		;01
+	bic	#3,r0							;01
+	call	$$aloc		; allocate core
+	tst	r0		; Error?
+	beq	20$		; (Yes), branch.
+	clc			; (No), clear carry bit
+	return			; and return.
+20$:
+	sec			; Error, so set carry bit
+	return			; and return.
+	.end

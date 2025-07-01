@@ -1,0 +1,69 @@
+	.title	msg	Print a message on the command terminal
+	.ident	/000003/
+;
+;+
+;
+; Index		Print a message on the command terminal
+;
+; Usage
+;
+;	msg(text)
+;	char		*text;
+;
+; Internal
+;
+;	mov	#text,r0
+;	call	$$msg
+;
+; Description
+;
+;	Print a message on the console terminal.  This routine
+;	does not use the standard library.  Return: all registers
+;	are preserved.
+;
+; Bugs
+;
+;	On RSX, this routine requires the command terminal
+;	having been assigned as logical unit number 1.
+;
+;-
+;
+; Edit history
+; 000001 18-May-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the new library
+; 000003 19-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+	.psect	c$code,i,ro
+
+msg::
+	mov	r0,-(sp)
+	mov	4(sp),r0	;Get argument
+	br	msg1
+
+$$msg::
+	mov	r0,-(sp)
+msg1:
+
+.if ne	rsx
+	.mcall	qiow$s
+
+	mov	r1,-(sp)	;Save scratch register
+	mov	r2,-(sp)	;Save another
+	mov	r0,r2		;Remember string start
+10$:	tstb	(r0)+		;At end?
+	bne	10$
+	sub	r2,r0		;r0 has byte count + 1
+	dec	r0		;r0 has real byte count
+	qiow$s	#IO.WVB,#1,#1,,,,<r2,r0,#40> ;output it
+	mov	(sp)+,r2	;Restore registers
+	mov	(sp)+,r1	;and
+
+.iff
+	.mcall	.print
+
+	.print	r0		;RT11 is easy
+.endc								;02-
+	mov	(sp)+,r0	;Restore r0
+	rts	pc		;Return
+	.end

@@ -1,0 +1,204 @@
+	.title	$$fadd	Floating-point support, add/subtract
+	.ident	/000002/
+;
+;+
+;
+; Internal
+;
+; Index		Floating-point add and subtract
+;
+; Usage
+;
+;	double
+;	$$fadd(a, b)		/* Floating add a + b	*/
+;
+;	double
+;	$$fsub(a, b)		/* Floating sub a - b	*/
+;
+;	double		a;
+;	double		b;
+;
+; Description
+;
+;	Called by the compiler to compile floating-point.
+;
+; Bugs
+;
+;	BEWARE: Untested
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+$$fsub::
+	tst	2(sp)
+	beq	$$fadd
+	add	#100000,2(sp)
+
+$$fadd::
+	jsr	r0,$$fsav
+
+	clr	F$SIGN(sp)
+
+	clr	r3
+	asl	F$B+2(sp)
+	rol	F$B(sp)
+	bisb	F$B+1(sp),r3
+	bne	10$
+	jmp	$$frta
+
+10$:
+	rol	F$SIGN(sp)
+
+	clr	r2
+	asl	F$A+2(sp)
+	rol	F$A(sp)
+	bisb	F$A+1(sp),r2
+	bne	20$
+	ror	F$SIGN(sp)
+	ror	F$B(sp)
+	ror	F$B+2(sp)
+	jmp	$$frtb
+
+20$:
+	rolb	F$SIGN+1(sp)
+	movb	#1,F$A+1(sp)
+	movb	#1,F$B+1(sp)
+
+;
+; Load r0-r1 with the fraction
+; to be shifted.
+; Load r2 with shift count.
+; Load r3 with the result exponant.
+;
+
+	sub	r3,r2
+	bgt	30$
+	mov	F$A(sp),r0
+	mov	F$A+2(sp),r1
+	mov	F$B(sp),F$A(sp)
+	mov	F$B+2(sp),F$A+2(sp)
+	neg	r2
+	br	40$
+
+30$:
+	add	r2,r3
+	mov	F$B(sp),r0
+	mov	F$B+2(sp),r1
+	swab	F$SIGN(sp)
+
+40$:
+	cmpb	F$SIGN(sp),F$SIGN+1(sp)
+	beq	50$
+	neg	r0
+	neg	r1
+	sbc	r0
+
+;
+; Allign.
+; If the same, skip this.
+; If different by >25, just return
+; the larger one.
+;
+
+50$:
+	tst	r2
+	beq	70$
+
+	cmp	r2,#25.
+	ble	60$
+	mov	F$A(sp),r0
+	mov	F$A+2(sp),r1
+	br	80$
+
+60$:
+	asr	r0
+	ror	r1
+	dec	r2
+	bne	60$
+
+;
+; Add.
+; If the signs are the same
+; normalisation is fast.
+; Otherwise normalise the hard
+; way.
+;
+
+70$:
+	add	F$A(sp),r0
+	add	F$A+2(sp),r1
+	adc	r0
+
+80$:
+	cmpb	F$SIGN(sp),F$SIGN+1(sp)
+	bne	90$
+	bit	#1000,r0
+	beq	120$
+	asr	r0
+	ror	r1
+	inc	r3
+	br	120$
+
+90$:
+	tst	r0
+	beq	100$
+	bgt	110$
+	neg	r0
+	neg	r1
+	sbc	r0
+	swab	F$SIGN(sp)
+	br	110$
+
+100$:
+	tst	r1
+	beq	130$
+
+110$:
+	bit	r0,#400
+	bne	120$
+	asl	r1
+	rol	r0
+	dec	r3
+	br	110$
+
+;
+; Range check exponant.
+; Pack the result.
+;
+
+120$:
+	tst	r3
+	bgt	140$
+	jsr	pc,$$fufl
+
+130$:
+	clr	r3
+	clr	r1
+	br	160$
+
+140$:
+	cmp	r3,#377
+	blos	150$
+	jsr	pc,$$fofl
+	mov	#77777,r3
+	mov	#177777,r1
+	br	160$
+
+150$:
+	swab	r3
+	bisb	r0,r3
+	ror	F$SIGN(sp)
+	ror	r3
+	ror	r1
+
+160$:
+	mov	r3,F$A(sp)
+	mov	r1,F$A+2(sp)
+
+	jmp	$$frta
+	.end

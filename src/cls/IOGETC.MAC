@@ -1,0 +1,272 @@
+	.title	$$getc	Get characters
+	.ident	/000007/
+;
+;+
+;
+; Internal
+;
+; Index		Get characters (internal)
+;
+; Usage
+;
+;	mov	#iov,r4		;r4 -> i/o vector
+;	call	$$getc		;Get a character
+;
+; Description
+;
+;	$$getc is the internal "get a byte" routine.  The
+;	next byte in the indicated file is returned in r0.
+;	All other registers are preserved.  $$getc will allocate
+;	a buffer if necessary.
+;
+;	This routine removes all NULL bytes and <CR> from
+;	<CR><LF> sequences unless the file was opened with
+;	the 'n' (nostream) option.
+;
+; Bugs
+;
+;	RT11 uses .ttyin to read from the user command terminal.
+;	It would be more correct to use .gtline as this would allow
+;	indirect command file tracking.
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out from getc.mac
+; 000002 15-Jul-82 MM	Completely redone for the new library
+; 000003 09-Aug-82 MM	Fix for rsts V7.1 (removed, see edit 30 in init.mac)
+; 000004 16-Sep-82 MM	Support for .gtlin
+; 000005 23-Dec-82 TTC  Properly set V$BPTR after a call to $$aloc on RT11.
+;			As on RSX, $$get now returns number of bytes read
+;			so that V$BCNT is properly set.
+;			Also, added a missing test for VF$NBF.
+; 00005a 12-Jun-83 DLE	make streof return -1 (means EOF or error)
+;			it used to return 0, meaning sscanf(...,"%s",...)
+;			would never feel the end-of-string and would try to
+;			scan 32767 characters into some wretchedly small buffer.
+;			This is a mandatory patch if you ever want sscanf(%s .
+; 000006 19-Jan-83 JMC  Change .psect for I/D space.
+; 000007 15-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if eq	rsx
+	.MCALL	.TTYIN
+.endc
+
+CR	=	015
+LF	=	012
+CTRLC	=	003
+CTRLZ	=	032
+
+	.psect	c$code,i,ro
+;
+; Enter with r4 -> iov.
+; Return, all registers preserved.
+;
+$$GETC::
+getbyt:
+;
+; There is some magic here for RT11 terminal files and ungetc:
+; Terminal files normally do not use the buffer -- and the byte counter
+; is normally zero.  However, when the terminal file is opened, a fake
+; buffer is setup so that ungetc can push back a single character (well,
+; the software will accept two bytes, but we guarantee only one).  Thus,
+; after ungetc, all $$getc requests will succeed at the "get byte from
+; buffer" section.  The "fill the buffer" section recognizes the terminal
+; special case.
+;
+	dec	(r4)		;Decrement byte count
+	blt	20$		;Br if empty
+	clr	r0		;Return byte as an
+	bisb	@V$BPTR(r4),r0	;Unsigned value
+	inc	V$BPTR(r4)	;Step buffer pointer
+	br	getdon		;And exit via <cr><lf> hacker
+
+20$:	bit	#VF$STRG,V$FLAG(r4) ;String special get?
+	bne	streof		;Special exit if so.
+	bit	#VF$EOR,V$FLAG(r4) ;Nothing in the buffer, are we at eof?
+	bne	geteof		;Exit if so.
+.if eq	rsx
+;
+; RT11 only -- do terminal special case
+;
+	bit	#VF$TTY,V$FLAG(r4) ; Reading from a terminal?
+	beq	getfil		;No -- read from the file
+	mov	stdout,r0	;Is the standard output
+	bit	#VF$TTY,V$FLAG(r0) ;Also a TTY?
+	beq	30$		;No
+	mov	r4,-(sp)	;Yes, flush out the
+	mov	r0,r4		;Standard output
+	call	$$flsh		;This is all in the
+	mov	(sp)+,r4	;Prompting
+
+30$:
+.if ne	0			;Not needed, but don't remove text	;03+
+;
+; This is a temporary fix for RSTS V7.1 which cannot read with .ttyin
+; if there was something in the CCL buffer.
+;
+	tst	$$rsts		; On rsts/e?
+	beq	32$		; If not, we can do this the easy way.
+	call	readin		; Go for it.
+	br	34$
+32$:
+.endc
+	bit	#VF$NBF,V$FLAG(r4)  ; Single-char I/O?			;05
+	beq	getfil		; no					;05
+	.TTYIN			; R0 = input byte
+34$:				;					;03-
+	cmp	r0,#CTRLZ	; see if byte is "^Z" (EOF)
+	beq	40$		; Return EOF if it is
+	cmp	r0,#CTRLC	; See if byte is CTRL/C
+	bne	getdon		; return R0 if not
+;
+40$:	clr	r0		; Error code = 0
+	jmp	$$geof		; CTRL/C = EOF
+;
+; End RT11 specific code
+;
+.endc
+;
+; Get a byte from a file
+;
+getfil:
+	mov	V$BASE(r4),r0	; Get buffer start
+	bne	10$		; Continue if we have a buffer
+	call	$$abuf		; Get a buffer
+	bcs	geteof		; Exit if in error
+.if ne	rsx
+;
+; RSX specific
+;
+10$:	mov	r0,V$BPTR(r4)	; Store buffer start
+	mov	V$RBSZ(r4),r1	; Maximum record length
+	call	$$get		; Get the record
+	mov	r0,(r4)		; store number of bytes gotten in V$BCNT
+	bge	getbyt		; and go get another
+	;br	geteof		; no more data, just exit
+;
+; End RSX specific code
+;
+.iff
+;
+; RT11 specific
+;
+10$:	mov	r0,V$BPTR(r4)	; Store buffer start			;05
+	mov	V$BNBR(r4),r0	; Get block to read
+	call	$$get		; Go get it.
+	mov	r0,(r4)		; store number of bytes gotten in V$BCNT  ;05
+	br	getbyt		; Loop back ($$get set error flag if needed)
+;
+; End RT11 specific code
+;
+.endc
+;
+; End system specific code.
+;
+; Branch here (fall through on RSX) to return end of file
+;
+geteof:	clr	(r4)		; Nothing in V$BCNT
+	mov	#-1,r0		; Return -1 for EOF
+	return			;
+;
+; Branch here to return end of string to sscanf()
+;
+streof:	clr	(r4)		; Nothing in V$BCNT
+;	clr	r0		; return EOS			;05a
+	mov	#-1,r0		; signal EOF or error		;05a
+	return			;
+;
+; Hack CRLF if needed
+;
+getdon:	bit	#VF$NOS,V$FLAG(r4) ; Not a stream file?
+	bne	10$		; Br if binary
+	tst	r0		; NULL?
+	beq	getbyt		; Ignore it if so.
+	cmp	r0,#CR		; Return?
+	bne	10$		; If not, just return the byte
+	call	$$getc		; Recurse to get the next byte
+	cmp	r0,#LF		; Newline?
+	beq	10$		; return it if so
+	dec	V$BPTR(r4)	; Where to put the byte
+	movb	r0,@V$BPTR(r4)	; Stuff it away
+	inc	(r4)		; And count it in V$BCNT
+	mov	#CR,r0		; Now, return the <CR>
+10$:	return			; Return to the caller
+
+.if eq	rsx								;03+
+.if ne 0			;This isn't needed anymore
+;
+; The following code is used for input on RSTS/E RT11 emulation because
+; .ttyin on RSTS V7.1 reads any CCL arguments instead of actually reading
+; from the terminal.
+;
+; Special input for RSTS/E
+;
+
+firqb	=	402		; RSTS FIRQB, byte zero has error code
+xrb	=	442		; RSTS transfer request block
+xrlen	=	0
+xrbc	=	2
+xrloc	=	4
+xrci	=	6
+xrblk	=	10
+xrtime	=	12
+xrmod	=	14
+
+.macro	.PRIV
+.if eq	rsx
+	EMT	0377		; Next emt is for rsts
+.endc
+.endm	.PRIV
+
+.macro	.TTDDT
+	.PRIV
+	EMT	024		; Enter ODT submode -- delimiter-free
+.endm	.TTDDT
+
+.macro	.READ
+	.PRIV
+	EMT	002		; Read
+.endm	.READ
+
+;
+; Actually read a character (to r0), destroys r1
+; If any error is detected, r0 is set to CTRL/C
+;
+	.psect	c$data,d,rw						;06
+BUFSIZ	=	80.+2.+1.			; 80 bytes + <CR><LF>
+buffer:	.blkw	BUFSIZ				; Terminal input buffer
+bufp:	.word	buffer
+buftop:	.word	buffer
+
+	.psect	c$code,i,ro
+readin:
+	cmp	bufp,buftop	; Is there data still in the buffer?
+	blo	10$		; Go get it if so.
+	mov	#xrb,r0		; r0 -> transfer request block
+	mov	#BUFSIZ,(r0)+	; XRLEN	Buffer length for the record
+	clr	(r0)+		; XRBC	Must be zero for .read
+	mov	#buffer,(r0)+	; XRLOC	Buffer start address
+	clr	(r0)+		; XRCI	Channel number zero = console
+	clr	(r0)+		; XRBLK	Block (record) for disks
+	clr	(r0)+		; XRTIME Timeout, ignored
+	clr	(r0)		; XRMOD
+	.READ			; Go for it.
+	tstb	@#firqb		; Check .read error code
+	bne	20$		; Fail if any error.
+	mov	@#XRB+XRBC,buftop ; Get the byte count
+	beq	20$		; Bug if zero bytes read.
+	add	#buffer,buftop	; Get the end of buffer address
+	mov	#buffer,bufp	; Save start address, too.
+
+10$:	clr	r0		; Get the byte (8-bit mode)
+	bisb	@bufp,r0	; into r0
+	inc	bufp		; Step the byte pointer.
+	return			; and exit
+
+20$:	mov	#CTRLZ,r0	; All errors equal end of file
+	return			; Just exit.
+.endc				; End unneeded section
+.endc									;03-
+	.end	; iogetc.mac

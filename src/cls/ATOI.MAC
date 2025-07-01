@@ -1,0 +1,75 @@
+	.title	atoi	Convert Ascii to integer
+	.ident	/000003/
+;+
+;
+; Index		Convert string to integer
+;
+; Usage
+;
+;	atoi(p)
+;	char		*p;
+;
+; Description
+;
+;	Convert string to integer.  No data checking is performed.
+;	The conversion stops at the first non-integer.  Leading
+;	spaces, tabs, plus-signs and/or newlines are ignored.  
+;	The integer may be preceeded by a minus sign.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 03-Oct-80 MM	Bug fix
+; 000003 14-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+atoi::
+	jsr	r5,csv$		; Linkage
+
+	mov	c$pmtr+0(r5),r4	; r4 = ptr to string
+	clr	r3		; r3 = number
+	clr	r2		; r2 = sign flag
+
+10$:
+	movb	(r4)+,r0	; Grab byte
+	beq	40$		; Done
+	cmp	r0,#10.		; Ignore newlines
+	beq	10$		;
+	cmp	r0,#9.		; Tabs
+	beq	10$		;
+	cmp	r0,#'+		; Plus signs
+	beq	10$		;
+	cmp	r0,#' 		; And spaces
+	beq	10$		;
+
+	cmp	r0,#'-		; If '-' sign
+	bne	20$		; then
+	inc	r2		; set flag
+	br	10$		; and ignore it.
+
+20$:
+	sub	#'0,r0		; Convert to int
+	cmp	r0,#9.		; Legal ?
+	bhi	30$		; No, done
+	asl	r3		; r3 = 10*r3
+	mov	r3,r1		;
+	asl	r3		;
+	asl	r3		;
+	add	r1,r3		;
+	add	r0,r3		; r3 = r3 + new
+	movb	(r4)+,r0	; Get next
+	bne	20$		; Br if not end
+
+30$:
+	asr	r2		; Need to negate
+	bcc	40$		; No
+	neg	r3		; Do it !!
+
+40$:
+	mov	r3,r0		; Return to caller
+	jmp	cret$		;
+	.end

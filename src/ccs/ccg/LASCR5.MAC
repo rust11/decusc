@@ -1,0 +1,85 @@
+	.title	$cat5	Convert ASCII to RAD50
+	.ident	/000001/	;Initial edit
+	.enabl	lc
+	.list	meb,cnd
+	.nlist	bex
+
+;
+; ** $CAT5 - Convert 3 ASCII bytes to Radix 50
+;
+; Edit history
+; 01 28-Aug-79 MM	Initial edit
+;
+;
+; Calling sequence
+;
+;	R0 ->	Input character string
+;
+; On return:
+;
+;	R0 ->	First character not converted
+;	R1 :=	Returned RAD50 word.
+;
+; Other registers are preserved.
+;
+; Note: this routine is a subset of the RSX library routine of
+; the same name.  It does not stop on garbage, nor can it be made
+; to regard "." as a terminator.
+;
+; Register usage
+; R0	-> next input character
+; R1	:= RAD50 value to return
+; R2	-> conversion table pointer
+; R3	:= current character being converted (viciously mangled)
+; R4	:= loop count
+;
+
+$CAT5::
+	MOV	R4,-(SP)	;Save
+	MOV	R3,-(SP)	; working
+	MOV	R2,-(SP)	;  registers
+
+	MOV	#2,R4		;Set loop count (3 characters to do)
+	CLR	R1		;Clear accumulator word
+
+10$:	MOV	#R50TAB,R2	;New character, R2 -> conversion table
+	CLR	R3		;Clear current RAD50 character
+	BISB	(R0)+,R3	;R3 := current RAD50 character
+20$:	CMPB	(R2)+,R3	;Current <= Upper limit?
+	BLO	30$		;If not, not in this range
+	CMPB	(R2)+,R3	;Yes, > Lower limit?
+	BLO	40$		;Yes, found a character
+	DEC	R2		;No, Fix table pointer and
+30$:	ADD	#3,R2		;Step over the rest of the table
+	TST	@R2		;At the end of the table?
+	BNE	20$		;Keep trying if not.
+	CLR	R3		;Bad character, make it null
+
+40$:	ADD	@R2,R3		;Here's a character, do translation
+	ASL	R1
+	ASL	R1
+	ASL	R1
+	ADD	R1,R3
+	ASL	R1
+	ASL	R1
+	ADD	R3,R1		;And add in the current character
+	DEC	R4		;Any characters left to do?
+	BPL	10$		;Keep on going if so.
+	MOV	(SP)+,R2	;Done, restore
+	MOV	(SP)+,R3	; working
+	MOV	(SP)+,R4	;  registers
+	RTS	PC
+
+
+R50TAB:	.BYTE	132,100		;A-Z
+	.WORD	-100
+	.BYTE	71,57		;0-9
+	.WORD	-22
+	.BYTE	40,37		;SPACE
+	.WORD	-40
+	.BYTE	44,43		;DOLLAR SIGN
+	.WORD	-11
+	.BYTE	56,55		;PERIOD
+	.WORD	-22
+	.WORD	0		;END OF TABLE FLAG (MUST BE ZERO)
+	.END

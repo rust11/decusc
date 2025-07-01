@@ -1,0 +1,175 @@
+	.title	ctype	Character classification type table
+	.ident	/000007/
+;
+;+
+;
+; Index		Character classification type table
+;
+; Internal
+;
+; Usage
+;
+;	#include <ctype.h>
+;
+;		mov	#MASK,r0
+;		jmp	$$ctype
+;
+; Description
+;
+;	This module contains the bit-mask table and common code
+;	for the is... and to... functions.
+;
+; Bugs
+;
+;	Maintainers note that source for a test program is included.
+;-
+;
+; Edit history
+; 000001 10-Mar-82 MM	Initial edit
+; 000002 06-Mar-82 MM	Greatly redone -- fixed bugs too
+; 000003 07-Jun-82 MM	Redone again, common code here.
+; 000004 21-Jun-82 MM	Nothing like debugging
+; 000005 24-Jul-82 MM	Added 8-bit ascii table
+; 000006 19-Jan-87 JMC  Change .psect for I/D space.
+; 000007 14-Jan-02 BQT	Changed code for I/D space.
+; 000008 24-Dec-05 IH	Correct table limit test
+;
+.if ne 0
+/*
+ *		istest.c -- is....() test program
+ *		Decus C only (assumes is... are functions, not macros)
+ */
+#include <stdio.h>
+#include <ctype.h>
+typedef struct info {
+	char	*name;
+	int	(*func)();
+} INFO;
+extern int	isalnum(), isalpha(), isascii(), iscntrl(), isdigit();
+extern int	isgraphic(), islower(), isprint(), ispunct(), isspace();
+extern int	isupper(), isxdigit();
+
+INFO	database[] = {
+	"isalnum",	isalnum,	"isalpha",	isalpha,
+	"isascii",	isascii,	"iscntrl",	iscntrl,
+	"isdigit",	isdigit,	"isgraph",	isgraphic,
+	"islower",	islower,	"isupper",	isupper,
+	"isprint",	isprint,	"ispunct",	ispunct,
+	"isspace",	isspace,	"isupper",	isupper,
+	"isxdigit",	isxdigit,	NULL,		NULL,
+};
+main() {
+	register int	from;
+	register int	i;
+	int		to;
+	register INFO	*ip;
+	for (from = 0; from < 0200; from = to) {
+		to = from + 040;
+		printf("\t");
+		for (i = from; i < to; i++) {
+			if (i < ' ' || i >= 0200)
+				printf("%02o", i);
+			else if (i == 0177)
+				printf(" DEL");
+			else	printf("%c", i);
+		}
+		for (ip = database; ip->func != NULL; ip++) {
+			range(from, to, ip->name, ip->func);
+		}
+		printf("\n");
+	}
+	for (ip = database; ip->func != NULL; ip++)
+		range(EOF, EOF+1, ip->name, ip->func);
+}
+
+range(from, to, name, func)
+int		from, to;
+char		*name;
+int		(*func)();
+{
+	register int	i;
+
+	printf("\n%s\t", name);
+	for (i = from; i < to; i++) {
+		if (i < 040 || i >= 0177)
+			printf("%2d", (*func)(i) != 0);
+		else	printf("%1d", (*func)(i) != 0);
+	}
+}
+.endc
+;
+; Some definitions
+;
+U	=	0001		; UPPER case alpha
+L	=	0002		; Lower case alpha
+UL	=	U+L		; Upper or Lower
+D	=	0004		; Digit
+ULD	=	U+L+D		; Upper, Lower, or digit
+S	=	0010		; Whitespace (tab, backspace, lf, etc)
+P	=	0020		; Punctuation
+PULD	=	U+L+D+S		; Graphic
+C	=	0040		; Control
+X	=	0100		; Hex alpha
+B	=	0200		; Blank
+
+.iif	ndf	XASCII	XASCII	=	1	; Extended Ascii	;05
+	.psect	c$stcn,d,ro						;06
+
+	.byte	0		; EOF	-- needed for inline versions	;03
+.ctype::
+	.byte	  C,   C,   C,   C,   C,   C,   C,   C	; 000-007
+	.byte	  C, C+S, C+S, C+S, C+S, C+S,   C,   C	; 010-017 \b\n\t\f\r
+	.byte	  C,   C,   C,   C,   C,   C,   C,   C	; 020-027
+	.byte	  C,   C,   C,   C,   C,   C,   C,   C	; 030-037
+	.byte	S+B,   P,   P,   P,   P,   P,   P,   P	; 040-047  !"#$%&'
+	.byte     P,   P,   P,   P,   P,   P,   P,   P	; 050-057 ()*+,-./
+	.byte	D+X, D+X, D+X, D+X, D+X, D+X, D+X, D+X	; 060-067 01234567
+	.byte	D+X, D+X,   P,   P,   P,   P,   P,   P	; 070-077 89:;<=>?
+	.byte	  P, U+X, U+X, U+X, U+X, U+X, U+X,   U	; 100-107 @ABCDEFG
+	.byte	  U,   U,   U,   U,   U,   U,   U,   U	; 110-117 HIJKLMNO
+	.byte	  U,   U,   U,   U,   U,   U,   U,   U	; 120-127 PQRSTUVW
+	.byte	  U,   U,   U,   P,   P,   P,   P,   P	; 130-137 XYZ[\]^_
+	.byte	  P, L+X, L+X, L+X, L+X, L+X, L+X,   L	; 140-147 `abcdefg
+	.byte	  L,   L,   L,   L,   L,   L,   L,   L	; 150-157 hijklmno
+	.byte	  L,   L,   L,   L,   L,   L,   L,   L	; 160-167 pqrstuvw
+	.byte	  L,   L,   L,   P,   P,   P,   P,   C	; 170-177 xyz{|}
+.if ne	XASCII								;05+
+	.byte	  C,   C,   C,   C,   C,   C,   C,   C	; 200-207
+	.byte	  C,   C,   C,   C,   C,   C,   C,   C	; 210-217
+	.byte	  C,   C,   C,   C,   C,   C,   C,   C	; 220-227
+	.byte	  C,   C,   C,   C,   C,   C,   C,   C	; 230-237
+	.byte	  S,   P,   P,   P,   P,   P,   P,   P  ; 240-247
+	.byte	  P,   P,   P,   P,   P,   P,   P,   P	; 250-257
+	.byte	  P,   P,   P,   P,   P,   P,   P,   P	; 260-267
+	.byte	  P,   P,   P,   P,   P,   P,   P,   P	; 270-277
+	.byte	  U,   U,   U,   U,   U,   U,   U,   U	; 300-307
+	.byte	  U,   U,   U,   U,   U,   U,   U,   U	; 310-317
+	.byte	  U,   U,   U,   U,   U,   U,   U,   P	; 320-327
+	.byte	  U,   U,   U,   U,   U,   U,   U,   L	; 330-337
+	.byte	  L,   L,   L,   L,   L,   L,   L,   L	; 340-347
+	.byte	  L,   L,   L,   L,   L,   L,   L,   L	; 350-357
+	.byte	  L,   L,   L,   L,   L,   L,   L,   P	; 360-367
+	.byte	  L,   L,   L,   L,   L,   L,   L,   L	; 370-377
+.endc									;05-
+
+	.psect	c$code,i,ro						;03+
+;
+; Enter here with the bitmask in r0
+;
+$$ctype::
+	mov	2(sp),r1
+.if ne	XASCII								;05+
+	cmp	r1,#256.
+.iff
+	cmp	r1,#128.
+.endc									;05-
+	bhis	10$			; Not ascii			;08
+	bitb	.ctype(r1),r0		; well?
+	beq	10$			; Nope
+	mov	#1,r0			; TRUE
+	return				; and exit			;04 
+
+10$:	clr	r0			; FALSE
+	return
+	.end
+

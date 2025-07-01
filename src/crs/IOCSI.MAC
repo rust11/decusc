@@ -1,0 +1,216 @@
+	.title	$$fcsi	Scan file name for fopen
+	.ident	/000005/
+;
+;+
+;
+; Internal
+;
+; Index		Parse file name argument for fopen/fwild
+;
+; Usage
+;
+;	mov	iov,r4	;r4 -> iov
+;	call	$$fcsi	;C$PMTR+0(r5) => file name
+;			;file name is parsed and fdb setup.
+;			;r0-r3 random
+;			;error: return to caller via $$fope
+;
+; Description
+;
+;	Parse the file name argument, initializing the file data
+;	block.  Used on RSX only.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out of fopen.mac
+; 000002 27-Jun-82 MM	Newer library, save directory name for vms
+; 000003 01-May-84 TTC	Save directory name for P/OS and M+
+; 000004 19-Jan-87 JMC  Change .psect for I/D space.
+; 000005 18-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.if ne	rsx
+	.MCALL	FDOF$L, CSI$, CSI$1, CSI$2, DIR$, NMBLK$
+	FDOF$L
+
+	.psect	c$data,d,rw						;04
+FNMSIZ	=	82.		;Filename size maximum
+	CSI$
+$$CSIB::
+	.BLKB	C.SIZE		;Work block for the mighty CSI
+$$DFNB::
+	NMBLK$	,,,SY		;Default Filename block
+;
+; The "elephant" directive does a VMS style file name parse		;28+
+; for compatibility mode programs (Appendix B of the VAX/RSX
+; programmer's manual).  The data block is statically allocated
+; because I'm lazy.
+;
+.ifne VMS3.0
+pardpb:	.byte	145.,8.		; (book says 7, Bob Denny says 8)	;02
+	.word	0		; Normal mode
+parlun:	.blkw	1		; Gets LUN  (logical unit number)
+pardsp:	.blkw	1		; Gets DSPT (dataset descriptor)
+	.word	$$dfnb		; Default name block
+	.word	0		; Default directory string (none)
+parfnb:	.blkw	1		; Gets FNB  (file name block)
+	.word	0		; Gets returned directory string (none)	;28-
+.endc
+
+ISMPL	=	6							;03
+
+QALST:	.WORD	0		; Parameter 1.
+	.WORD	ATTLST		; Parameter 2.
+QAL=<.-QALST>/2
+ATTLST:	.BYTE	-2,2		; H.FPRO
+	.WORD	FPRO
+	.WORD	0		; End of attribute list.
+FPRO:	.WORD	0		; Here we'll get the protection.
+;
+;
+; ** $$FCSI
+;
+; Parse the file name and setup the FDB for the open
+;
+; Calling sequence:
+;
+;	jsr	r5,csv$		;standard setup
+;	mov	iov,r4		;r4 -> io vector
+;	call	$$fcsi		;parse the file name
+;				;return: r0 -> fdb
+;				;r0-r3 have been destroyed
+;				;(exit via $$fope on error)
+;
+	.psect	c$code,i,ro
+
+$$FCSI::
+;
+; Parse the name using the mighty CSI
+; Note: since the mighty CSI overwrites the name, we must get a copy.
+;
+	MOV	#FNMSIZ,R0	;Length					;02
+	CALL	$$FALO		;Allocate or die			;02
+	MOV	R0,$$CSIB+C.CMLD+2 ;String location
+	MOV	C$PMTR+0(R5),R1	;File name from caller
+	CLR	R2		;Setup for count
+10$:	MOVB	(R1)+,(R0)+	;Copy a byte
+	BEQ	20$		;Null byte finishes
+	INC	R2		;Count the data byte
+	CMP	R2,#FNMSIZ	;Too big?
+	BLT	10$		;No, keep trucking
+	BR	50$		;Big names are a problem		;02
+
+20$:	MOV	R2,$$CSIB+C.CMLD ;Stuff size into CSI block
+	CSI$1	#$$CSIB		;Do syntax check
+	BCS	50$		;Exit on error				;17
+	CSI$2	,OUTPUT		;Make name
+	BCS	50$		;Br if nogood				;17
+;
+; On native RSX, parse the directory name (UIC)				;17+
+; Note: .ASCPP on RSTS/E fails if a logical device is passed.  For
+; example, fopen("c:stdio.h", "r") will not return the correct UIC/PPN
+; Also, VMS compatibility mode apparently never returns a usable PPN.
+;
+	TST	$$RSTS		;Running on RSTS?
+	BNE	30$		;Skip this if so: RSTS .parse gives uic
+	MOV	R4,R3		;R3 -> IOV
+	ADD	#V$UIC,R3	;R3 -> IOV @ UIC entry
+	MOV	$$UIC,(R3)	;Presuppose task default UIC		;19+
+	MOV	#$$CSIB+C.DIRD,R2 ;R2 -> CSI block directory info
+	TST	(R2)		;Is there any directory info?
+	BEQ	30$		;Skip it if so (V$UIC == task default)	;19-
+	CALL	.ASCPP		;Parse directory information		;17-
+;
+30$:
+	MOV	R4,R0		;R0 -> IOV
+	ADD	#V$FDB,R0	;R0 -> FDB
+;
+; Call .parse directly to move all info. into the FDB
+; This is needed for fwild()/fnext() as the .csi info might not be around
+;
+	MOV	R4,R1			;Get IOV
+	ADD	#V$FDB+F.FNB,R1		;R1 -> file name block
+	MOV	#$$CSIB+C.DSDS,R2	;R2 -> Device descriptor
+	MOV	#$$DFNB,R3		;R3 -> Default file name block
+;
+; Try to call the parse directive -- it returns an error on non-VMS	;28+
+; systems.
+;
+	.if ne VMS3.0
+	MOV	V$LUN(R4),PARLUN	;Load the LUN
+	MOV	R2,PARDSP		;Load the device descriptor
+	MOV	R1,PARFNB		;Load the file name block ptr.
+	DIR$	#PARDPB			;Off we go
+	BCC	40$			;Continue if we got it		;28-
+	.endc
+;
+; Here on non VMS systems and parse errors (which end up at 50$)
+;
+	CALL	.PARSE		;Load the file name into the FNB
+	BCS	50$		;Urk
+;
+; On RSTS/E, the true UIC is hidden away in the file name block		;17+
+; Note: this is "unpublished" information.
+;
+	TST	$$RSTS		;Running on RSTS/E?
+	BEQ	40$		;Exit if not
+	MOV	V$FDB+F.FNB+N.DID(r4),V$UIC(r4) ;Get PPN if so
+40$:				;					;17-
+	CMP	$$opsys,#ISMPL	;Running on RSX-11M+?			;03+
+	BEQ	60$		;Yes, save disk:[directory]
+	TST	$$POS		;Running on P/OS?
+	BNE	60$		;Yes, save disk:[directory]		;03-
+	TST	$$VMS		;Running on vms				;02+
+	BNE	60$		;Save disk:[directory]
+45$:
+	MOV	$$CSIB+C.CMLD+2,R0 ;No, give back the scratch area
+	CALL	$$FREE		;Note: the CSI block is invalid		;02-
+	RETURN			;Exit
+
+50$:
+	MOV	$$CSIB+C.CMLD+2,R0 ;Give back the scratch area		;02
+	CALL	$$FREE		;					;02
+	MOV	#IE.BNM,R0	;Error "bad file name"
+	JMP	$$FOPE		;and die
+
+;
+; The following code saves the disk:[directory] information in the IOV.
+; it is needed for fgetname() on vms compatibility mode.
+;
+60$:
+	MOV	$$CSIB+C.CMLD+2,R2	;r2 -> text string		;02+
+	MOV	R2,R3			;Save a copy, r3 -> string start
+	MOV	#':,-(SP)		;looking for ':'
+	MOV	R2,-(SP)		;in text
+	CALL	STRRCH			;want the rightmost one
+	CMP	(SP)+,(SP)+		;clean the stack
+	TST	R0			;well?
+	BEQ	70$			;none given.
+	MOV	R0,R2			;r2 -> rightmost ':'
+	INC	R2			;r2 -> after ':'
+70$:	CLR	R0			;No directory
+	CMPB	(R2),#'[		;[directory]?
+	BNE	80$			;nope
+	MOV	#'],R0			;yep
+80$:	CMPB	(R2),#'<		;<directory>?
+	BNE	90$			;nope
+	MOV	#'>,R0			;yep
+90$:	TST	R0			;Was there a directory?
+	BEQ	110$			;If not, just save the device.
+100$:	CMPB	(R2)+,R0		;Yep, scan to the closing mark
+	BNE	100$			;We know the string is correct!
+110$:	CLRB	(R2)+			;Truncate the string.
+	MOV	R2,-(SP)		;String end
+	SUB	R3,(SP)			;String length (includes EOS)
+	MOV	R3,-(SP)		;String start
+	CALL	REALLO			;Shorten the string.
+	CMP	(SP)+,(SP)+		;clear the stack
+	MOV	R0,V$DNAM(R4)		;stuff it
+	RETURN				;all done for now		;02-
+
+.ENDC
+	.END
+

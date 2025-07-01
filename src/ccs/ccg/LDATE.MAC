@@ -1,0 +1,307 @@
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+	.title	adate	Convert current time of day to Ascii
+	.ident	/000002/
+;
+;+
+;
+;
+; Usage
+;	call	adate
+;	return:	r0 -> date buffer
+;	All other registers preserved
+;
+; Description
+;
+;	The current date is converted to an .ASCIZ string in the format:
+;
+;		Sun Sep 16 01:03:52 1973
+;
+;	All the fields have constant width.
+;
+;-
+;
+; Edit history
+; 000001 26-Feb-81 MM	Conversion from ctime.mac and rtime.mac
+; 000002 11-May-81 MM	Embarrasing typo's, not identified.
+;
+; Written by C. Ralston, Modified by C. Guldenschuh
+;
+
+;
+; Define offsets into the time buffer, note that this matches RSX11-M
+;
+G.TIYR	=	0		; Year
+G.TIMO	=	2		; Month
+G.TIDA	=	4		; Date
+G.TIHR	=	6		; Hour
+G.TIMI	=	10		; Minute
+G.TISC	=	12		; Second
+G.TICT	=	14		; Ticks
+G.TICP	=	16		; Ticks per second
+
+timbuf:	.blkw	8.		; Time buffer
+.if eq	rsx
+t.o.d.:	.blkw	2		; Work area, gets .time value
+.endc
+
+montab:	.word	0-1+6		; Thirty days hath September
+	.word	31.-1+6		; All the rest I don't remember
+	.word	59.-1+6
+	.word	90.-1+6
+	.word	120.-1+6
+	.word	151.-1+6
+	.word	181.-1+6
+	.word	212.-1+6
+	.word	243.-1+6
+	.word	273.-1+6
+	.word	304.-1+6
+	.word	334.-1+6
+
+month:	.ascii	/JanFebMarAprMayJunJulAugSepOctNovDec/
+
+wkday:	.ascii	/SunMonTueWedThuFriSat/
+
+tbuf:	.asciz	/Sun Sep 16 01:03:52 1973/
+	.even
+;
+adate::
+	jsr	r5,savreg
+	call	rtime			; get the time
+;
+; Compute day of week
+;
+	mov	timbuf+G.TIDA,r0	; R0 := day
+	mov	timbuf+G.TIMO,r1	; R1 := month
+	dec	r1			; Month range from 0 .. 11
+	asl	r1			; Need month as a word index
+	mov	timbuf+G.TIYR,r2	; Get year (00-99)
+	sub	#72.,r2			; into RT11 format (needed?)
+	mov	r2,-(sp)		; save year
+	dec	r2			; divide year-1
+	asr	r2			; by
+	asr	r2			; 4
+	add	(sp),r2			; Magic begins, ...
+	inc	r2			;
+	add	r2,r0			; Enhanced day
+	bit	#3,(sp)+		; Test for leap year
+	bne	10$			; Br if no leap
+	cmp	#2*1,r1			; Magic continues, ...
+	adc	r0			;
+10$:
+	add	montab(r1),r0
+20$:
+	sub	#7,r0			; Slow divide by
+	bpl	20$			; 7 to get day of week
+	add	#7,r0			; Get into range 0 .. 6
+;
+; Get day of week and month
+;
+	mov	r0,r1			; Multiply
+	asl	r0			; by
+	add	r1,r0			; three
+	add	#wkday,r0		; point to table
+	mov	#tbuf,r3		; R3 -> output buffer
+	movb	(r0)+,(r3)+		; move
+	movb	(r0)+,(r3)+		; 'em
+	movb	(r0)+,(r3)+		; out.
+	inc	r3			; skip blank
+	mov	timbuf+G.TIMO,r0	; Month
+	asl	r0			; times
+	add	timbuf+G.TIMO,r0	; three
+	add	#month-3,r0		; point to table
+	movb	(r0)+,(r3)+		; move
+	movb	(r0)+,(r3)+		; 'em
+	movb	(r0)+,(r3)+		; out.
+	inc	r3			; skip it
+;
+; Note, the following code requires day/hour/minute/second ordering
+;
+	mov	#timbuf+G.TIDA,r2	; r2 -> buffer @ day
+	call	conv			; Day
+	call	conv			; Hour
+	call	conv			; Minute
+	call	conv			; Second
+	clr	r0			; High-order year
+	mov	timbuf+G.TIYR,r1	; Year - 1900
+	add	#1900.,r1		; Year
+	mov	#100.,r2		; Get year mod 100
+	call	$$div2			; simple
+	mov	r2,-(sp)		; Save last two digits
+	mov	r1,r0			; Get first two digits
+	call	conv2			; Stuff them
+	mov	(sp)+,r0		; and the
+	call	conv2			; Last two, too
+	mov	#tbuf,2(sp)		; Return tbuf via savreg
+	return				; that's all
+;
+;
+; Convert an offset from the time buffer to a two digit number
+;
+; Calling sequence:
+;
+;	mov	entry_pointer,r2
+;	mov	text_pointer,r3
+;	call	conv
+;
+; Return:
+;	r0,r1 destroyed,
+;	r2 updated
+;	r3 updated (by three)
+;
+conv:
+	mov	(r2)+,r0		; Get the value, update r2
+	call	conv2			; Convert two digits
+	inc	r3			; Skip one
+	rts	pc			; That's all
+;
+;
+; Convert a small integer to two ascii digits
+;
+; Calling sequence
+;
+;	mov	value,r0
+;	mov	text_pointer,r3
+;	call	conv2
+;
+; Return
+;	r0,r1 destroyed
+;	r3 Updated by 2
+;
+conv2:
+	mov	#'0-1,r1		; Initialize quotient
+10$:
+	inc	r1			; Up the quotient
+	sub	#10.,r0			; Divide by
+	bge	10$			; ten
+	add	#10.+'0,r0		; Fix up remainder
+	movb	r1,(r3)+		; Write it
+	movb	r0,(r3)+		; out.
+	rts	pc			; and exit
+;
+; Usage
+;
+;	call rtime;
+;
+; Returns time of day in timbuf:
+;
+;	struct TIME {
+;		int	year;	/* G.TIYR  year - 1900	*/
+;		int	month;	/* G.TIMO  Jan. = 1	*/
+;		int	day;	/* G.TIDA		*/
+;		int	hour;	/* G.TIHR  00 .. 23	*/
+;		int	minute;	/* G.TIMI  00 .. 59	*/
+;		int	second;	/* G.TISC  00 .. 59	*/
+;		int	tick;	/* G.TICT  00 .. tsec-1	*/
+;		int	tsec;	/* G.TICP  tick/second	*/
+;	} timbuf;
+;
+; Description
+;
+;	Stores the current time of day in the buffer.  The format
+;	is compatible with the RSX11-M GTIM$ executive service.
+;
+; Bugs
+;
+;-
+
+.if ne	rsx
+	.mcall	GTIM$S
+rtime:
+	GTIM$S	#timbuf
+.iff
+;
+; The algorithm was modified from the RT11 monitor by C. Guldenschuh
+;
+	.mcall	.date, .gtim, .gval
+CNFIG1	=	300		; Config word 1
+
+rtime:
+	.date			; Get the date
+	mov	r0,r1		; Save for now
+	bne	10$		; Br if we got it
+	clr	timbuf+G.TIDA	; Urk, no date
+	clr	timbuf+G.TIMO	; No month,
+	clr	timbuf+G.TIYR	; No year
+	br	20$		; Try for the time
+
+10$:
+	bic	#^C<37>,r1	; Clear all but year bits
+	add	#72.,r1		; Get the year
+	mov	r1,timbuf+G.TIYR ; Store it
+	mov	r0,r1		; Copy date word again
+	asl	r1		; Get day bits
+	asl	r1		;
+	asl	r1		;
+	swab	r1		; To low-order word
+	bic	#^C<37>,r1	; Mask
+	mov	r1,timbuf+G.TIDA ; and store
+	swab	r0		; Month
+	asr	r0		;
+	asr	r0		;
+	bic	#^C<37>,r0	; Mask
+	mov	r0,timbuf+G.TIMO ; And store
+
+;
+; Next, get the time of day
+;
+20$:
+	mov	#60.,r2		; Presuppose 60 Hz
+	.gval	#t.o.d.,#CNFIG1	; Get config word 1
+	bit	#40,r0		; 50 Hz bit set?
+	beq	25$		; No, continue
+	mov	#50.,r2		; Yes, reset hertz
+25$:
+	.gtim	#timbuf+G.TIHR,#t.o.d. ; Get time of day
+	mov	r2,timbuf+G.TICP ; Return ticks/second
+	mov	t.o.d.,r0	; High-order time
+	mov	t.o.d.+2,r1	; Low-order time
+	call	$$div2		; Divide 'em out
+	mov	r2,timbuf+G.TICT ; Remainder is ticks in this second
+	mov	#60.,r2		; Divide by 60
+	call	$$div2		; to get
+	mov	r2,timbuf+G.TISC ; seconds
+	mov	#60.,r2		; Divide by 60
+	call	$$div2		; to get
+	mov	r2,timbuf+G.TIMI ; minutes
+	mov	#60.,r2		; Divide by 60
+	call	$$div2		; to get
+	mov	r2,timbuf+G.TIHR ; hours
+.endc
+	return			; That's all
+;
+; Unsigned divide.
+;
+; Usage
+;
+;	mov	hi_div,r0	;High-order dividend
+;	mov	lo_div,r1	;Low-order  dividend
+;	mov	divisor,r2	;Divisor
+;	jsr	pc,$$div2	;Perform the division
+;	mov	r0,hi_quotient	;High-order quotient
+;	mov	r1,lo_quotient	;Low-order  quotient
+;	mov	r2,remainder	;Remainder
+;
+;
+; Description
+;
+;	Perform an unsigned double-precision division.
+;
+;
+$$div2:
+	mov	#31.,-(sp)	; Set loop count
+	mov	r2,-(sp)	; Put divisor on stack
+	clr	r2		; Clear remainder
+10$:
+	asl	r1		; Double precision
+	rol	r0		; shift
+	rol	r2		; into the remainder
+	cmp	r2,(sp)		; Subtract out divisor?
+	blo	20$		; If lo, then no
+	sub	(sp),r2		; Subtract out divisor
+	inc	r1		; Add in low bit
+20$:
+	dec	2(sp)		; Decrement loop count
+	bpl	10$		; Br if more to do
+	cmp	(sp)+,(sp)+	; Clean up stack
+	rts	pc		; Back to caller
+	.end

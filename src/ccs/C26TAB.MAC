@@ -1,0 +1,3480 @@
+.IIF	NDF	RSX	RSX	=	1	;Assume RSX	;01+
+	.TITLE	CC206
+	.ident	/X01.17/
+
+	.NLIST	BEX, CND
+	.ENABL	LC, GBL
+	.LIST	MEB						;01 -
+
+;
+; C COMPILER
+; CODE TABLES
+;
+; VERSION X01
+;
+; DAVID G. CONROY	01-APR-78
+;
+; UPDATED:
+;
+; DGC01		DAVID G. CONROY		28-SEP-79
+;		CHANGE NAMES OF LIBRARY GLOBALS TO PREVENT
+;		CLASHES WITH DEC PRODUCTS.
+;
+; Edit history
+; 01 04-Mar-80 MM	Added RT11 support
+; 02 17-Mar-80 MM	Library names use tidle to get rad50 dollar
+; 03 20-May-80 JAM	Fixed error in left shift
+; 04 02-Jun-80 MM	Preliminary EIS support
+; 05 23-Jul-80 MM	Conditionalized SXT (not on 11/20, /05).
+;			Hacked "br .+n" as it seems that the AS assembler
+;			may do it wrong.
+; 06 15-Dec-80 MM	Changed XOR
+; 07 23-Feb-81 MM	Added inline EIS.
+; 08 05-Mar-81 MM	Added first attempt at floating-point. (inline only)
+; 09 05-Jun-81 MM	Fixed ashc
+; u1 25-Aug-81 CCG	Changed default mode to float from double.
+;			Removed non-FPU floating point support.
+; u2 08-Sep-81 CCG	Added full support for EIS and FPU
+;			Added automatic floating point mode select
+; u3 11-Sep-81 CCG	General enhancements and bug fixes.
+; u4 19-Oct-81 CCG	Fixed bug in "long any long any" addition/subtraction.
+; u5 04-Dec-81 CCG	Removed bug-ridden float <-> long code in ETAB.
+; u6 14-Dec-81 CCG	General rewrite of FPU code.  Value of assignments
+;			changed to type of left.
+; 10 10-Feb-82 MM	Merged sources, fixed (?) floating indirect per CCG
+; 11 11-Feb-82 MM/CCG	Missing <IFOP> in OP.DVA in RTAB
+; u7 15-Apr-82 CCG	Fixed floating indirect again.
+;			Fixed CVR  uns <- int.
+;			Fixed uns % int, uns / int, uns %= int, uns /= int.
+;			Added IND long, flt to STAB.
+;			Note: cannot use EIS for uns DIV, MOD. Divisors with
+;			 sign bit set produce signed result, instead of uns.
+; u8 16-Apr-82 CCG	Removed constant powers of 2 from MUL, DIV, MOD tables
+;			since they are now turned into shifts by the optimizer
+;			Improved ASH code, fixed random bugs
+;			Fixed register allocation bug in CVR flt, dbl
+; u9 05-May-82 CCG	Fix bug in float double to long conversion
+;			Optimized convert real to stack
+; u10 21-Jul-82 CCG	Added support for OP.MLL and OP.DLL, removed OP.CVM.
+; 12 31-Jul-82 MM	Put "non-eis" code back in -- I hope
+; 13 02-Aug-82 CCG/MM	Fixed type of mov
+; u11 24-Sep-82 CCG	Added convert float or double to unsigned.
+; u12 10-Dec-82 CCG	Improved LNG shifting.  Added LNG CON16 shifts.
+; 14  30-Jan-83 MM	Merged Unimation edits u10 and u12 into Dec sources
+; 15  09-Feb-83 MM	Bug in 14.
+; 16  23-Feb-83 CCG	(Unimation U13) fix bug in assignment using float *
+; 17  09-Nov-83 MM	long ^= long used to call non-existant xor$l func.
+;
+; End-edit
+.IIF	NDF	C$$SXT	C$$SXT	=	0	; No SXT		;05
+
+	.GLOBL	OP0
+	.GLOBL	OP1
+
+	.GLOBL	STAB
+	.GLOBL	TTAB
+	.GLOBL	RTAB
+	.GLOBL	CTAB
+	.GLOBL	ETAB
+	.GLOBL	GO.TO			; For IF/THEN/ELSE macro	;07
+
+;
+; MACROS FOR BUILDING THE CODE TABLES
+; THEY DO LITTLE WORK
+; THEIR MAIN FUNCTION IS TO REDUCE TYPING
+;
+
+	.MACRO	TABEND
+	.WORD	0
+	.ENDM
+
+	.MACRO	TAB	STR,TL,KL,TR,KR
+	.WORD	STR
+	.BYTE	TY.'TL,KL,TY.'TR,KR
+	.ENDM
+
+;
+; MACROS OPERATIONS IN THE CODE STRINGS ARE INDICATED BY NEGATIVE
+; BYTES. THE ORDER OF THESE THINGS IS CRITICAL IN THAT THEY TRACK
+; A JUMP TABLE IN CEXPR.
+;
+
+M	=	-1		;[M]	SET MODULO RETURN
+F	=	-2		;[F]	SET FUNCTION RETURN
+R	=	-3		;[R]	CURRENT REGISTER
+R.1	=	-4		;[R+1]	CURRENT REGISTER + 1
+AL	=	-5		;[AL]	ADDRESS OF LEFT
+ALN	=	-6		;[ALN]	ADDRESS OF LEFT, NO SIDE EFFECT
+AR	=	-7		;[AR]	ADDRESS OF RIGHT
+ARN	=	-10		;[ARN]	ADDRESS OF RIGHT, NO SIDE EFFECT
+OP.0	=	-11		;[OP0]	OPCODE
+OP.1	=	-12		;[OP1]	OPCODE
+AL.2	=	-13		;[AL+2]	ADDRESS OF LEFT, LONG
+AR.2	=	-14		;[AR+2]	ADDRESS OF RIGHT, LONG
+TL	=	-15		;[TL]	TYPE OF LEFT
+T	=	-16		;[T]	TYPE OF RIGHT OR LEFT
+SRVA	=	-17		;[SRVA]	SET RIGHT VALUE ANYWHERE
+SRV	=	-20		;[SRV]	SET RIGHT VALUE
+SRAA	=	-21		;[SRAA]	SET RIGHT ADDRESS ANYWHERE
+SRA	=	-22		;[SRA]	SET RIGHT ADDRESS
+SLVA	=	-23		;[SLVA]	SET LEFT VALUE ANYWHERE
+SLV	=	-24		;[SLV]	SET LEFT VALUE
+SLAA	=	-25		;[SLAA]	SET LEFT ADDRESS ANYWHERE
+SLA	=	-26		;[SLA]	SET LEFT ADDRESS
+SLAC	=	-27		;[SLAC]	SET LEFT ADDRESS CURRENT REG.
+LL	=	-30		;[LL]	LOAD LEFT
+LL.1	=	-31		;[LL+1]	LOAD LEFT INTO [R+1]
+LR	=	-32		;[LR]	LOAD RIGHT
+PL	=	-33		;[PL]	PUSH LEFT
+PLA	=	-34		;[PLA]	PUSH LEFT ADDRESS
+PR	=	-35		;[PR]	PUSH RIGHT
+V	=	-36		;[V]	ADC OR SBC FOR LONGS
+F.1	=	-37		;[F.1]	RESULT VALUE IN R1
+AL.4	=	-40		;[AL.4]	ADDRESS OF LEFT, DOUBLE
+AL.6	=	-41		;[AL.6] ADDRESS OF LEFT, DOUBLE
+LL.O	=	-42		;[LL.O] LOAD LEFT INTO ODD		;u2+
+LLP.O	=	-43		;[LLP.O] LOAD LEFT INTO ODD OF PAIR
+LLP.E	=	-44		;[LLP.E] LOAD LEFT INTO EVEN OF PAIR	;u2-
+LRP.E	=	-45		;[LRP.E] LOAD RIGHT INTO EVEN OF PAIR	;u3+
+FPI	=	-46		;[FPI] SET FLOATING POINT TO I MODE
+FPL	=	-47		;[FPL] SET FLOATING POINT TO L MODE
+FPF	=	-50		;[FPF] SET FLOATING POINT TO F MODE
+FPD	=	-51		;[FPD] SET FLOATING POINT TO D MODE	;u3-
+;
+; The following must be the last in this table.  GO.TO must be first.
+;
+GO.TO	==	-52		;[GO.TO] x	BRANCH WITHIN MACRO	;07+
+IFEIS	=	-53		;[IFEIS] 	COMPILE IF EIS FLAG SET
+IFFPU	=	-54		;[IFFPU] 	COMPILE IF FPU FLAG SET
+IFOP	=	-55		;[IFOP] [OP...]	COMPILE IF THIS OPCODE
+ELSE	=	-56		;[ELSE]		ELSE BLOCK IN MACRO
+IFEND	=	-57		;[IFEND]	END IF BLOCK
+DEBUG	=	-60		;[DEBUG] X <12>	DEBUG DUMP TO .S FILE	;08+
+
+;
+; The DUMP macro is used to generate debug printouts
+;
+;	Call by DUMP <"text">
+;
+.MACRO	DUMP	WHAT
+.LIST	ME
+	.BYTE	DEBUG
+	.ASCII	WHAT
+	.BYTE	12
+.NLIST	ME
+.ENDM	DUMP								;08-
+
+
+
+;
+; The BRANCH macro is used to branch within code macro's
+;
+.MACRO	BRANCH	WHERE
+	.BYTE	<GO.TO>
+$	=	WHERE-.-1
+.IF LT	$
+  .IIF LT $+127.	.error ;long backwards branch to where
+.IFF
+  .IIF GT $-127.	.error ;long forwards branch to where
+.ENDC
+	.BYTE	WHERE-.-1
+.ENDM	BRANCH								;07-
+
+;
+; ASCII STRINGS USED BY THE [OP0] AND [OP1] MACROS
+;
+
+ADD:	.ASCIZ	"add"
+SUB:	.ASCIZ	"sub"
+MUL:	.ASCIZ	"mul"
+DIV:	.ASCIZ	"div"
+MOD:	.ASCIZ	"mod"
+ASL:	.ASCIZ	"asl"
+ASR:	.ASCIZ	"asr"
+BIC:	.ASCIZ	"bic"
+BIS:	.ASCIZ	"bis"
+XOR:	.ASCIZ	"xor"
+INC:	.ASCIZ	"inc"
+DEC:	.ASCIZ	"dec"
+NEG:	.ASCIZ	"neg"
+COM:	.ASCIZ	"com"
+CLR:	.ASCIZ	"clr"
+MOV:	.ASCIZ	"mov"
+BIT:	.ASCIZ	"bit"
+BEQ:	.ASCIZ	"beq"
+BNE:	.ASCIZ	"bne"
+BGT:	.ASCIZ	"bgt"
+BGE:	.ASCIZ	"bge"
+BLE:	.ASCIZ	"ble"
+BLT:	.ASCIZ	"blt"
+BHI:	.ASCIZ	"bhi"
+BLO:	.ASCIZ	"blo"
+BLOS:	.ASCIZ	"blos"
+BHIS:	.ASCIZ	"bhis"
+BR:	.ASCIZ	"br"
+NOP:	.ASCIZ	"nop"
+BMI:	.ASCIZ	"bmi"
+BPL:	.ASCIZ	"bpl"
+
+;+
+; ** OP0 - OPCODE TABLE 0
+; ** OP1 - OPCODE TABLE 1
+;
+; THESE TABLES PROVIDE THE ASCII STRINGS FOR THE [OP0] AND
+; [OP1] MACROS.
+;-
+
+	.EVEN
+
+OP0:	.WORD	0		;OP.EOF
+
+	.WORD	0		;OP.CON
+	.WORD	0		;OP.ID
+	.WORD	0		;OP.LID
+	.WORD	0		;OP.4
+	.WORD	0		;OP.5
+	.WORD	0		;OP.REG
+	.WORD	0		;OP.INX
+	.WORD	0		;OP.AUI
+	.WORD	0		;OP.AUD
+
+	.WORD	ADD		;OP.ADD
+	.WORD	SUB		;OP.SUB
+	.WORD	MUL		;OP.MUL
+	.WORD	DIV		;OP.DIV
+	.WORD	MOD		;OP.MOD
+	.WORD	ASL		;OP.ASL
+	.WORD	ASR		;OP.ASR
+	.WORD	0		;OP.AND
+	.WORD	BIS		;OP.OR
+	.WORD	XOR		;OP.XOR
+
+	.WORD	ADD		;OP.ADA
+	.WORD	SUB		;OP.SBA
+	.WORD	MUL		;OP.MUA
+	.WORD	DIV		;OP.DVA
+	.WORD	MOD		;OP.MOA
+	.WORD	ASL		;OP.ALA
+	.WORD	ASR		;OP.ARA
+	.WORD	0		;OP.ANA
+	.WORD	BIS		;OP.ORA
+	.WORD	XOR		;OP.XRA				;u6
+
+	.WORD	BEQ		;OP.EQ
+	.WORD	BNE		;OP.NE
+	.WORD	BLT		;OP.LT
+	.WORD	BLE		;OP.LE
+	.WORD	BGE		;OP.GE
+	.WORD	BGT		;OP.GT
+	.WORD	BLO		;OP.LTU
+	.WORD	BLOS		;OP.LEU
+	.WORD	BHIS		;OP.GEU
+	.WORD	BHI		;OP.GTU
+
+	.WORD	0		;OP.AA
+	.WORD	0		;OP.OO
+	.WORD	ADD		;OP.INB
+	.WORD	ADD		;OP.INA
+	.WORD	SUB		;OP.DEB
+	.WORD	SUB		;OP.DEA
+	.WORD	MOV		;OP.ASG
+
+	.WORD	0		;OP.ADR
+	.WORD	0		;OP.IND
+	.WORD	NEG		;OP.NEG
+	.WORD	COM		;OP.COM
+	.WORD	0		;OP.NOT
+
+	.WORD	0		;OP.QRY
+	.WORD	0		;OP.CLN
+	.WORD	0		;OP.CMA
+	.WORD	0		;OP.SEQ
+	.WORD	BIC		;OP.BIC
+	.WORD	BIC		;OP.BCA
+	.WORD	BIT		;OP.BIT
+	.WORD	0		;OP.JSR
+	.WORD	0		;OP.CVR
+	.WORD	0		;OP.MLL					;u10
+	.WORD	0		;OP.FSR
+	.WORD	0		;OP.FSM
+	.WORD	0		;OP.LOD
+	.WORD	0		;OP.CST
+	.WORD	0		;OP.DLL (OP.NAC in pass 1)		;u10
+
+OP1:	.WORD	0		;OP.EOF
+
+	.WORD	0		;OP.CON
+	.WORD	0		;OP.ID
+	.WORD	0		;OP.LID
+	.WORD	0		;OP.4
+	.WORD	0		;OP.5
+	.WORD	0		;OP.REG
+	.WORD	0		;OP.INX
+	.WORD	0		;OP.AUI
+	.WORD	0		;OP.AUD
+
+	.WORD	INC		;OP.ADD
+	.WORD	DEC		;OP.SUB
+	.WORD	ASL		;OP.MUL
+	.WORD	ASR		;OP.DIV
+	.WORD	0		;OP.MOD
+	.WORD	ASL		;OP.ASL
+	.WORD	ASR		;OP.ASR
+	.WORD	0		;OP.AND
+	.WORD	0		;OP.OR
+	.WORD	XOR		;OP.XOR
+
+	.WORD	INC		;OP.ADA
+	.WORD	DEC		;OP.SBA
+	.WORD	ASL		;OP.MUA
+	.WORD	ASR		;OP.DVA
+	.WORD	0		;OP.MOA
+	.WORD	ASL		;OP.ALA
+	.WORD	ASR		;OP.ARA
+	.WORD	0		;OP.ANA
+	.WORD	0		;OP.ORA
+	.WORD	0		;OP.XRA
+
+	.WORD	BEQ		;OP.EQ
+	.WORD	BNE		;OP.NE
+	.WORD	BLT		;OP.LT
+	.WORD	BLE		;OP.LE
+	.WORD	BGE		;OP.GE
+	.WORD	BGT		;OP.GT
+	.WORD	0		;OP.LTU
+	.WORD	BEQ		;OP.LEU
+	.WORD	0		;OP.GEU
+	.WORD	BNE		;OP.GTU
+
+	.WORD	0		;OP.AA
+	.WORD	0		;OP.OO
+	.WORD	INC		;OP.INB
+	.WORD	INC		;OP.INA
+	.WORD	DEC		;OP.DEB
+	.WORD	DEC		;OP.DEA
+	.WORD	CLR		;OP.ASG
+
+	.WORD	0		;OP.ADR
+	.WORD	0		;OP.IND
+	.WORD	NEG		;OP.NEG
+	.WORD	COM		;OP.COM
+	.WORD	0		;OP.NOT
+
+	.WORD	0		;OP.QRY
+	.WORD	0		;OP.CLN
+	.WORD	0		;OP.CMA
+	.WORD	0		;OP.SEQ
+	.WORD	0		;OP.BIC
+	.WORD	0		;OP.BCA
+	.WORD	0		;OP.BIT
+	.WORD	0		;OP.JSR
+	.WORD	0		;OP.CVR
+	.WORD	0		;OP.MLL				;u10
+	.WORD	0		;OP.FSR
+	.WORD	0		;OP.FSM
+	.WORD	0		;OP.LOD
+	.WORD	0		;OP.CST
+	.WORD	0		;OP.DLL	(OP.NAC in pass 1)	;u10
+
+; STAB
+;+
+; ** STAB - EXPRESSION TO -(SP)
+; ** TTAB - EXPRESSION TO  (SP)
+;
+; THIS SMALL CODE GENERATION TABLE IS USED TO COMPILE EXPRESSIONS TO
+; -(SP). MOST OF TIME AN EXPRESSION IS COMPILED TO -(SP) BY THE RTAB
+; AND A MOV ONTO THE STACK.
+;
+; TTAB IS A FAKE. IT IS NEVER USED AS A CODE TABLE. IT MUST, HOWEVER
+; BE UNIQUE.
+;-
+
+TTAB:	.WORD	0		;FAKE
+
+STAB:	.WORD	OP.LOD,10$	;LEAF NODES
+	.WORD	OP.ADD,20$	;ADDITION AND SUBTRACTION
+	.WORD	OP.SUB,20$	;
+	.WORD	OP.OR, 30$	;BIS AND BIC
+	.WORD	OP.BIC,30$	;
+	.WORD	OP.COM,40$	;UNARY OPS
+	.WORD	OP.NEG,45$	;
+	.WORD	OP.INA,50$	;INCREMENT AND DECREMENT
+	.WORD	OP.DEA,50$	;
+	.WORD	OP.INB,60$	;
+	.WORD	OP.DEB,60$	;
+	.WORD	OP.CVR,70$	;CONVERSIONS
+	.WORD	OP.IND,80$	;INDIRECTION
+	.WORD	0		;END OF TABLE
+
+	.NLIST	MEB
+
+10$:	TAB	100$,	INT,	CON0,	INT,	ANY
+	TAB	113$,	LNG,	CON0,	LNG,	ANY
+	TAB	101$,	INT,	ANY,	INT,	ANY
+	TAB	109$,	LNG,	ANY,	LNG,	ANY
+;;	TAB	109$,	FLT,	ADDR,	FLT,	ANY			;u5/u11
+	TAB	200$,	FLT,	ANY,	FLT,	ANY			;08
+	TAB	210$,	DBL,	ANY,	DBL,	ANY			;08
+	TABEND
+
+20$:	TAB	103$,	INT,	ANY,	INT,	CON1
+	TAB	104$,	INT,	ANY,	INT,	ADDR
+	TAB	112$,	INT,	ANY,	INT,	ANY
+	TAB	114$,	LNG,	ANY,	INT,	ADDR
+	TAB	115$,	LNG,	ANY,	INT,	ANY
+	TAB	116$,	LNG,	ANY,	LNG,	ADDR
+	TAB	117$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+30$:	TAB	104$,	INT,	ANY,	INT,	ADDR
+	TAB	112$,	INT,	ANY,	INT,	ANY
+	TAB	118$,	LNG,	ANY,	INT,	ADDR
+	TAB	119$,	LNG,	ANY,	INT,	ANY
+	TAB	120$,	LNG,	ANY,	LNG,	ADDR
+	TAB	121$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+40$:	TAB	103$,	INT,	ANY,	INT,	ANY
+	TAB	122$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+45$:	TAB	103$,	INT,	ANY,	INT,	ANY
+	TAB	123$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+50$:	TAB	105$,	INT,	ANY,	INT,	CON1
+	TAB	106$,	INT,	ANY,	INT,	ADDR
+	TAB	124$,	LNG,	ANY,	INT,	ADDR
+	TABEND
+
+60$:	TAB	107$,	INT,	ANY,	INT,	CON1
+	TAB	108$,	INT,	ANY,	INT,	ADDR
+	TAB	125$,	LNG,	ANY,	INT,	ADDR
+	TABEND
+
+70$:	TAB	126$,	LNG,	ANY,	INT,	ADDR
+	TAB	128$,	LNG,	ANY,	CHR,	ADDR			;05
+	TAB	127$,	LNG,	ANY,	UNS,	ANY
+	TAB	230$,	LNG,	ANY,	FLT,	ANY			;u9
+	TAB	231$,	LNG,	ANY,	DBL,	ANY			;u9
+	TABEND
+
+80$:	TAB	132$,	LNG,	ANY,	INT,	ANY	;Indirection	;u7
+	TAB	132$,	FLT,	ANY,	INT,	ANY			;u7
+	TABEND
+
+	.LIST	MEB
+
+100$:	.ASCIZ	"	clr	-(sp)"<12>
+
+101$:	.ASCIZ	"	mov	"<AL>",-(sp)"<12>
+
+102$:	.ASCIZ	<PL>
+
+103$:	.ASCII	<PL>
+	.ASCIZ	"	"<OP.1>"	(sp)"<12>
+
+104$:	.ASCII	<PL>
+	.ASCIZ	"	"<OP.0>"	"<AR>",(sp)"<12>
+
+105$:	.ASCII	<SLAC>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	.ASCIZ	"	"<OP.1>"	"<AL><12>
+
+106$:	.ASCII	<SLAC>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<AL><12>
+
+107$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.1>"	"<ALN><12>
+	.ASCIZ	"	mov	"<AL>",-(sp)"<12>
+
+108$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AR>","<ALN><12>
+	.ASCIZ	"	mov	"<AL>",-(sp)"<12>
+
+109$:	.ASCII	"	mov	"<AL.2>",-(sp)"<12>
+	.ASCIZ	"	mov	"<AL>",-(sp)"<12>
+
+112$:	.ASCII	<PL>
+	.ASCII	<LR>
+	.ASCIZ	"	"<OP.0>"	"<R>",(sp)"<12>
+
+113$:	.ASCII	"	clr	-(sp)"<12>
+	.ASCIZ	"	clr	-(sp)"<12>
+
+
+114$:	.ASCII	<PL>
+	.ASCII	"	"<OP.0>"	"<AR>",2(sp)"<12>
+	.ASCIZ	"	"<V>"	(sp)"<12>
+
+115$:	.ASCII	<PL>
+	.ASCII	<LR>
+	.ASCII	"	"<OP.0>"	"<R>",2(sp)"<12>
+ 	.ASCIZ	"	"<V>"	(sp)"<12>
+
+116$:	.ASCII	<PL>
+	.ASCII	"	"<OP.0>"	"<AR.2>",2(sp)"<12>
+	.ASCII	"	"<V>"	(sp)"<12>
+	.ASCIZ	"	"<OP.0>"	"<AR>",(sp)"<12>
+
+117$:	.ASCII	<PL>
+	.ASCII	<LRP.E>
+	.ASCII	"	"<OP.0>"	"<R.1>",2(sp)"<12>
+	.ASCII	"	"<V>"	(sp)"<12>
+	.ASCIZ	"	"<OP.0>"	"<R>",(sp)"<12>
+
+118$:	.ASCII	<PL>
+	.ASCIZ	"	"<OP.0>"	"<AR>",2(sp)"<12>
+
+119$:	.ASCII	<PL>
+	.ASCII	<LR>
+	.ASCIZ	"	"<OP.0>"	"<R>",2(sp)"<12>
+
+120$:	.ASCII	<PL>
+	.ASCII	"	"<OP.0>"	"<AR.2>",2(sp)"<12>
+	.ASCIZ	"	"<OP.0>"	"<AR>",(sp)"<12>
+
+121$:	.ASCII	<PL>
+	.ASCII	<LRP.E>
+	.ASCII	"	"<OP.0>"	"<R.1>",2(sp)"<12>
+	.ASCIZ	"	"<OP.0>"	"<R>",(sp)"<12>
+
+122$:	.ASCII	<PL>
+	.ASCII	"	"<OP.0>"	2(sp)"<12>
+	.ASCIZ	"	"<OP.0>"	(sp)"<12>
+
+123$:	.ASCII	<PL>
+	.ASCII	"	"<OP.0>"	(sp)"<12>
+	.ASCII	"	"<OP.0>"	2(sp)"<12>
+	.ASCIZ	"	sbc	(sp)"<12>
+
+124$:	.ASCII	<SLAC>
+	.ASCII	"	mov	"<AL.2>",-(sp)"<12>
+	.ASCII	"	mov	"<AL>",-(sp)"<12>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCIZ	"	"<V>"	"<AL><12>
+
+125$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCII	"	mov	"<AL.2>",-(sp)"<12>
+	.ASCIZ	"	mov	"<AL>",-(sp)"<12>
+
+126$:	.ASCII	"	mov	"<AL>",-(sp)"<12>			;05+
+.IF NE	C$$SXT
+	.ASCIZ	"	sxt	-(sp)"<12>
+.IFF
+	.ASCII	"	.word	0100402		/ bmi .+6"<12>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	.word	0000402		/ br  .+6"<12>		;05-
+	.ASCIZ	"	mov	$-1,-(sp)"<12>
+.ENDC
+
+127$:	.ASCII	<PL>
+	.ASCIZ	"	clr	-(sp)"<12>
+
+128$:
+;
+; Pushing a byte onto the stack does not sign-extend extend the high byte
+; Sorry about that
+;
+.IF NE	C$$SXT								;05+
+	.ASCII	"	movb	"<AL>",-(sp)"<12>
+	.ASCII	"	sxt	-(sp)"<12>
+	.ASCIZ	"	movb	(sp),3(sp)"<12>
+.IFF
+	.ASCII	"	clr	-(sp)"<12>	; push byte is funny
+	.ASCII	"	movb	"<AL>",(sp)"<12>
+	.ASCII	"	.word	0100402		/ bmi .+6"<12>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	.word	0000404		/ br  .+10."<12>
+	.ASCII	"	bis	$0177400,(sp)"<12>
+	.ASCIZ	"	mov	$-1,-(sp)"<12>				;05-
+.ENDC
+
+132$:					;LONG	STAR	ANY		;u7+
+	.ASCII	<LL>
+	.ASCII	"	mov	2("<R>"),-(sp)"<12>
+	.ASCIZ	"	mov	("<R>"),-(sp)"<12>			;u7-
+
+
+
+200$:					;PUSH FLOAT			;u1+
+	.ASCII	<FPF>
+	.ASCII	"	ldf	"<AL>",r0"<12>
+	.ASCIZ	"	stf	r0,-(sp)"<12>
+
+210$:					;PUSH DOUBLE
+	.ASCII	<FPD>
+	.ASCII	"	ldd	"<AL>",r0"<12>
+	.ASCIZ	"	std	r0,-(sp)"<12>
+
+230$:					;Convert float to long		;u9+
+	.ASCII	<LL>
+	.ASCII	<FPL>
+	.ASCII	<FPF>
+	.ASCIZ	"	stcfl	"<R>",-(sp)"<12>
+
+231$:					;Convert double to long
+	.ASCII	<LL>
+	.ASCII	<FPL>
+	.ASCII	<FPD>
+	.ASCIZ	"	stcdl	"<R>",-(sp)"<12>			;u9-
+
+
+
+	.EVEN
+
+; RTAB
+;+
+; ** RTAB   - EXPRESSION TO REGISTER
+;
+; THIS TABLE IS USED TO COMPILE CODE TO LOAD THE RESULT OF A TREE
+; INTO A REGISTER. IT IS ALSO USED AS A DEFAULT TABLE IF THERE IS
+; NO MATCH IN THE ETAB, STAB OR CTAB. THIS TABLE MUST BE ABLE  TO
+; HANDLE EVERYTING OR THERE IS AN ERROR.
+;
+;-
+
+RTAB:	.WORD	OP.ADD,10$	;ADDITION AND SUBTRACTION
+	.WORD	OP.SUB,10$	;
+	.WORD	OP.MUL,12$	;MULTIPLICATION
+	.WORD	OP.DIV,13$	;DIVISION
+	.WORD	OP.MOD,14$	;REMAINDER				;07
+	.WORD	OP.ASL,19$	;SHIFTS
+	.WORD	OP.ASR,18$	;INCLUDE SPECIAL UNSIGNED HOOK
+	.WORD	OP.OR, 20$	;BITWISE LOGICALS
+	.WORD	OP.BIC,20$	;
+	.WORD	OP.XOR,22$	;
+	.WORD	OP.INB,24$	;PREFIX INCREMENT AND DECREMENT
+	.WORD	OP.DEB,24$	;
+	.WORD	OP.INA,26$	;POSTFIX INCREMENT AND DECREMENT
+	.WORD	OP.DEA,26$	;
+	.WORD	OP.NEG,28$	;NEGATION
+	.WORD	OP.COM,29$	;BITWISE COMPLEMENT
+	.WORD	OP.IND,30$	;INDIRECTION
+	.WORD	OP.LOD,32$	;LEAF NODES
+	.WORD	OP.CVR,34$	;CONVERT TYPE TO REGISTER
+	.WORD	OP.ADA,36$	;+=
+	.WORD	OP.SBA,37$	;-=					;u6
+	.WORD	OP.ORA,38$	;=OR AND =BIC
+	.WORD	OP.BCA,38$	;
+	.WORD	OP.ALA,41$	;=>> AND =<<
+	.WORD	OP.ARA,40$	;
+	.WORD	OP.MUA,42$	;=*
+	.WORD	OP.DVA,43$	;=/					;u6
+	.WORD	OP.MOA,44$	;=%					;u6
+	.WORD	OP.XRA,50$	;=^
+	.WORD	OP.ASG,52$	;=
+	.WORD	OP.MLL,53$	;LNG = INT*INT special			;u10
+	.WORD	OP.DLL,54$	;INT = LNG/INT special			;u10
+	.WORD	0		;END OF TABLE
+
+;
+; ADDITION.
+; SUBTRACTION.
+;
+	.NLIST	MEB
+
+10$:	TAB	101$,	INT,	ANY,	INT,	CON1
+	TAB	102$,	INT,	ANY,	INT,	EASY
+	TAB	103$,	LNG,	ANY,	INT,	EASY
+	TAB	104$,	LNG,	ANY,	LNG,	EASY
+	TAB	105$,	INT,	ANY,	INT,	ANY
+	TAB	106$,	LNG,	ANY,	INT,	ANY
+	TAB	107$,	LNG,	ANY,	LNG,	ANY
+	TAB	300$	FLT,	ANY,	FLT,	EASY			;u2+
+	TAB	301$	FLT,	ANY,	FLT,	ANY
+	TAB	310$	DBL,	ANY,	DBL,	EASY
+	TAB	311$	DBL,	ANY,	DBL,	ANY			;u2-
+	TABEND
+
+;
+; MULTIPLICATION.
+; USING A SUBROUTINE THAT IS COMMUTATIVE.
+;
+
+12$:	TAB	163$,	INT,	ADDR,	INT,	CON3
+	TAB	164$,	INT,	ADDR,	INT,	CON5
+	TAB	165$,	INT,	ADDR,	INT,	CON6
+	TAB	166$,	INT,	ADDR,	INT,	CON7
+	TAB	167$,	INT,	ADDR,	INT,	CON9
+	TAB	168$,	INT,	ADDR,	INT,	CON10
+	TAB	169$,	INT,	ADDR,	INT,	CON12
+	TAB	170$,	INT,	ANY,	INT,	CON3		;u3+
+	TAB	171$,	INT,	ANY,	INT,	CON5
+	TAB	172$,	INT,	ANY,	INT,	CON6
+	TAB	173$,	INT,	ANY,	INT,	CON7
+	TAB	174$,	INT,	ANY,	INT,	CON9
+	TAB	175$,	INT,	ANY,	INT,	CON10
+	TAB	176$,	INT,	ANY,	INT,	CON12		;u3-
+	TAB	1830$,	INT,	ANY,	INT,	EASY			;07
+	TAB	1831$,	INT,	ANY,	INT,	ANY			;07
+	TAB	184$,	LNG,	ADDR,	INT,	CON3
+	TAB	186$,	LNG,	ANY,	INT,	CON2
+	TAB	187$,	LNG,	ANY,	INT,	CON4
+	TAB	111$,	LNG,	ANY,	INT,	ANY
+	TAB	270$,	LNG,	ANY,	UNS,	ANY			;u6
+	TAB	249$,	INT,	ANY,	LNG,	ANY
+	TAB	188$,	LNG,	ANY,	LNG,	ANY
+	TAB	300$	FLT,	ANY,	FLT,	EASY			;u2+
+	TAB	301$	FLT,	ANY,	FLT,	ANY
+	TAB	310$	DBL,	ANY,	DBL,	EASY
+	TAB	311$	DBL,	ANY,	DBL,	ANY			;u2-
+	TABEND
+
+;
+; DIVISION.
+;
+13$:
+	TAB	1080$,	INT,	ANY,	INT,	EASY			;07
+	TAB	1081$,	INT,	ANY,	INT,	ANY			;07
+	TAB	280$,	UNS,	ANY,	INT,	ANY	; Use LNG/LNG	;u7
+	TAB	280$,	INT,	ANY,	UNS,	ANY	; Use LNG/LNG	;u7
+	TAB	270$,	LNG,	ANY,	UNS,	ANY	; Use LNG/LNG	;u6
+	TAB	111$,	LNG,	ANY,	INT,	ANY
+	TAB	109$,	LNG,	ANY,	LNG,	ANY
+	TAB	300$	FLT,	ANY,	FLT,	EASY			;u2+
+	TAB	301$	FLT,	ANY,	FLT,	ANY
+	TAB	310$	DBL,	ANY,	DBL,	EASY
+	TAB	311$	DBL,	ANY,	DBL,	ANY			;u2-
+	TABEND
+;									;u3+
+; REMAINDER
+;
+14$:
+	TAB	1080$,	INT,	ANY,	INT,	EASY			;07
+	TAB	1081$,	INT,	ANY,	INT,	ANY			;07
+	TAB	280$,	UNS,	ANY,	INT,	ANY	; Use LNG/LNG	;u7
+	TAB	280$,	INT,	ANY,	UNS,	ANY	; Use LNG/LNG	;u7
+	TAB	270$,	LNG,	ANY,	UNS,	ANY	; Use LNG/LNG	;u6
+	TAB	111$,	LNG,	ANY,	INT,	ANY
+	TAB	109$,	LNG,	ANY,	LNG,	ANY
+	TABEND								;u3-
+
+;
+; SHIFT RIGHT.
+;
+
+18$:	TAB	196$,	UNS,	ANY,	INT,	CON1
+	TAB	101$,	INT,	ANY,	INT,	CON1
+	TAB	203$,	UNS,	ANY,	INT,	CON2
+	TAB	190$,	INT,	ANY,	INT,	CON2
+	TAB	204$,	UNS,	ANY,	INT,	CON3
+	TAB	191$,	INT,	ANY,	INT,	CON3
+	TAB	205$,	UNS,	ANY,	INT,	CON4
+	TAB	192$,	INT,	ANY,	INT,	CON4
+	TAB	193$,	INT,	ANY,	INT,	CON5
+	TAB	206$,	UNS,	ANY,	INT,	CON8
+	TAB	207$,	UNS,	ANY,	INT,	CON9
+	TAB	208$,	UNS,	ANY,	INT,	ANY
+	TAB	1082$,	INT,	ANY,	INT,	ANY
+	TAB	209$,	LNG,	ANY,	INT,	CON1
+	TAB	210$,	LNG,	ANY,	INT,	CON2
+	TAB	225$,	LNG,	ANY,	INT,	CON9
+	TAB	2250$,	LNG,	ANY,	INT,	CON16			;u12
+	TAB	1110$,	LNG,	ANY,	INT,	ANY			;07
+	TAB	109$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+;
+; LEFT SHIFT.
+;
+
+19$:	TAB	101$,	INT,	ANY,	INT,	CON1
+	TAB	190$,	INT,	ANY,	INT,	CON2
+	TAB	191$,	INT,	ANY,	INT,	CON3
+	TAB	192$,	INT,	ANY,	INT,	CON4
+	TAB	193$,	INT,	ANY,	INT,	CON5
+	TAB	211$,	INT,	ANY,	INT,	CON8
+	TAB	212$,	INT,	ANY,	INT,	CON9
+	TAB	1087$,	INT,	ANY,	INT,	EASY			;u8
+	TAB	1082$,	INT,	ANY,	INT,	ANY			;07
+	TAB	213$,	LNG,	ANY,	INT,	CON1
+	TAB	214$,	LNG,	ANY,	INT,	CON2
+	TAB	2140$,	LNG,	ANY,	INT	CON16			;u12
+	TAB	1111$,	LNG,	ANY,	INT,	EASY			;u8
+	TAB	1110$,	LNG,	ANY,	INT,	ANY			;07
+	TAB	109$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+;
+; OR.
+; BIC.
+;
+
+20$:	TAB	102$,	INT,	ANY,	INT,	EASY
+	TAB	121$,	LNG,	ANY,	INT,	EASY
+	TAB	122$,	LNG,	ANY,	LNG,	EASY
+	TAB	105$,	INT,	ANY,	INT,	ANY
+	TAB	123$,	LNG,	ANY,	INT,	ANY
+	TAB	124$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+;
+; EXCLUSIVE OR.
+;
+
+22$:									;07+
+	TAB	1250$,	INT,	ANY,	INT,	ANY
+	TAB	1252$,	LNG,	ANY,	LNG,	ANY			;07-
+	TABEND
+
+;
+; PREFIX INCREMENT.
+; PREFIX DECREMENT.
+;
+
+24$:	TAB	126$,	INT,	ANY,	INT,	CON1
+	TAB	126$,	CHR,	ANY,	INT,	CON1
+	TAB	127$,	INT,	ANY,	INT,	ADDR
+	TAB	215$,	LNG,	ANY,	INT,	ADDR
+	TABEND
+
+;
+; POSTFIX INCREMENT.
+; POSTFIX DECREMENT.
+;
+
+26$:	TAB	128$,	INT,	EASY,	INT,	CON1
+	TAB	128$,	CHR,	EASY,	INT,	CON1
+	TAB	129$,	INT,	ANY,	INT,	CON1
+	TAB	129$,	CHR,	ANY,	INT,	CON1
+	TAB	130$,	INT,	EASY,	INT,	ADDR
+	TAB	131$,	INT,	ANY,	INT,	ADDR
+	TAB	216$,	LNG,	EASY,	INT,	ADDR
+	TAB	217$,	LNG,	ANY,	INT,	ADDR
+	TABEND
+
+;
+; NEGATION.
+;
+
+28$:	TAB	132$,	INT,	ANY,	INT,	ANY
+	TAB	133$,	LNG,	ANY,	LNG,	ANY
+	TAB	302$,	FLT,	ANY,	FLT,	ANY			;u1
+	TAB	312$,	DBL,	ANY,	DBL,	ANY			;u1
+	TABEND
+
+;
+; COMPLEMENT.
+;
+
+29$:	TAB	132$,	INT,	ANY,	INT,	ANY
+	TAB	134$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+;
+; STAR.
+;
+
+30$:	TAB	200$,	CHR,	ANY,	INT,	ANY
+	TAB	201$,	INT,	ANY,	INT,	ANY
+	TAB	202$,	LNG,	ANY,	INT,	ANY
+	TAB	320$,	FLT,	ANY,	INT,	EASY		;u7
+	TAB	321$,	FLT,	ANY,	INT,	ANY		;u6
+	TAB	330$,	DBL,	ANY,	INT,	EASY		;u7
+	TAB	331$,	DBL,	ANY,	INT,	ANY		;u6
+	TABEND
+
+;
+; LEAF NODES.
+;
+
+32$:	TAB	139$,	INT,	CON0,	INT,	ANY
+	TAB	218$,	LNG,	CON0,	LNG,	ANY
+	TAB	135$,	INT,	ANY,	INT,	ANY
+	TAB	135$,	CHR,	ANY,	CHR,	ANY
+	TAB	136$,	LNG,	ANY,	LNG,	ANY
+	TAB	340$,	FLT,	ANY,	FLT,	ANY			;08
+	TAB	350$,	DBL,	ANY,	DBL,	ANY			;08
+	TABEND
+
+;
+; CVR.
+;
+
+34$:	TAB	100$,	INT,	ANY,	CHR,	ANY	; was 135$	;u6+
+	TAB	142$,	CHR,	ANY,	INT,	ANY
+	TAB	143$,	UNS,	ANY,	CHR,	ADDR			;u7
+	TAB	144$,	UNS,	ANY,	CHR,	ANY			;u6-
+	TAB	140$,	LNG,	ANY,	CHR,	ANY
+	TAB	140$,	LNG,	ANY,	INT,	ANY
+	TAB	141$,	LNG,	ANY,	UNS,	ANY
+	TAB	232$,	CHR,	ANY,	LNG,	ANY			;u6
+	TAB	232$,	INT,	ANY,	LNG,	ANY
+	TAB	400$,	FLT,	ANY,	CHR,	ANY			;08+
+	TAB	401$,	FLT,	ANY,	INT,	ANY
+	TAB	402$,	FLT,	ANY,	UNS,	ANY
+	TAB	4030$,	FLT,	ANY,	LNG,	ADDR			;u6
+	TAB	403$,	FLT,	ANY,	LNG,	ANY
+	TAB	404$,	FLT,	ANY,	DBL,	ANY
+	TAB	410$,	DBL,	ANY,	CHR,	ANY
+	TAB	411$,	DBL,	ANY,	INT,	ANY
+	TAB	412$,	DBL,	ANY,	UNS,	ANY
+	TAB	4130$,	DBL,	ANY,	LNG,	ADDR		;u6
+	TAB	413$,	DBL,	ANY,	LNG,	ANY
+	TAB	414$,	DBL,	ANY,	FLT,	ANY
+	TAB	415$,	CHR,	ANY,	FLT,	ANY		;u2+
+	TAB	415$,	INT,	ANY,	FLT,	ANY
+	TAB	409$,	UNS,	ANY,	FLT,	ANY		;u11
+	TAB	416$,	CHR,	ANY,	DBL,	ANY
+	TAB	416$,	INT,	ANY,	DBL,	ANY
+	TAB	417$,	LNG,	ANY,	FLT,	ANY
+	TAB	418$,	LNG,	ANY,	DBL,	ANY		;08-;u2-
+	TAB	419$,	UNS,	ANY,	DBL,	ANY		;u11
+	TABEND
+
+;
+; ASSIGNED ADDITION.
+;
+
+36$:	TAB	126$,	INT,	ANY,	INT,	CON1
+	TAB	126$,	CHR,	ANY,	INT,	CON1
+	TAB	127$,	INT,	ADDR,	INT,	ADDR
+	TAB	146$,	INT,	ADDR,	INT,	ANY
+	TAB	145$,	INT,	EASY,	INT,	ADDR
+	TAB	145$,	CHR,	EASY,	INT,	ADDR
+	TAB	147$,	INT,	EASY,	INT,	ANY
+	TAB	147$,	CHR,	EASY,	INT,	ANY
+	TAB	148$,	INT,	ANY,	INT,	ANY
+	TAB	148$,	CHR,	ANY,	INT,	ANY
+	TAB	233$,	LNG,	ADDR,	LNG,	ADDR
+	TAB	234$,	LNG,	ADDR,	LNG,	ANY
+	TAB	235$,	LNG,	EASY,	INT,	ADDR
+	TAB	236$,	LNG,	EASY,	INT,	ANY
+	TAB	237$,	LNG,	ANY,	INT,	ANY
+	TAB	238$,	LNG,	EASY,	LNG,	ADDR
+	TAB	239$,	LNG,	EASY,	LNG,	ANY
+	TAB	240$,	LNG,	ANY,	LNG,	ANY
+	TAB	420$,	FLT,	ADDR,	FLT,	ANY			;u6+
+	TAB	422$,	FLT,	ANY,	FLT,	ANY
+	TAB	430$,	DBL,	ADDR,	DBL,	ANY
+	TAB	432$,	DBL,	ANY,	DBL,	ANY			;u6-
+	TABEND
+
+; ASSIGNED SUBTRACTION.
+;
+
+37$:	TAB	126$,	INT,	ANY,	INT,	CON1
+	TAB	126$,	CHR,	ANY,	INT,	CON1
+	TAB	127$,	INT,	ADDR,	INT,	ADDR
+	TAB	146$,	INT,	ADDR,	INT,	ANY
+	TAB	145$,	INT,	EASY,	INT,	ADDR
+	TAB	145$,	CHR,	EASY,	INT,	ADDR
+	TAB	147$,	INT,	EASY,	INT,	ANY
+	TAB	147$,	CHR,	EASY,	INT,	ANY
+	TAB	148$,	INT,	ANY,	INT,	ANY
+	TAB	148$,	CHR,	ANY,	INT,	ANY
+	TAB	233$,	LNG,	ADDR,	LNG,	ADDR
+	TAB	234$,	LNG,	ADDR,	LNG,	ANY
+	TAB	235$,	LNG,	EASY,	INT,	ADDR
+	TAB	236$,	LNG,	EASY,	INT,	ANY
+	TAB	237$,	LNG,	ANY,	INT,	ANY
+	TAB	238$,	LNG,	EASY,	LNG,	ADDR
+	TAB	239$,	LNG,	EASY,	LNG,	ANY
+	TAB	240$,	LNG,	ANY,	LNG,	ANY
+	TAB	421$,	FLT,	ADDR,	FLT,	ANY			;u6+
+	TAB	422$,	FLT,	ANY,	FLT,	ANY
+	TAB	431$,	DBL,	ADDR,	DBL,	ANY
+	TAB	432$,	DBL,	ANY,	DBL,	ANY			;u6-
+	TABEND
+
+;
+; ASSIGNED OR.
+; ASSIGNED BIC.
+;
+
+38$:	TAB	127$,	INT,	ADDR,	INT,	ADDR
+	TAB	146$,	INT,	ADDR,	INT,	ANY
+	TAB	145$,	INT,	EASY,	INT,	ADDR
+	TAB	145$,	CHR,	EASY,	INT,	ADDR
+	TAB	147$,	INT,	EASY,	INT,	ANY
+	TAB	147$,	CHR,	EASY,	INT,	ANY
+	TAB	148$,	INT,	ANY,	INT,	ANY
+	TAB	148$,	CHR,	ANY,	INT,	ANY
+	TAB	241$,	LNG,	ADDR,	LNG,	ADDR
+	TAB	242$,	LNG,	ADDR,	LNG,	ANY
+	TAB	243$,	LNG,	EASY,	INT,	ADDR
+	TAB	244$,	LNG,	EASY,	INT,	ANY
+	TAB	245$,	LNG,	ANY,	INT,	ANY
+	TAB	246$,	LNG,	EASY,	LNG,	ADDR
+	TAB	247$,	LNG,	EASY,	LNG,	ANY
+	TAB	248$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+;
+; ASSIGNED RIGHT SHIFT.
+;
+
+40$:	TAB	500$,	INT,	ADDR,	INT,	CON1			;u6+
+	TAB	501$,	INT,	ADDR,	INT,	CON2
+	TAB	502$,	INT,	ADDR,	INT,	CON3
+	TAB	503$,	INT,	ADDR,	INT,	CON4
+	TAB	504$,	INT,	ADDR,	INT,	CON5
+	TAB	500$,	CHR,	ADDR,	INT,	CON1
+	TAB	501$,	CHR,	ADDR,	INT,	CON2
+	TAB	502$,	CHR,	ADDR,	INT,	CON3
+	TAB	503$,	CHR,	ADDR,	INT,	CON4
+	TAB	504$,	CHR,	ADDR,	INT,	CON5
+	TAB	510$,	UNS,	ADDR,	INT,	CON1
+	TAB	511$,	UNS,	ADDR,	INT,	CON2
+	TAB	512$,	UNS,	ADDR,	INT,	CON3
+	TAB	513$,	UNS,	ADDR,	INT,	CON4
+	TAB	514$,	UNS,	ADDR,	INT,	CON5
+	TAB	519$,	UNS,	ADDR,	INT,	CON8			;u6-
+	TAB	197$,	UNS,	ANY,	INT,	CON1
+	TAB	126$,	INT,	ANY,	INT,	CON1
+	TAB	126$,	CHR,	ANY,	INT,	CON1
+	TAB	228$,	LNG,	ANY,	INT,	CON1
+	TAB	2280$,	LNG,	ADDR,	INT,	CON2			;u12
+	TAB	2281$,	LNG,	ADDR,	INT,	CON16			;u12
+	TAB	229$,	UNS,	ADDR,	INT,	ANY
+	TAB	198$,	INT,	ADDR,	INT,	ANY
+	TAB	199$,	CHR,	ADDR,	INT,	ANY
+	TAB	230$,	UNS,	ANY,	INT,	ANY
+	TAB	1510$,	INT,	ANY,	INT,	ANY			;07
+	TAB	1520$,	CHR,	ANY,	INT,	ANY			;07
+	TAB	1112$,	LNG,	ADDR,	INT,	ANY			;u12
+	TAB	227$,	LNG,	ANY,	INT,	ANY			;07+
+	TAB	223$,	LNG,	ADDR,	LNG,	ANY
+	TAB	224$,	LNG,	ANY,	LNG,	ANY			;07-
+	TABEND
+
+;
+; ASSIGNED LEFT SHIFT.
+;
+
+41$:	TAB	500$,	INT,	ADDR,	INT,	CON1			;u6+
+	TAB	501$,	INT,	ADDR,	INT,	CON2
+	TAB	502$,	INT,	ADDR,	INT,	CON3
+	TAB	503$,	INT,	ADDR,	INT,	CON4
+	TAB	504$,	INT,	ADDR,	INT,	CON5
+	TAB	509$,	INT,	ADDR,	INT,	CON8
+	TAB	500$,	CHR,	ADDR,	INT,	CON1
+	TAB	501$,	CHR,	ADDR,	INT,	CON2
+	TAB	502$,	CHR,	ADDR,	INT,	CON3
+	TAB	503$,	CHR,	ADDR,	INT,	CON4			;u6-
+	TAB	126$,	INT,	ANY,	INT,	CON1
+	TAB	126$,	CHR,	ANY,	INT,	CON1
+	TAB	231$,	LNG,	ANY,	INT,	CON1
+	TAB	2310$,	LNG,	ADDR,	INT,	CON2			;u12
+	TAB	2311$,	LNG,	ADDR,	INT,	CON16			;u12
+	TAB	1981$,	INT,	ADDR,	INT,	EASY			;u8
+	TAB	1991$,	CHR,	ADDR,	INT,	EASY			;u8
+	TAB	198$,	INT,	ADDR,	INT,	ANY
+	TAB	199$,	CHR,	ADDR,	INT,	ANY
+	TAB	1510$,	INT,	ANY,	INT,	ANY			;07
+	TAB	1520$,	CHR,	ANY,	INT,	ANY			;07
+	TAB	1113$,	LNG,	ADDR,	INT,	EASY			;u12
+	TAB	1112$,	LNG,	ADDR,	INT,	ANY			;u12
+	TAB	227$,	LNG,	ANY,	INT,	ANY
+	TAB	223$,	LNG,	ADDR,	LNG,	ANY
+	TAB	224$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+;
+; ASSIGNED MULTIPLY.
+;
+
+42$:
+	TAB	1981$,	INT,	ADDR,	INT,	EASY			;u8
+	TAB	1991$,	CHR,	ADDR,	INT,	EASY			;u8
+	TAB	198$,	INT,	ADDR,	INT,	ANY
+	TAB	199$,	CHR,	ADDR,	INT,	ANY
+	TAB	151$,	INT,	ANY,	INT,	ANY
+	TAB	152$,	CHR,	ANY,	INT,	ANY
+	TAB	226$,	LNG,	ADDR,	INT,	ANY
+	TAB	227$,	LNG,	ANY,	INT,	ANY
+	TAB	271$,	LNG,	ADDR,	UNS,	ANY	; Use LNG*LNG	;u6
+	TAB	272$,	LNG,	ANY,	UNS,	ANY	; Use LNG*LNG	;u6
+	TAB	223$,	LNG,	ADDR,	LNG,	ANY
+	TAB	224$,	LNG,	ANY,	LNG,	ANY
+	TAB	420$,	FLT,	ADDR,	FLT,	ANY			;u6+
+	TAB	422$,	FLT,	ANY,	FLT,	ANY
+	TAB	430$,	DBL,	ADDR,	DBL,	ANY
+	TAB	432$,	DBL,	ANY,	DBL,	ANY			;u6-
+	TABEND
+
+; ASSIGNED DIVIDE.
+
+43$:
+	TAB	1981$,	INT,	ADDR,	INT,	EASY			;u8
+	TAB	1991$,	CHR,	ADDR,	INT,	EASY			;u8
+	TAB	198$,	INT,	ADDR,	INT,	ANY
+	TAB	199$,	CHR,	ADDR,	INT,	ANY
+	TAB	281$,	UNS,	ADDR,	INT,	ANY	; Use LNG/LNG	;u7
+	TAB	281$,	INT,	ADDR,	UNS,	ANY	; Use LNG/LNG	;u7
+	TAB	151$,	INT,	ANY,	INT,	ANY
+	TAB	152$,	CHR,	ANY,	INT,	ANY
+	TAB	282$,	UNS,	ANY,	INT,	ANY	; Use LNG/LNG	;u7
+	TAB	282$,	INT,	ANY,	UNS,	ANY	; Use LNG/LNG	;u7
+	TAB	226$,	LNG,	ADDR,	INT,	ANY
+	TAB	227$,	LNG,	ANY,	INT,	ANY
+	TAB	271$,	LNG,	ADDR,	UNS,	ANY	; Use LNG/LNG	;u6
+	TAB	272$,	LNG,	ANY,	UNS,	ANY	; Use LNG/LNG	;u6
+	TAB	223$,	LNG,	ADDR,	LNG,	ANY
+	TAB	224$,	LNG,	ANY,	LNG,	ANY
+	TAB	421$,	FLT,	ADDR,	FLT,	ANY			;u6+
+	TAB	422$,	FLT,	ANY,	FLT,	ANY
+	TAB	431$,	DBL,	ADDR,	DBL,	ANY
+	TAB	432$,	DBL,	ANY,	DBL,	ANY			;u6-
+	TABEND
+
+; ASSIGNED MODULUS.
+
+44$:
+	TAB	1981$,	INT,	ADDR,	INT,	EASY			;u8
+	TAB	1991$,	CHR,	ADDR,	INT,	EASY			;u8
+	TAB	198$,	INT,	ADDR,	INT,	ANY
+	TAB	199$,	CHR,	ADDR,	INT,	ANY
+	TAB	281$,	UNS,	ADDR,	INT,	ANY	; Use LNG/LNG	;u7
+	TAB	281$,	INT,	ADDR,	UNS,	ANY	; Use LNG/LNG	;u7
+	TAB	151$,	INT,	ANY,	INT,	ANY
+	TAB	152$,	CHR,	ANY,	INT,	ANY
+	TAB	282$,	UNS,	ANY,	INT,	ANY	; Use LNG/LNG	;u7
+	TAB	282$,	INT,	ANY,	UNS,	ANY	; Use LNG/LNG	;u7
+	TAB	226$,	LNG,	ADDR,	INT,	ANY
+	TAB	227$,	LNG,	ANY,	INT,	ANY
+	TAB	271$,	LNG,	ADDR,	UNS,	ANY	; Use LNG/LNG	;u6
+	TAB	272$,	LNG,	ANY,	UNS,	ANY	; Use LNG/LNG	;u6
+	TAB	223$,	LNG,	ADDR,	LNG,	ANY
+	TAB	224$,	LNG,	ANY,	LNG,	ANY
+	TAB	421$,	FLT,	ADDR,	FLT,	ANY			;u6+
+	TAB	422$,	FLT,	ANY,	FLT,	ANY
+	TAB	431$,	DBL,	ADDR,	DBL,	ANY
+	TAB	432$,	DBL,	ANY,	DBL,	ANY			;u6-
+	TABEND
+;
+; ASSIGNED EXCLUSIVE OR.
+;
+
+50$:	TAB	194$,	INT,	ADDR,	INT,	ANY
+	TAB	195$,	CHR,	ADDR,	INT,	ANY
+	TAB	158$,	INT,	ANY,	INT,	ANY
+	TAB	159$,	CHR,	ANY,	INT,	ANY
+	TAB	226$,	LNG,	ADDR,	INT,	ANY
+	TAB	227$,	LNG,	ANY,	INT,	ANY
+	TAB	2230$,	LNG,	ADDR,	LNG,	ANY			;17
+	TAB	2240$,	LNG,	ANY,	LNG,	ANY			;17
+	TABEND
+
+;
+; ASSIGNMENT.
+;
+
+52$:	TAB	160$,	INT,	EASY,	INT,	ANY
+	TAB	160$,	CHR,	EASY,	INT,	ANY
+	TAB	161$,	INT,	ANY,	INT,	EASY
+	TAB	161$,	CHR,	ANY,	INT,	EASY
+	TAB	162$,	INT,	ANY,	INT,	ANY
+	TAB	162$,	CHR,	ANY,	INT,	ANY
+	TAB	219$,	INT,	EASY,	LNG,	ANY
+	TAB	219$,	CHR,	EASY,	LNG,	ANY
+	TAB	220$,	INT,	ANY,	LNG,	ANY
+	TAB	220$,	CHR,	ANY,	LNG,	ANY
+	TAB	221$,	LNG,	EASY,	LNG,	ANY
+	TAB	222$,	LNG,	ANY,	LNG,	ANY
+	TAB	440$,	FLT,	EASY,	FLT,	ANY			;08
+	TAB	450$,	DBL,	EASY,	DBL,	ANY			;08
+	TAB	460$,	FLT,	ANY,	FLT,	ANY			;08
+	TAB	470$,	DBL,	ANY,	DBL,	ANY			;08
+	TABEND
+
+; MULTIPLY INT*INT WITH LONG RESULT -- EIS only				;u10+
+
+53$:	TAB	1832$,	INT,	ANY,	INT,	EASY
+	TAB	1833$,	INT,	ANY,	INT,	ANY
+	TABEND
+
+; DIVIDE LONG / INT WITH INT RESULT -- EIS ONLY
+
+54$:	TAB	1083$,	LNG,	ANY,	INT,	EASY
+	TAB	1084$,	LNG,	ANY,	INT,	ANY
+	TABEND								;u10-
+
+	.LIST	MEB
+
+;
+; CODE BURSTS.
+;
+
+100$:	.ASCIZ	<LL>
+
+101$:	.ASCII	<LL>
+	.ASCIZ	"	"<OP.1>"	"<R><12>
+
+102$:
+	.ASCII	<SRV>
+	.ASCII	<LL>
+	.ASCIZ	"	"<OP.0><TL>"	"<AR>","<R><12>
+
+103$:
+	.ASCII	<SRV>
+	.ASCII	<LLP.E>
+	.ASCII	"	"<OP.0>"	"<AR>","<R.1><12>
+	.ASCIZ	"	"<V>"	"<R><12>
+
+104$:
+	.ASCII	<SRV>
+	.ASCII	<LLP.E>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<R.1><12>
+	.ASCII	"	"<V>"	"<R><12>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<R><12>
+
+105$:	.ASCII	<PR>
+	.ASCII	<LL>
+	.ASCIZ	"	"<OP.0>"	(sp)+,"<R><12>
+
+106$:	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCII	"	"<OP.0>"	(sp)+,"<R.1><12>
+	.ASCIZ	"	"<V>"	"<R><12>
+
+107$:	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCII	"	"<OP.0>"	(sp)+,"<R><12>
+	.ASCII	"	"<OP.0>"	(sp)+,"<R.1><12>	;u4
+	.ASCIZ	"	"<V>"	"<R><12>			;u4
+
+1080$:					; DIV, MOD	(Easy)	;u2+
+	.ASCII	<IFEIS>						;12
+	.ASCII	<SRV>
+	.ASCII	<LLP.O>
+	.ASCII	"	sxt	"<R><12>
+	.ASCII	"	div	"<AR>","<R><12>
+	.ASCII	<IFOP>
+	.BYTE	<OP.MOD>
+	.BYTE	<M>
+	.ASCII	<IFEND>			;if eis, mod select	;12+
+	.ASCII	<ELSE>			;if no eis,
+	BRANCH	108$			;do common		;12-
+	.ASCIZ	<IFEND>						;u2-
+
+1081$:					; DIV, MOD	(Hard)	;u2+
+	.ASCII	<IFEIS>						;12
+	.ASCII	<PR>
+	.ASCII	<LLP.O>
+	.ASCII	"	sxt	"<R><12>
+	.ASCII	"	div	(sp)+,"<R><12>
+	.ASCII	<IFOP>
+	.BYTE	<OP.MOD>
+	.BYTE	<M>
+	.ASCII	<IFEND>			;if eis, mod select	;12+
+	.ASCII	<ELSE>			;if no eis,
+	BRANCH	108$			;do common		;12-
+	.ASCIZ	<IFEND>						;u2-
+
+1082$:					; SHIFT			;07+
+	.ASCII	<IFEIS>						;12
+	.ASCII	<PR>
+	.ASCII	<LL>
+	.ASCII	<IFOP>
+	.BYTE	<OP.ASR>
+	.ASCII	"	neg	(sp)"<12>
+	.ASCII	<IFEND>
+	.ASCII	"	ash	(sp)+,"<R><12>			;12+
+	.ASCII	<ELSE>			;but, if no eis
+	BRANCH	108$			;do common
+	.ASCIZ	<IFEND>			;finished		;12-
+
+1087$:					; shift int left easy	;u8+
+	.ASCII	<IFEIS>						;12
+	.ASCII	<SRV>
+	.ASCII	<LL>
+	.ASCII	"	ash	"<AR>","<R><12>			;u8-/12+
+	.ASCII	<ELSE>			;if no eis,
+	BRANCH	108$			;do common
+	.ASCIZ	<IFEND>						;12-
+
+;
+; EIS handler for non-eis machines.				;12+
+;
+
+108$:	.ASCII	<PR>
+	.ASCII	<PL>
+	.ASCII	"	.globl	"<OP.0><176>"i"<12>
+	.ASCII	"	jsr	pc,"<OP.0><176>"i"<12>
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCIZ	<F>						;12-
+
+1083$:				; OP.DLL INT = LNG ANY/INT EASY	;u10+
+				; Note:  this is exeuted only on EIS machines.
+				; See FIXCOT in CC201.MAC for details.
+	.ASCII	<SRV>
+	.ASCII	<LLP.E>
+	.ASCIZ	"	div	"<AR>","<R><12>
+
+1084$:				; OP.DLL INT = LNG ANY/INT HARD
+				; Note:  this is exeuted only on EIS machines.
+				; See FIXCOT in CC201.MAC for details.
+	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCIZ	"	div	(sp)+,"<R><12>				;u10-
+
+109$:	.ASCII	<PR>
+	.ASCII	<PL>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCIZ	<F>
+
+110$:	.ASCII	<PR>			; FIS ??
+	.ASCII	<PL>
+	.ASCII	"	.globl	"<OP.0><176>"d"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"d"<12>		; DGC01/02
+	.ASCII	"	add	$20,sp"<12>
+	.ASCIZ	<F>
+
+111$:	.ASCII	<PR>
+	.ASCII	<PL>
+	.ASCII	"	.globl	"<OP.0><176>"li"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"li"<12>		; DGC01/02
+	.ASCII	"	add	$6,sp"<12>
+	.ASCIZ	<F>
+
+1110$:					; SHIFT LONG INT	;07+
+	.ASCII	<IFEIS>						;12
+	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCII	<IFOP>
+	.BYTE	<OP.ASR>
+	.ASCII	"	neg	(sp)"<12>
+	.ASCII	<IFEND>
+	.ASCII	"	ashc	(sp)+,"<R><12>			;09/12+
+	.ASCII	<ELSE>			; If no eis,
+	BRANCH	111$			; call a subroutine
+	.ASCIZ	<IFEND>			;			;12-
+
+1111$:					; shift long left easy	;u8+
+	.ASCII	<IFEIS>						;12
+	.ASCII	<SRV>
+	.ASCII	<LLP.E>
+	.ASCII	"	ashc	"<AR>","<R><12>			;u8-/12+
+	.ASCII	<ELSE>
+11110$:	BRANCH	111$			;call subroutine
+	.ASCIZ	<IFEND>						;12-
+
+1112$:					;LONG ADDR SHIFT ANY		;u12+
+	.ASCII	<IFEIS>							;14
+	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCII	<IFOP>
+	.BYTE	<OP.ARA>
+	.ASCII	"	neg	(sp)"<12>
+	.ASCII	<IFEND>
+	.ASCII	"	ashc	(sp)+,"<R><12>
+	BRANCH	11120$			;Common store stub		;15
+	.ASCII	<ELSE>							;14+
+	BRANCH	11110$
+	.ASCIZ	<IFEND>							;14-
+
+11120$:	.ASCII	"	mov	"<R.1>","<AL.2><12>			;15
+	.ASCIZ	"	mov	"<R>","<AL><12>				;15
+
+1113$:					;LONG ADDR SHIFT EASY
+	.ASCII	<IFEIS>							;14+
+	.ASCII	<LLP.E>
+	.ASCII	"	ashc	"<AR>","<R><12>
+	BRANCH	11120$			;Common store stub
+	.ASCIZ	<IFEND>						;u12-/14-
+
+121$:	.ASCII	<SRV>
+	.ASCII	<LLP.E>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<R.1><12>
+
+122$:	.ASCII	<SRV>
+	.ASCII	<LLP.E>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<R.1><12>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<R><12>
+
+123$:	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCIZ	"	"<OP.0>"	(sp)+,"<R.1><12>
+
+124$:	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCII	"	"<OP.0>"	(sp)+,"<R><12>
+	.ASCIZ	"	"<OP.0>"	(sp)+,"<R.1><12>
+
+1250$:					; XOR INT INT 		;07+
+	.ASCII	<PR>
+	.ASCII	<IFEIS>						;12
+	.ASCII	<LL>
+	.ASCII	"	xor	"<R>",(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<R><12>			;07-/12+
+	.ASCII	<ELSE>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	<LL>
+	.ASCII	"	bic	"<R>",2(sp)"<12>
+	.ASCII	"	bic	(sp)+,"<R><12>
+	.ASCII	"	bis	(sp)+,"<R><12>
+	.ASCIZ	<IFEND>						;12-
+
+1252$:					; XOR LONG LONG
+	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCII	<IFEIS>						;12
+	.ASCII	"	xor	"<R>",(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<R><12>
+	.ASCII	"	xor	"<R.1>",(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<R.1><12>		;12+
+	.ASCII	<ELSE>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	bic	"<R>",2(sp)"<12>
+	.ASCII	"	bic	(sp)+,"<R><12>
+	.ASCII	"	bis	(sp)+,"<R><12>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	bic	"<R.1>",2(sp)"<12>
+	.ASCII	"	bic	(sp)+,"<R.1><12>
+	.ASCII	"	bis	(sp)+,"<R.1><12>
+	.ASCIZ	<IFEND>						;12-
+
+126$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.1><TL>"	"<ALN><12>
+	.ASCIZ	"	mov"<TL>"	"<AL>","<R><12>
+
+127$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AR>","<ALN><12>
+	.ASCIZ	"	mov	"<AL>","<R><12>
+
+128$:	.ASCII	<SLA>
+	.ASCII	"	mov"<TL>"	"<ALN>","<R><12>
+	.ASCIZ	"	"<OP.1><TL>"	"<AL><12>
+
+129$:	.ASCII	<PLA>
+	.ASCII	"	mov"<TL>"	*(sp),"<R><12>
+	.ASCIZ	"	"<OP.1><TL>"	*(sp)+"<12>
+
+130$:	.ASCII	<SLA>
+	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<AL><12>
+
+131$:	.ASCII	<PLA>
+	.ASCII	"	mov	*(sp),"<R><12>
+	.ASCIZ	"	"<OP.0>"	"<AR>",*(sp)+"<12>
+
+132$:	.ASCII	<LL>
+	.ASCIZ	"	"<OP.0><TL>"	"<R><12>
+
+133$:	.ASCII	<LLP.E>
+	.ASCII	"	neg	"<R><12>
+	.ASCII	"	neg	"<R.1><12>
+	.ASCIZ	"	sbc	"<R><12>
+
+134$:	.ASCII	<LLP.E>
+	.ASCII	"	com	"<R><12>
+	.ASCIZ	"	com	"<R.1><12>
+
+135$:
+	.ASCII	<SLAC>
+	.ASCIZ	"	mov"<TL>"	"<AL>","<R><12>
+
+136$:								;caveat
+	.ASCII	<SLAC>
+	.ASCII	"	mov	"<AL.2>","<R.1><12>
+	.ASCIZ	"	mov	"<AL>","<R><12>
+
+139$:	.ASCIZ	"	clr"<TL>"	"<R><12>
+
+140$:
+.IF NE	C$$SXT								;05+
+	.ASCII	<LLP.O>							;u3
+	.ASCIZ	"	sxt	"<R><12>
+.IFF
+	.ASCII	<LLP.O>							;u3
+	.ASCII	"	clr	"<R><12>
+	.ASCII	"	tst	"<R.1><12>
+	.ASCII	"	.word	0100001		/ bpl .+4"<12>
+	.ASCIZ	"	dec	"<R><12>
+.ENDC									;05-
+
+141$:
+	.ASCII	<LLP.O>							;u3
+	.ASCIZ	"	clr	"<R><12>
+
+142$:					;CVR CHR <- INT			;u6+
+	.ASCII	<SLVA>							;u8
+	.ASCIZ	"	movb	"<AL>","<R><12>
+
+143$:					;CVR UNS <- CHR, ADDR		;u7
+	.ASCII	"	clr	"<R><12>
+	.ASCIZ	"	bisb	"<AL>","<R><12>
+
+144$:					;CVR UNS <- CHR, ANY
+	.ASCII	<LL>
+	.ASCIZ	"	bic	$177400,"<R><12>			;u6-
+
+145$:	.ASCII	<SLA>
+	.ASCII	"	mov"<TL>"	"<ALN>","<R><12>
+	.ASCII	"	"<OP.0>"	"<AR>","<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+146$:	.ASCII	<LR>
+	.ASCII	"	"<OP.0>"	"<R>","<ALN><12>
+	.ASCIZ	"	mov	"<AL>","<R><12>
+
+147$:	.ASCII	<PR>
+	.ASCII	<SLA>
+	.ASCII	"	mov"<TL>"	"<ALN>","<R><12>
+	.ASCII	"	"<OP.0>"	(sp)+,"<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+148$:	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	"	mov"<TL>"	*2(sp),"<R><12>
+	.ASCII	"	"<OP.0>"	(sp)+,"<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>",*(sp)+"<12>
+
+150$:	.ASCII	<SLA>
+	.ASCII	<PR>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"i"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"i"<12>		; DGC01/02
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCII	"	mov	r0,"<AL><12>
+	.ASCIZ	<F>
+
+151$:	.ASCII	<PLA>						;u6+
+	.ASCII	<PR>
+	.ASCII	<IFEIS>						;12
+	.ASCII	<IFOP>
+	.BYTE	<OP.MUA>
+	.ASCII	"	mov	*2(sp),r1"<12>
+	.ASCII	"	mul	(sp)+,r1"<12>
+	.ASCII	"	mov	r1,*(sp)+"<12>
+	.ASCII	<F.1>
+	.ASCII	<IFEND>						;11
+	.ASCII	<IFOP>
+	.BYTE	<OP.DVA>
+	.ASCII	"	mov	*2(sp),r1"<12>
+	.ASCII	"	sxt	r0"<12>
+	.ASCII	"	div	(sp)+,r0"<12>
+	.ASCII	"	mov	r0,*(sp)+"<12>
+	.ASCII	<F>
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.MOA>
+	.ASCII	"	mov	*2(sp),r1"<12>
+	.ASCII	"	sxt	r0"<12>
+	.ASCII	"	div	(sp)+,r0"<12>
+	.ASCII	"	mov	r1,*(sp)+"<12>
+	.ASCII	<F.1>
+	.ASCII	<IFEND>						;u6-/12+
+	.ASCII	<ELSE>
+	BRANCH	1511$
+	.ASCIZ	<IFEND>						;12-
+
+1510$:					; >>= INT INT		;07+
+	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	<IFEIS>						;12
+	.ASCII	<IFOP>
+	.BYTE	<OP.ARA>
+	.ASCII	"	neg	(sp)"<12>
+	.ASCII	<IFEND>
+	.ASCII	"	mov"<TL>"	*2(sp),"<R><12>
+	.ASCII	"	ash	(sp)+,"<R><12>
+	.ASCII	"	mov"<TL>"	"<R>",*(sp)+"<12>		;12+
+	.ASCII	<ELSE>
+	BRANCH	1511$
+	.ASCIZ	<IFEND>							;12-
+
+1511$:	.ASCII	"	.globl	"<OP.0><176>"i"<12>			;12+
+	.ASCII	"	jsr	pc,"<OP.0><176>"i"<12>
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCII	"	mov	r0,*(sp)+"<12>
+	.ASCIZ	<F>							;12-
+
+1520$:					; >>= or <<= CHAR INT	;07+
+	.ASCII	<IFEIS>						;12
+	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	<IFOP>
+	.BYTE	<OP.ARA>
+	.ASCII	"	neg	(sp)"<12>
+	.ASCII	<IFEND>
+	.ASCII	"	mov"<TL>"	*2(sp),"<R><12>
+	.ASCII	"	ash	(sp)+,"<R><12>
+	.ASCII	"	mov"<TL>"	"<R>",*(sp)+"<12>
+	.ASCII	<ELSE>						;12
+	BRANCH	152$						;12
+	.ASCIZ	<IFEND>						;07-
+
+152$:	.ASCII	<PLA>						;12+
+	.ASCII	<PR>
+	.ASCII	"	movb	*2(sp),r0"<12>
+	.ASCII	"	mov	r0,-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"i"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"i"<12>		; DGC01/02
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCII	"	movb	r0,*(sp)+"<12>
+	.ASCIZ	<F>						;12-
+
+158$:					; = XOR INT INT		;07+
+159$:					; = XOR CHAR INT
+	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	<IFEIS>
+	.ASCII	"	mov"<TL>"	*2(sp),"<R><12>
+	.ASCII	"	xor	"<R>",(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<R><12>
+	.ASCII	"	mov"<TL>"	"<R>",*(sp)+"<12>
+	.ASCII	<ELSE>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	mov"<TL>"	*4(sp),"<R><12>
+	.ASCII	"	bic	"<R>",2(sp)"<12>
+	.ASCII	"	bic	(sp)+,"<R><12>
+	.ASCII	"	bis	(sp)+,"<R><12>
+	.ASCII	"	mov"<TL>"	"<R>",*(sp)+"<12>
+	.ASCIZ	<IFEND>
+
+
+
+160$:	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+161$:	.ASCII	<SRV>
+	.ASCII	<SLAC>
+	.ASCII	"	mov"<TL>"	"<AR>","<ALN><12>
+	.ASCIZ	"	mov"<TL>"	"<AL>","<R><12>
+
+162$:	.ASCII	<PLA>
+	.ASCII	<LR>
+	.ASCIZ	"	mov"<TL>"	"<R>",*(sp)+"<12>
+
+;
+; MULTIPLY CODE
+;
+163$:	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	add	"<AL>","<R><12>
+
+164$:	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	add	"<AL>","<R><12>
+
+165$:	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	add	"<AL>","<R><12>
+	.ASCIZ	"	asl	"<R><12>
+
+166$:	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	sub	"<AL>","<R><12>
+
+167$:	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	add	"<AL>","<R><12>
+
+168$:	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	add	"<AL>","<R><12>
+	.ASCIZ	"	asl	"<R><12>
+
+169$:	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	add	"<AL>","<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	asl	"<R><12>
+
+; NON-POWER-OF-2 SIMPLE MULTIPLIES
+
+170$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R>",-(sp)"<12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	add	(sp)+,"<R><12>
+
+171$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R>",-(sp)"<12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	add	(sp)+,"<R><12>
+
+172$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R>",-(sp)"<12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	add	(sp)+,"<R><12>
+	.ASCIZ	"	asl	"<R><12>
+
+173$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R>",-(sp)"<12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	sub	(sp)+,"<R><12>
+
+174$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R>",-(sp)"<12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	add	(sp)+,"<R><12>
+
+175$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R>",-(sp)"<12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	add	(sp)+,"<R><12>
+	.ASCIZ	"	asl	"<R><12>
+
+176$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R>",-(sp)"<12>
+	.ASCII	"	asl	"<R><12>
+	.ASCII	"	add	(sp)+,"<R><12>
+	.ASCII	"	asl	"<R><12>
+	.ASCIZ	"	asl	"<R><12>
+
+1830$:					; MUL INT INT	(easy)	;u2+
+;
+	.ASCII	<IFEIS>
+	.ASCII	<SRV>
+	.ASCII	<LL.O>
+	.ASCII	"	mul	"<AR>","<R><12>
+	.ASCII	<ELSE>
+	BRANCH	183$						;12
+	.ASCIZ	<IFEND>
+
+1831$:					; MUL INT INT	(hard)
+;
+	.ASCII	<IFEIS>
+	.ASCII	<PR>
+	.ASCII	<LL.O>
+	.ASCII	"	mul	(sp)+,"<R><12>
+	.ASCII	<ELSE>
+	BRANCH	183$						;12
+	.ASCIZ	<IFEND>						;u2-
+
+1832$:				;MUL LNG = INT*INT (easy)	;u10+
+				;Note: This is executed only on EIS machines.
+				;See FIXCOT in CC201.MAC for details.
+	.ASCII	<SRV>
+	.ASCII	<LLP.E>
+	.ASCIZ	"	mul	"<AR>","<R><12>
+
+1833$:				; MUL LNG = INT*INT	(hard)
+				;Note: This is executed only on EIS machines.
+				;See FIXCOT in CC201.MAC for details.
+	.ASCII	<PR>
+	.ASCII	<LLP.E>
+	.ASCIZ	"	mul	"<AR>","<R><12>				;u10-
+
+183$:	.ASCII	<PR>						;12+
+	.ASCII	<PL>
+	.ASCII	"	.globl	mul"<176>"i"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,mul"<176>"i"<12>		; DGC01/02
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCIZ	<F>						;12-
+
+184$:	.ASCII	<LL>
+	.ASCII	"	asl	"<R.1><12>
+	.ASCII	"	rol	"<R><12>
+	.ASCII	"	add	"<AL>","<R><12>
+	.ASCII	"	add	"<AL.2>","<R.1><12>
+	.ASCIZ	"	adc	"<R><12>
+
+186$:	.ASCII	<LL>
+	.ASCII	"	asl	"<R.1><12>
+	.ASCIZ	"	rol	"<R><12>
+
+187$:	.ASCII	<LL>
+	.ASCII	"	asl	"<R.1><12>
+	.ASCII	"	rol	"<R><12>
+	.ASCII	"	asl	"<R.1><12>
+	.ASCIZ	"	rol	"<R><12>
+
+188$:	.ASCII	<PR>
+	.ASCII	<PL>
+	.ASCII	"	.globl	mul"<176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,mul"<176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCIZ	<F>
+
+190$:	.ASCII	<LL>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCIZ	"	"<OP.1>"	"<R><12>
+
+191$:	.ASCII	<LL>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCIZ	"	"<OP.1>"	"<R><12>
+
+192$:	.ASCII	<LL>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCIZ	"	"<OP.1>"	"<R><12>
+
+193$:	.ASCII	<LL>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCII	"	"<OP.1>"	"<R><12>
+	.ASCIZ	"	"<OP.1>"	"<R><12>
+
+194$:						; =^ INT_ADDR INT	;07+
+	.ASCII	<IFEIS>
+	.ASCII	<LR>
+	.ASCII	"	xor	"<R>","<ALN><12>
+	.ASCII	"	mov	"<AL>","<R><12>
+	.ASCII	<ELSE>
+	.ASCII	<PR>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	mov	"<ALN>","<R><12>
+	.ASCII	"	bic	"<R>",2(sp)"<12>
+	.ASCII	"	bic	(sp)+,"<R><12>
+	.ASCII	"	bis	(sp)+,"<R><12>
+	.ASCII	"	mov	"<R>","<AL><12>
+	.ASCIZ	<IFEND>						;07-
+
+195$:	.ASCII	<IFEIS>			; =XOR byte ADDR BYTE	;07+
+	.ASCII	<LR>
+	.ASCII	"	movb	"<ALN>",-(sp)"<12>
+	.ASCII	"	xor	"<R>",(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<R><12>
+	.ASCII	"	movb	"<R>","<AL><12>
+	.ASCII	<ELSE>
+	.ASCII	<PR>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	movb	"<ALN>","<R><12>
+	.ASCII	"	bic	"<R>",2(sp)"<12>
+	.ASCII	"	bic	(sp)+,"<R><12>
+	.ASCII	"	bis	(sp)+,"<R><12>
+	.ASCII	"	movb	"<R>","<AL><12>
+	.ASCIZ	<IFEND>							;07-
+
+196$:	.ASCII	<LL>
+	.ASCII	"	clc"<12>
+	.ASCIZ	"	ror	"<R><12>
+
+197$:	.ASCII	<SLAC>
+	.ASCII	"	clc"<12>
+	.ASCII	"	ror	"<ALN><12>
+	.ASCIZ	"	mov	"<AL>","<R><12>
+
+; <<=, >>=, DIV MOD MUL						;u6+
+; INT/CHAR ADDR <- INT ANY
+
+198$:
+	.ASCII	<PR>
+	.ASCII	<IFEIS>						;12+
+	BRANCH	1983$
+	.ASCII	<ELSE>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	BRANCH	1982$
+	.ASCIZ	<IFEND>
+
+199$:				; (same, but for CHAR>
+	.ASCII	<PR>						;u8
+	.ASCII	<IFEIS>
+	BRANCH	1983$
+	.ASCII	<ELSE>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	BRANCH	1982$
+	.ASCIZ	<IFEND>
+
+1982$:				; No hardware EIS
+	.ASCII	"	.globl	"<OP.0><176>"i"<12>
+	.ASCII	"	jsr	pc,"<OP.0><176>"i"<12>
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCII	"	mov"<TL>"	r0,"<AL><12>
+	.ASCIZ	<F>
+
+1983$:				; If hardware EIS			;12-
+	.ASCII	<IFOP>
+	.BYTE	<OP.ALA>
+	.ASCII	"	mov"<TL>"	"<ALN>","<R><12>
+	.ASCII	"	ash	(sp)+,"<R><12>
+	.ASCII	"	mov"<TL>"	"<R>","<AL><12>
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.ARA>
+	.ASCII	"	neg	(sp)"<12>
+	.ASCII	"	mov"<TL>"	"<ALN>","<R><12>
+	.ASCII	"	ash	(sp)+,"<R><12>
+	.ASCII	"	mov"<TL>"	"<R>","<AL><12>
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.MUA>
+	.ASCII	"	mov"<TL>"	"<ALN>",r1"<12>	;same reg bug
+	.ASCII	"	mul	(sp)+,r1"<12>		;as for divide
+	.ASCII	"	mov"<TL>"	r1,"<AL><12>
+	.ASCII	<F.1>		; Result in r1 (should be <M>)
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.DVA>
+	.ASCII	"	mov"<TL>"	"<ALN>",r1"<12>	;register bug
+	.ASCII	"	sxt	r0"<12>			;here, too
+	.ASCII	"	div	(sp)+,r0"<12>
+	.ASCII	"	mov"<TL>"	r0,"<AL><12>
+	.ASCII	<F>
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.MOA>
+	.ASCII	"	mov"<TL>"	"<ALN>",r1"<12>
+	.ASCII	"	sxt	r0"<12>
+	.ASCII	"	div	(sp)+,r0"<12>
+	.ASCII	"	mov"<TL>"	r1,"<AL><12>
+	.ASCII	<F.1>		; Result in r1 (should be <M>)
+	.ASCIZ	<IFEND>
+
+; <<=, DIV MOD MUL ** Note: NO >>= **				;u8+
+; INT/CHAR ADDR <- INT EASY
+
+1981$:								;12+
+	.ASCII	<IFEIS>
+	BRANCH	1993$
+	.ASCII	<ELSE>		; non-EIS int.
+	.ASCII	<PR>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	BRANCH	1992$
+	.ASCIZ	<IFEND>
+
+1991$:				; (same, but for CHAR>
+	.ASCII	<IFEIS>
+	BRANCH	1993$
+	.ASCII	<ELSE>
+	.ASCII	<PR>
+	.ASCII	"	movb	"<ALN>",r0"<12>
+	.ASCII	"	mov	r0,-(sp)"<12>
+	BRANCH	1992$
+	.ASCIZ	<IFEND>
+
+1992$:	.ASCII	"	.globl	"<OP.0><176>"i"<12>
+	.ASCII	"	jsr	pc,"<OP.0><176>"i"<12>
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCII	"	mov"<TL>"	r0,"<AL><12>
+	.ASCIZ	<F>
+
+1993$:					; EIS ops			;12-
+	.BYTE	<SRV>
+	.ASCII	<IFOP>
+	.BYTE	<OP.ALA>
+	.ASCII	"	mov"<TL>"	"<ALN>","<R><12>
+	.ASCII	"	ash	"<AR>","<R><12>
+	.ASCII	"	mov"<TL>"	"<R>","<AL><12>
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.ARA>
+	.ASCII	"bug @ 1983$"<12>	;Can't use easy table for ARA	;12
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.MUA>
+	.ASCII	"	mov"<TL>"	"<ALN>",r1"<12>
+	.ASCII	"	mul	"<AR>",r1"<12>
+	.ASCII	"	mov"<TL>"	r1,"<AL><12>
+	.ASCII	<F.1>		; Result in r1 (should be <M>)
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.DVA>
+	.ASCII	"	mov"<TL>"	"<ALN>",r1"<12>
+	.ASCII	"	sxt	r0"<12>
+	.ASCII	"	div	"<AR>",r0"<12>
+	.ASCII	"	mov"<TL>"	r0,"<AL><12>
+	.ASCII	<F>
+	.ASCII	<IFEND>
+	.ASCII	<IFOP>
+	.BYTE	<OP.MOA>
+	.ASCII	"	mov"<TL>"	"<ALN>",r1"<12>
+	.ASCII	"	sxt	r0"<12>
+	.ASCII	"	div	"<AR>",r0"<12>
+	.ASCII	"	mov"<TL>"	r1,"<AL><12>
+	.ASCII	<F.1>		; Result in r1 (should be <M>)
+	.ASCIZ	<IFEND>		;End of EIS			;u8-/12
+
+200$:	.ASCII	<LL>
+	.ASCIZ	"	movb	("<R>"),"<R><12>
+
+201$:
+	.ASCII	<LL>
+	.ASCIZ	"	mov	("<R>"),"<R><12>
+
+202$:	.ASCII	<LL>
+	.ASCII	"	mov	2("<R>"),"<R.1><12>
+	.ASCIZ	"	mov	("<R>"),"<R><12>
+
+203$:	.ASCII	<LL>
+	.ASCII	"	clc"<12>
+	.ASCII	"	ror	"<R><12>
+	.ASCIZ	"	asr	"<R><12>			;u3
+
+204$:	.ASCII	<LL>
+	.ASCII	"	clc"<12>
+	.ASCII	"	ror	"<R><12>
+	.ASCII	"	asr	"<R><12>			;u3
+	.ASCIZ	"	asr	"<R><12>			;u3
+
+205$:	.ASCII	<LL>
+	.ASCII	"	clc"<12>
+	.ASCII	"	ror	"<R><12>
+	.ASCII	"	asr	"<R><12>			;u3
+	.ASCII	"	asr	"<R><12>			;u3
+	.ASCIZ	"	asr	"<R><12>			;u3
+
+206$:	.ASCII	<LL>
+	.ASCII	"	clrb	"<R><12>
+	.ASCIZ	"	swab	"<R><12>
+
+207$:	.ASCII	<LL>
+	.ASCII	"	clrb	"<R><12>
+	.ASCII	"	swab	"<R><12>
+	.ASCIZ	"	"<OP.0>"	"<R><12>
+
+208$:	.ASCII	<PR>
+	.ASCII	<PL>
+	.ASCII	"	.globl	"<OP.0><176>"u"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"u"<12>		; DGC01/02
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCIZ	<F>
+
+209$:	.ASCII	<LL>
+	.ASCII	"	"<OP.0>"	"<R><12>
+	.ASCIZ	"	ror	"<R.1><12>
+
+210$:	.ASCII	<LL>
+	.ASCII	"	"<OP.0>"	"<R><12>
+	.ASCII	"	ror	"<R.1><12>
+	.ASCII	"	"<OP.0>"	"<R><12>
+	.ASCIZ	"	ror	"<R.1><12>
+
+211$:	.ASCII	<LL>
+	.ASCII	"	swab	"<R><12>
+	.ASCIZ	"	clrb	"<R><12>
+
+212$:	.ASCII	<LL>
+	.ASCII	"	swab	"<R><12>
+	.ASCII	"	clrb	"<R><12>
+	.ASCIZ	"	"<OP.0>"	"<R><12>
+
+213$:	.ASCII	<LL>
+	.ASCII	"	"<OP.0>"	"<R.1><12>
+	.ASCIZ	"	rol	"<R><12>
+
+214$:	.ASCII	<LL>
+	.ASCII	"	"<OP.0>"	"<R.1><12>
+	.ASCII	"	rol	"<R><12>
+	.ASCII	"	"<OP.0>"	"<R.1><12>
+	.ASCIZ	"	rol	"<R><12>
+
+; Left shift long, CON16						;u12+
+
+2140$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R.1>","<R><12>
+	.ASCIZ	"	clr	"<R.1><12>				;u12-
+
+215$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCII	"	mov	"<AL.2>","<R.1><12>
+	.ASCIZ	"	mov	"<AL>","<R><12>
+
+216$:	.ASCII	<SLA>
+	.ASCII	"	mov	"<AL.2>","<R.1><12>
+	.ASCII	"	mov	"<AL>","<R><12>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCIZ	"	"<V>"	"<AL><12>
+
+217$:	.ASCII	<PLA>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	add	$2,(sp)"<12>
+	.ASCII	"	mov	*(sp),"<R.1><12>
+	.ASCII	"	"<OP.0>"	"<AR>",*(sp)+"<12>
+	.ASCII	"	mov	*(sp),"<R><12>
+	.ASCIZ	"	"<V>"	*(sp)+"<12>
+
+218$:	.ASCII	"	clr	"<R.1><12>
+	.ASCIZ	"	clr	"<R><12>
+
+219$:	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCIZ	"	mov"<TL>"	"<R.1>","<AL><12>
+
+220$:	.ASCII	<PLA>
+	.ASCII	<LR>
+	.ASCIZ	"	mov"<TL>"	"<R.1>",*(sp)+"<12>
+
+221$:	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCII	"	mov	"<R>","<AL><12>
+	.ASCIZ	"	mov	"<R.1>","<AL.2><12>
+
+222$:	.ASCII	<PLA>
+	.ASCII	<LR>
+	.ASCII	"	mov	"<R>",*(sp)"<12>
+	.ASCII	"	add	$2,(sp)"<12>
+	.ASCIZ	"	mov	"<R.1>",*(sp)+"<12>
+
+223$:	.ASCII	<PR>
+	.ASCII	<PL>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCII	"	mov	r0,"<AL><12>
+	.ASCII	"	mov	r1,"<AL.2><12>
+	.ASCIZ	<F>
+
+2230$:	.ASCII	<PR>			; long ^= long		;17+
+	.ASCII	<LLP.E>
+	.ASCII	<IFEIS>
+	.ASCII	"	xor	"<R>",(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<AL><12>
+	.ASCII	"	xor	"<R.1>",(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<AL.2><12>
+	.ASCII	<ELSE>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	bic	"<R>",2(sp)"<12>
+	.ASCII	"	bic	(sp)+,"<R><12>
+	.ASCII	"	bis	(sp)+,"<R><12>
+	.ASCII	"	mov	"<R>","<AL><12>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	bic	"<R.1>",2(sp)"<12>
+	.ASCII	"	bic	(sp)+,"<R.1><12>
+	.ASCII	"	bis	(sp)+,"<R.1><12>
+	.ASCII	"	mov	"<R.1>","<AL.2><12>
+	.ASCIZ	<IFEND>						;17-
+
+224$:	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	"	mov	4(sp),r0"<12>
+	.ASCII	"	mov	2(r0),-(sp)"<12>
+	.ASCII	"	mov	(r0),-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCII	"	mov	r0,*(sp)"<12>
+	.ASCII	"	add	$2,(sp)"<12>
+	.ASCII	"	mov	r1,*(sp)+"<12>
+	.ASCIZ	<F>
+
+2240$:	.ASCII	<PLA>			; long ^= long (hard)	;17+
+	.ASCII	<PR>
+	.ASCII	"	mov	4(sp),r0"<12>
+	.ASCII	"	mov	(r0),r1"<12>
+	.ASCII	<IFEIS>
+	.ASCII	"	xor	r1,(sp)"<12>
+	.ASCII	"	mov	(sp)+,(r0)+"<12>
+	.ASCII	"	mov	(r0),r1"<12>
+	.ASCII	"	xor	r1,(sp)"<12>
+	.ASCII	"	mov	(sp)+,(r0)"<12>
+	.ASCII	<ELSE>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	bic	r1,2(sp)"<12>
+	.ASCII	"	bic	(sp)+,r1"<12>
+	.ASCII	"	bis	(sp)+,r1"<12>
+	.ASCII	"	mov	r1,(r0)+"<12>
+	.ASCII	"	mov	(r0),r1"<12>
+	.ASCII	"	mov	(sp),-(sp)"<12>
+	.ASCII	"	bic	r1,2(sp)"<12>
+	.ASCII	"	bic	(sp)+,r1"<12>
+	.ASCII	"	bis	(sp)+,r1"<12>
+	.ASCII	"	mov	r1,(r0)"<12>
+	.ASCII	<IFEND>
+	.ASCIZ	"	tst	(sp)+"<12>			;17-
+
+225$:	.ASCII	<LL>
+	.ASCII	"	clrb	"<R.1><12>
+	.ASCII	"	bisb	"<R>","<R.1><12>
+	.ASCII	"	swab	"<R.1><12>
+	.ASCII	"	clrb	"<R><12>
+	.ASCII	"	swab	"<R><12>
+	.ASCII	"	asr	"<R><12>
+	.ASCIZ	"	ror	"<R.1><12>
+
+; Shift right long, CON16						;u12+
+
+2250$:	.ASCII	<LL>
+	.ASCII	"	mov	"<R>","<R.1><12>
+.IF NE	C$$SXT								;14
+	.ASCIZ	"	sxt	"<R><12>
+.IFF									;14+
+	.ASCII	"	clr	"<R><12>
+	.ASCII	"	tst	"<R.1><12>
+	.ASCII	"	.word	0100001		/ bpl .+4"<12>
+	.ASCIZ	"	dec	"<R.1><12>
+.ENDC									;14-
+
+226$:	.ASCII	<PR>
+	.ASCII	<PL>
+	.ASCII	"	.globl	"<OP.0><176>"li"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"li"<12>		; DGC01/02
+	.ASCII	"	add	$6,sp"<12>
+	.ASCII	"	mov	r0,"<AL><12>
+	.ASCII	"	mov	r1,"<AL.2><12>
+	.ASCIZ	<F>
+
+227$:	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	"	mov	2(sp),r0"<12>			; JAM03
+	.ASCII	"	mov	2(r0),-(sp)"<12>
+	.ASCII	"	mov	(r0),-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"li"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"li"<12>		; DGC01/02
+	.ASCII	"	add	$6,sp"<12>
+	.ASCII	"	mov	r0,*(sp)"<12>
+	.ASCII	"	add	$2,(sp)"<12>
+	.ASCII	"	mov	r1,*(sp)+"<12>
+	.ASCIZ	<F>
+
+228$:	.ASCII	<SLAC>
+	.ASCII	"	asr	"<AL><12>
+	.ASCII	"	ror	"<AL.2><12>
+	.ASCII	"	mov	"<AL.2>","<R.1><12>			;u12
+	.ASCIZ	"	mov	"<AL>","<R><12>				;u12
+
+2280$:				;LNG ADDR >> CON2			;u12+
+	.ASCII	<LLP.E>
+	.ASCII	"	"<OP.0>"	"<R><12>
+	.ASCII	"	ror	"<R.1><12>
+	.ASCII	"	"<OP.0>"	"<R><12>
+	.ASCII	"	ror	"<R.1><12>
+	BRANCH	2283$		;Common exit				;14
+
+2281$:				;LNG ADDR >> CON16
+	.ASCII	<LLP.E>
+	.ASCII	"	mov	"<R>","<R.1><12>
+.IF NE	C$$SXT								;14
+	.ASCII	"	sxt	"<R><12>
+.IFF									;14+
+	.ASCII	"	clr	"<R><12>
+	.ASCII	"	tst	"<R.1><12>
+	.ASCII	"	.word	0100001		/ bpl .+4"<12>
+	.ASCII	"	dec	"<R.1><12>
+.ENDC
+2283$:					;Common store sequence		;14-
+	.ASCII	"	mov	"<R.1>","<AL.2><12>
+	.ASCIZ	"	mov	"<R>","<AL><12>
+
+229$:	.ASCII	<PR>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"u"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"u"<12>		; DGC01/02
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCII	"	mov	r0,"<AL><12>
+	.ASCIZ	<F>
+
+230$:	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	"	mov	*2(sp),-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"u"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"u"<12>		; DGC01/02
+	.ASCII	"	cmp	(sp)+,(sp)+"<12>
+	.ASCII	"	mov	r0,*(sp)+"<12>
+	.ASCIZ	<F>
+
+231$:	.ASCII	<SLAC>
+	.ASCII	"	asl	"<AL.2><12>
+	.ASCII	"	rol	"<AL><12>
+	.ASCII	"	mov	"<AL.2>","<R.1><12>
+	.ASCIZ	"	mov	"<AL>","<R><12>
+
+2310$:					;LNG ADDR << CON2		;u12+
+	.ASCII	<LLP.E>
+	.ASCII	"	"<OP.0>"	"<R.1><12>
+	.ASCII	"	rol	"<R><12>
+	.ASCII	"	"<OP.0>"	"<R.1><12>
+	.ASCII	"	rol	"<R><12>
+	BRANCH	2312$			; Common exit sequence		;14
+
+2311$:					;LNG ADDR << CON16
+	.ASCII	<LLP.E>
+	.ASCII	"	mov	"<R.1>","<R><12>
+	.ASCII	"	clr	"<R.1><12>
+2312$:					; Exit sequence for 2310$	;14
+	.ASCII	"	mov	"<R.1>","<AL.2><12>
+	.ASCIZ	"	mov	"<R>","<AL><12>	;?? CCG has AL.2	;14;u12-
+
+232$:				;	CVR LNG -> INT, CHR		;u6+
+	.ASCII	<SLV>
+	.ASCIZ	"	mov"<TL>"	"<AL.2>","<R><12>		;u6-/13
+
+233$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL><12>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	<LL>
+
+234$:	.ASCII	<LR>
+	.ASCII	"	"<OP.0>"	"<R>","<AL><12>
+	.ASCII	"	"<OP.0>"	"<R.1>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	<LL>
+
+235$:	.ASCII	<SLA>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	<LL>
+
+236$:	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCII	"	"<OP.0>"	"<R>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	<LL>
+
+237$:	.ASCII	<PR>
+	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	<LL>
+
+238$:	.ASCII	<SLA>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL><12>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	<LL>
+
+239$:	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCII	"	"<OP.0>"	"<R>","<AL><12>
+	.ASCII	"	"<OP.0>"	"<R.1>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	<LL>
+
+240$:	.ASCII	<PR>
+	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL><12>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	<LL>
+
+241$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL><12>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<AL.2><12>
+	.ASCIZ	<LL>
+
+242$:	.ASCII	<LR>
+	.ASCII	"	"<OP.0>"	"<R>","<AL><12>
+	.ASCII	"	"<OP.0>"	"<R.1>","<AL.2><12>
+	.ASCIZ	<LL>
+
+243$:	.ASCII	<SLA>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCIZ	<LL>
+
+244$:	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCII	"	"<OP.0>"	"<R>","<AL.2><12>
+	.ASCIZ	<LL>
+
+245$:	.ASCII	<PR>
+	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL.2><12>
+	.ASCIZ	<LL>
+
+246$:	.ASCII	<SLA>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL><12>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<AL.2><12>
+	.ASCIZ	<LL>
+
+247$:	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCII	"	"<OP.0>"	"<R>","<AL><12>
+	.ASCII	"	"<OP.0>"	"<R.1>","<AL.2><12>
+	.ASCIZ	<LL>
+
+248$:	.ASCII	<PR>
+	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL><12>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL.2><12>
+	.ASCIZ	<LL>
+
+249$:	.ASCII	<PL>
+	.ASCII	<PR>
+	.ASCII	"	.globl	"<OP.0><176>"li"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"li"<12>		; DGC01/02
+	.ASCII	"	add	$6,sp"<12>
+	.ASCIZ	<F>
+
+; PUSH LNG, LNG<UNS -> RESULT = LNG
+
+270$:	.ASCII	<PR>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	<PL>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCIZ	<F>	; Result in r0,r1
+
+271$:	.ASCII	<PR>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	mov	"<AL.2>",-(sp)"<12>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCII	"	mov	r0,"<AL><12>
+	.ASCII	"	mov	r1,"<AL.2><12>
+	.ASCIZ	<F>	; Result in r0,r1
+
+272$:	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	mov	4(sp),r0"<12>
+	.ASCII	"	mov	2(r0),-(sp)"<12>
+	.ASCII	"	mov	(r0),-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCII	"	mov	r0,*(sp)"<12>
+	.ASCII	"	add	$2,(sp)"<12>
+	.ASCII	"	mov	r1,*(sp)+"<12>
+	.ASCIZ	<F>	; Result in r0,r1
+
+; PUSH LNG<UNS, LNG<UNS -> RESULT = UNS
+
+280$:	.ASCII	<PR>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	<PL>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCIZ	<F.1>
+
+281$:	.ASCII	<PR>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCII	"	mov	r1,"<AL><12>
+	.ASCIZ	<F.1>
+
+282$:	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	mov	*4(sp),-(sp)"<12>
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	"	.globl	"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	jsr	pc,"<OP.0><176>"l"<12>		; DGC01/02
+	.ASCII	"	add	$10,sp"<12>
+	.ASCII	"	mov	r1,*(sp)+"<12>
+	.ASCIZ	<F.1>
+	.ASCIZ	<M>
+
+;
+; FLOATING POINT CODE BURSTS					;u1+
+;
+
+300$:					;FLT	ADD SUB MUL DIV MOD, EASY
+	.ASCII	<SRV>
+	.ASCII	<LL>
+	.ASCII	<FPF>
+	.ASCIZ	"	"<OP.0>"f	"<AR>","<R><12>
+
+301$:					;FLT	ADD SUB MUL DIV MOD, HARD
+	.ASCII	<PR>
+	.ASCII	<LL>
+	.ASCII	<FPF>
+	.ASCIZ	"	"<OP.0>"f	(sp)+,"<R><12>
+
+302$:					;FLT	NEG
+	.ASCII	<LL>
+	.ASCII	<FPF>
+	.ASCIZ	"	"<OP.0>"f	"<R><12>
+
+310$:					;DBL	ADD SUB MUL DIV MOD, EASY
+	.ASCII	<SRV>
+	.ASCII	<LL>
+	.ASCII	<FPD>
+	.ASCIZ	"	"<OP.0>"f	"<AR>","<R><12>
+
+311$:					;DBL	ADD SUB MUL DIV MOD, HARD
+	.ASCII	<PR>
+	.ASCII	<LL>
+	.ASCII	<FPD>
+	.ASCIZ	"	"<OP.0>"f	(sp)+,"<R><12>
+
+312$:					;DBL	NEG
+	.ASCII	<LL>
+	.ASCII	<FPD>
+	.ASCIZ	"	"<OP.0>"f	"<R><12>
+
+320$:					;FLT	STAR	EASY	;u6+
+	.ASCII	<SLV>
+	.ASCII	"	mov	"<AL>",r0"<12>			;u7
+	.ASCII	<FPF>
+	.ASCIZ	"	ldf	(r0),"<R><12>			;u7
+
+321$:					;FLT	STAR	HARD
+	.ASCII	<PL>
+	.ASCII	<FPF>
+	.ASCIZ	"	ldf	*(sp)+,"<R><12>
+
+330$:					;DBL	STAR	EASY
+	.ASCII	<SLV>
+	.ASCII	"	mov	"<AL>",r0"<12>			;u7
+	.ASCII	<FPD>
+	.ASCIZ	"	ldd	(r0),"<R><12>			;u7
+
+331$:					;DBL	STAR	HARD
+	.ASCII	<PL>
+	.ASCII	<FPD>
+	.ASCIZ	"	ldd	*(sp)+,"<R><12>
+
+340$:					;FLT	LEAF
+	.ASCII	<SLAA>
+	.ASCII	<FPF>
+	.ASCIZ	"	ldf	"<AL>","<R><12>
+
+350$:					;DBL	LEAF
+	.ASCII	<SLAA>
+	.ASCII	<FPD>
+	.ASCIZ	"	ldd	"<AL>","<R><12>			;u6-
+
+400$:					;FLT <- CHR
+	.ASCII	<SLVA>						;u8
+	.ASCII	"	movb	"<AL>",r0"<12>
+	.ASCII	<FPI>
+	.ASCII	<FPF>
+	.ASCIZ	"	ldcif	r0,"<R><12>
+
+410$:					;DBL <- CHR
+	.ASCII	<SLVA>						;u8
+	.ASCII	"	movb	"<AL>",r0"<12>
+	.ASCII	<FPI>
+	.ASCII	<FPD>
+	.ASCIZ	"	ldcid	r0,"<R><12>
+
+401$:					;FLT <- INT
+	.ASCII	<SLVA>						;u8
+	.ASCII	<FPI>
+	.ASCII	<FPF>
+	.ASCIZ	"	ldcif	"<AL>","<R><12>
+
+411$:					;DBL <- INT
+	.ASCII	<SLVA>						;u8
+	.ASCII	<FPI>
+	.ASCII	<FPD>
+	.ASCIZ	"	ldcid	"<AL>","<R><12>
+
+402$:					;FLT <- UNS
+	.ASCII	<PL>						;u8
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	<FPL>
+	.ASCII	<FPF>
+	.ASCIZ	"	ldclf	(sp)+,"<R><12>
+
+412$:					;DBL <- UNS
+	.ASCII	<PL>						;u8
+	.ASCII	"	clr	-(sp)"<12>
+	.ASCII	<FPL>
+	.ASCII	<FPD>
+	.ASCIZ	"	ldcld	(sp)+,"<R><12>
+
+4030$:					;FLT ANY <- LNG ADDR		;u6+
+	.ASCII	<FPL>
+	.ASCII	<FPF>
+	.ASCIZ	"	ldclf	"<AL>","<R><12>				;u6-
+
+403$:					;FLT <- LNG
+	.ASCII	<PL>						;u8
+	.ASCII	<FPL>
+	.ASCII	<FPF>
+	.ASCIZ	"	ldclf	(sp)+,"<R><12>
+
+4130$:					;DBL ANY <- LNG ADDR		;u6+
+	.ASCII	<FPL>
+	.ASCII	<FPD>
+	.ASCIZ	"	ldcld	"<AL>","<R><12>				;u6-
+
+413$:					;DBL ANY <- LNG ANY
+	.ASCII	<PL>						;u8
+	.ASCII	<FPL>
+	.ASCII	<FPD>
+	.ASCIZ	"	ldcld	(sp)+,"<R><12>
+
+404$:					;FLT ANY <- DBL ANY		;u6+
+	.ASCII	<SLVA>						;u8
+	.ASCII	<FPF>
+	.ASCIZ	"	ldcdf	"<AL>","<R><12>
+
+414$:					;DBL ANY <- FLT ANY
+	.ASCII	<SLVA>						;u8
+	.ASCII	<FPD>
+	.ASCIZ	"	ldcfd	"<AL>","<R><12>				;u6-
+
+415$:					;INT, CHR <- FLT
+	.ASCII	<SLVA>						;u8
+	.ASCII	<FPI>
+	.ASCII	<FPF>
+	.ASCII	"	ldf	"<AL>",r0"<12>
+	.ASCIZ	"	stcfi	r0,"<R><12>
+
+
+416$:					;INT, CHR <- DBL
+	.ASCII	<SLVA>						;u8
+	.ASCII	<FPI>
+	.ASCII	<FPD>
+	.ASCII	"	ldd	"<AL>",r0"<12>
+	.ASCIZ	"	stcdi	r0,"<R><12>
+
+417$:					;LNG <- FLT
+	.ASCII	<SLVA>						;u8
+	.ASCII	<FPL>
+	.ASCII	<FPF>
+	.ASCII	"	ldf	"<AL>",r0"<12>
+	.ASCII	"	stcfl	r0,-(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<R><12>			;u6/u9
+	.ASCIZ	"	mov	(sp)+,"<R.1><12>		;u9
+
+418$:					;LNG <- DBL
+	.ASCII	<SLVA>						;u8
+	.ASCII	<FPL>
+	.ASCII	<FPD>
+	.ASCII	"	ldd	"<AL>",r0"<12>
+	.ASCII	"	stcdl	r0,-(sp)"<12>
+	.ASCII	"	mov	(sp)+,"<R><12>			;u6/u9
+	.ASCIZ	"	mov	(sp)+,"<R.1><12>		;u9
+
+409$:					; UNS <- FLT		;u11+
+	.ASCII	<SLVA>
+	.ASCII	<FPL>
+	.ASCII	<FPF>
+	.ASCII	"	ldf	"<AL>",r0"<12>
+	.ASCII	"	stcfl	r0,-(sp)"<12>
+	.ASCII	"	tst	(sp)+"<12>
+	.ASCIZ	"	mov	(sp)+,"<R><12>
+
+419$:					; UNS <- DBL
+	.ASCII	<SLVA>
+	.ASCII	<FPL>
+	.ASCII	<FPD>
+	.ASCII	"	ldd	"<AL>",r0"<12>
+	.ASCII	"	stcdl	r0,-(sp)"<12>
+	.ASCII	"	tst	(sp)+"<12>
+	.ASCIZ	"	mov	(sp)+,"<R><12>				;u11-
+
+;ASSIGNED FLT ADD MUL
+
+420$:					; FLT ADDR <- FLT ANY
+	.ASCII	<LR>
+	.ASCII	<FPF>
+	.ASCII	"	"<OP.0>"f	"<ALN>","<R><12>
+	.ASCIZ	"	stf	"<R>","<AL><12>
+
+;ASSIGNED FLT SUB DIV MOD
+
+421$:					; FLT ADDR <- FLT ANY
+	.ASCII	<PR>
+	.ASCII	<FPF>
+	.ASCII	"	ldf	"<ALN>","<R><12>
+	.ASCII	"	"<OP.0>"f	(sp)+,"<R><12>
+	.ASCIZ	"	stf	"<R>","<AL><12>
+
+;ASSIGNED FLT ADD SUB MUL DIV MOD
+
+422$:					; FLT ANY <- FLT ANY
+	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	<FPF>
+	.ASCII	"	ldf	*4(sp),"<R><12>
+	.ASCII	"	"<OP.0>"f	(sp)+,"<R><12>
+	.ASCIZ	"	stf	"<R>",*(sp)+"<12>
+
+;ASSIGNED DBL ADD MUL
+
+430$:					; DBL ADDR <- DBL ANY
+	.ASCII	<LR>
+	.ASCII	<FPD>
+	.ASCII	"	"<OP.0>"d	"<ALN>","<R><12>
+	.ASCIZ	"	std	"<R>","<AL><12>
+
+;ASSIGNED DBL SUB DIV MOD
+
+431$:					; DBL ADDR <- DBL ANY
+	.ASCII	<PR>
+	.ASCII	<FPD>
+	.ASCII	"	ldd	"<ALN>","<R><12>
+	.ASCII	"	"<OP.0>"d	(sp)+,"<R><12>
+	.ASCIZ	"	std	"<R>","<AL><12>
+
+;ASSIGNED DBL ADD SUB MUL DIV MOD
+
+432$:					; DBL ANY <- DBL ANY
+	.ASCII	<PLA>
+	.ASCII	<PR>			;GOTTA PUSHA DOUBLE
+	.ASCII	<FPD>
+	.ASCII	"	ldd	*10(sp),"<R><12>
+	.ASCII	"	"<OP.0>"d	(sp)+,"<R><12>
+	.ASCIZ	"	std	"<R>",*(sp)+"<12>
+
+440$:						;ASSIGN FLT (EASY)
+	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCII	<FPF>
+	.ASCIZ	"	stf	"<R>","<AL><12>
+
+450$:						;ASSIGN DBL (EASY)
+	.ASCII	<SLA>
+	.ASCII	<LR>
+	.ASCII	<FPD>
+	.ASCIZ	"	std	"<R>","<AL><12>
+
+460$:						;ASSIGN FLT (HARD)
+	.ASCII	<PLA>
+	.ASCII	<LR>
+	.ASCII	<FPF>
+	.ASCIZ	"	stf	"<R>",*(sp)+"<12>
+
+470$:						;ASSIGN DBL (HARD)
+	.ASCII	<PLA>
+	.ASCII	<LR>
+	.ASCII	<FPD>
+	.ASCIZ	"	std	"<R>",*(sp)+"<12>	;u1-
+
+;
+; ASSIGNED MUL/DIV/MOD BY CONSTANT				;u6+
+
+; Assigned signed shifts
+
+501$:	.ASCII	"	"<OP.1><TL>"	"<ALN><12>	; SHIFT 2
+500$:	.ASCII	"	"<OP.1><TL>"	"<ALN><12>	; SHIFT 1
+	.ASCIZ	"	mov"<TL>"	"<AL>","<R><12>
+
+502$:	.ASCII	"	mov"<TL>"	"<ALN>","<R><12> ; SHIFT 3
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+503$:	.ASCII	"	mov"<TL>"	"<ALN>","<R><12> ; SHIFT 4
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+504$:	.ASCII	"	mov"<TL>"	"<ALN>","<R><12> ; SHIFT 5
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCII	"	"<OP.1><TL>"	"<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+509$:	.ASCII	"	swab	"<ALN><12>		; LEFT SHIFT 8
+	.ASCII	"	clrb	"<ALN><12>
+	.ASCIZ	"	mov"<TL>"	"<AL>","<R><12>
+
+; Unsigned assigned shifts by a constant ( right only )
+
+510$:  	.ASCII	"	clc"<12>			; SHIFT 1
+	.ASCII	"	ror"<TL>"	"<ALN><12>
+	.ASCIZ	"	mov"<TL>"	"<AL>","<R><12>
+
+511$:  	.ASCII	"	clc"<12>			; SHIFT 2
+	.ASCII	"	ror"<TL>"	"<ALN><12>
+	.ASCII	"	asr"<TL>"	"<ALN><12>
+	.ASCIZ	"	mov"<TL>"	"<AL>","<R><12>
+
+512$:	.ASCII	"	mov"<TL>"	"<ALN>","<R><12> ; SHIFT 3
+	.ASCII	"	clc"<12>
+	.ASCII	"	ror"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+513$:	.ASCII	"	mov"<TL>"	"<ALN>","<R><12> ; SHIFT 4
+	.ASCII	"	clc"<12>
+	.ASCII	"	ror"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+514$:	.ASCII	"	mov"<TL>"	"<ALN>","<R><12> ; SHIFT 5
+	.ASCII	"	clc"<12>
+	.ASCII	"	ror"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCII	"	asr"<TL>"	"<R><12>
+	.ASCIZ	"	mov"<TL>"	"<R>","<AL><12>
+
+519$:	.ASCII	"	clrb	"<ALN><12>		; Right shift 8
+	.ASCII	"	swab	"<ALN><12>
+	.ASCIZ	"	mov"<TL>"	"<AL>","<R><12>
+
+	.EVEN
+
+; CTAB
+;+
+; ** CTAB - SET CODES
+;
+; THIS CODE TABLE IS USED TO SET THE CONDITION CODES  TO THE STATE
+; DESCRIBED IN THE PASS 2 OPDOPE TABLE FLAGS. IT CONTAINS ONLY TWO
+; SPECIAL CASES; RELATIONALS AND THE BIT TEST. CARE HAS BEEN TAKEN
+; TO PERFORM BYTE OPERATIONS DIRECTLY, IF POSSIBLE.
+;
+; THERE IS ALSO AN ENTRY FOR '++' AND '--'. IF THE ITEM IS A  BYTE
+; AND THE CONSTANT IS 1 AN INCB OR DECB MAY BE USED.
+;
+; THERE ARE NO ENTRIES IN THE TABLE FOR LONGS.  LONGS ARE DETECTED
+; BY JUMPC AND ARE HANDLED BY A SPECIAL ROUTINE.
+;-
+
+CTAB:	.WORD	OP.LOD,10$	;LEAF NODES
+	.WORD	OP.EQ, 20$	;SIGNED RELATIONALS
+	.WORD	OP.NE, 20$	;
+	.WORD	OP.LT, 20$	;
+	.WORD	OP.LE, 20$	;
+	.WORD	OP.GE, 20$	;
+	.WORD	OP.GT, 20$	;
+	.WORD	OP.LTU,20$	;UNSIGNED RELATIONALS
+	.WORD	OP.LEU,20$	;
+	.WORD	OP.GEU,20$	;
+	.WORD	OP.GTU,20$	;
+	.WORD	OP.INB,30$	;'--' AND '++' PREFIX
+	.WORD	OP.DEB,30$	;
+	.WORD	OP.BIT,40$	;BIT TEST
+	.WORD	0		;END OF TABLE
+
+;
+; LEAF NODES.
+;
+
+10$:	TAB	100$,	INT,	ANY,	INT,	ANY
+	TAB	100$,	CHR,	ANY,	CHR,	ANY
+	TABEND
+
+;
+; RELATIONALS.
+;
+
+20$:	TAB	101$,	INT,	ANY,	INT,	ADDR
+	TAB	101$,	INT,	ANY,	CHR,	ADDR
+	TAB	101$,	CHR,	ANY,	CHR,	ADDR
+	TAB	101$,	CHR,	ANY,	INT,	ADDR
+	TAB	102$,	INT,	ANY,	INT,	EASY
+	TAB	102$,	INT,	ANY,	CHR,	EASY
+	TAB	102$,	CHR,	ANY,	CHR,	EASY
+	TAB	102$,	CHR,	ANY,	INT,	EASY
+	TAB	103$,	INT,	ANY,	INT,	ANY
+	TAB	103$,	CHR,	ANY,	INT,	ANY
+	TAB	110$,	FLT,	EASY,	FLT,	ANY		;u1+
+	TAB	120$,	FLT,	ANY,	FLT,	ANY
+	TAB	130$,	DBL,	EASY,	DBL,	ANY
+	TAB	140$,	DBL,	ANY,	DBL,	ANY		;u1-
+	TABEND
+
+;
+; PREFIX INCREMENT.
+; PREFIX DECREMENT.
+;
+
+30$:	TAB	104$,	INT,	ANY,	INT,	CON1
+	TAB	104$,	CHR,	ANY,	INT,	CON1
+	TAB	105$,	INT,	ANY,	INT,	ADDR
+	TABEND
+
+;
+; BIT.
+;
+
+40$:	TAB	106$,	INT,	ANY,	INT,	ADDR
+	TAB	106$,	INT,	ANY,	CHR,	ADDR
+	TAB	106$,	CHR,	ANY,	CHR,	ADDR
+	TAB	106$,	CHR,	ANY,	INT,	ADDR
+	TAB	107$,	INT,	ANY,	INT,	EASY
+	TAB	107$,	INT,	ANY,	CHR,	EASY
+	TAB	107$,	CHR,	ANY,	CHR,	EASY
+	TAB	107$,	CHR,	ANY,	INT,	EASY
+	TAB	108$,	INT,	ANY,	INT,	ANY
+	TAB	108$,	CHR,	ANY,	INT,	ANY
+	TABEND
+
+;
+; CODE BURSTS.
+;
+
+100$:	.ASCIZ	"	tst"<TL>"	"<AL><12>
+
+101$:	.ASCII	<SLVA>
+	.ASCIZ	"	cmp"<T>"	"<AL>","<AR><12>
+
+102$:	.ASCII	<SRV>
+	.ASCII	<LL>
+	.ASCIZ	"	cmp"<T>"	"<R>","<AR><12>
+
+103$:	.ASCII	<PR>
+	.ASCII	<LL>
+	.ASCIZ	"	cmp	"<R>",(sp)+"<12>
+
+104$:	.ASCII	<SLAC>
+	.ASCIZ	"	"<OP.1><TL>"	"<AL><12>
+
+105$:	.ASCII	<SLAC>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<AL><12>
+
+106$:	.ASCII	<SLVA>
+	.ASCIZ	"	bit"<T>"	"<AL>","<AR><12>
+
+107$:	.ASCII	<SRV>
+	.ASCII	<LL>
+	.ASCIZ	"	bit"<T>"	"<R>","<AR><12>
+
+108$:	.ASCII	<PR>
+	.ASCII	<LL>
+	.ASCIZ	"	bit	"<R>",(sp)+"<12>
+
+;
+; FLOATING COMPARE CODE BURSTS					;u1+
+;
+110$:					;FLT EASY FLT ANY
+	.ASCII	<SLV>
+	.ASCII	<LR>
+	.ASCII	<FPF>
+	.ASCIZ	"	cmpf	"<AL>","<R><12>
+
+120$:					;FLT ANY FLT ANY
+	.ASCII	<PL>
+	.ASCII	<LR>
+	.ASCII	<FPF>
+	.ASCIZ	"	cmpf	(sp)+,"<R><12>
+
+130$:					;DBL EASY DBL ANY
+	.ASCII	<SLV>
+	.ASCII	<LR>
+	.ASCII	<FPD>
+	.ASCIZ	"	cmpd	"<AL>","<R><12>
+
+140$:					;DBL ANY DBL ANY
+	.ASCII	<PL>
+	.ASCII	<LR>
+	.ASCII	<FPD>
+	.ASCIZ	"	cmpd	(sp)+,"<R><12>
+
+	.EVEN
+
+; ETAB
+;
+;+
+; ** ETAB - EXPRESSION FOR SIDE EFFECTS
+;
+; THIS TABLE IS USED TO EVALUATE AN EXPRESSION FOR SIDE EFFECTS. IT
+; IS A SMALL TABLE THAT KNOWS ONLY A FEW SPECIAL CASES; QUIRKS USED
+; FOR TOP LEVEL ASSIGNMENT VIA DIRECT MOV, '++' AND '--' WHEN   THE
+; VALUE IS NOT SAVED, AND BINARY ASSIGNMENTS ('=+' ET. ALL) IF  THE
+; RESULT IS NOT NEEDED.
+;-
+
+ETAB:	.WORD	OP.INA,10$	;++ and --
+	.WORD	OP.INB,10$	;
+	.WORD	OP.DEA,10$	;
+	.WORD	OP.DEB,10$	;
+	.WORD	OP.ADA,30$	;+= and -=
+	.WORD	OP.SBA,30$	;
+	.WORD	OP.BCA,40$	;BIC= AND OR=
+	.WORD	OP.ORA,40$	;|=
+	.WORD	OP.ASG,50$	;=
+	.WORD	OP.ALA,61$	;<<= AND >>=
+	.WORD	OP.ARA,60$	;
+	.WORD	OP.XRA,65$	;^=
+	.WORD	0		;END OF TABLE
+
+;
+; ++
+; --
+;
+
+10$:	TAB	100$,	INT,	ANY,	INT,	CON1
+	TAB	100$,	CHR,	ANY,	INT,	CON1
+	TAB	101$,	INT,	ANY,	INT,	ADDR
+	TAB	138$,	LNG,	ANY,	INT,	ADDR
+	TABEND
+
+;
+; +=
+; -=
+;
+
+30$:	TAB	100$,	INT,	ANY,	INT,	CON1
+	TAB	100$,	CHR,	ANY,	INT,	CON1
+	TAB	139$,	CHR,	ADDR,	INT,	EASY
+	TAB	148$,	INT,	ADDR,	INT,	ANY
+	TAB	149$,	LNG,	ADDR,	INT,	ANY
+	TAB	150$,	LNG,	ADDR,	LNG,	ANY
+	TAB	140$,	CHR,	EASY,	INT,	ADDR
+	TAB	101$,	INT,	ANY,	INT,	EASY
+	TAB	105$,	LNG,	ANY,	INT,	EASY
+	TAB	106$,	LNG,	ANY,	LNG,	EASY
+	TAB	141$,	CHR,	ANY,	INT,	ANY
+	TAB	107$,	INT,	ANY,	INT,	ANY
+	TAB	108$,	LNG,	ANY,	INT,	ANY
+	TAB	109$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+;
+; BIC=
+; OR=
+;
+
+40$:	TAB	101$,	INT,	ANY,	INT,	EASY
+	TAB	101$,	CHR,	ANY,	CHR,	EASY
+	TAB	101$,	INT,	ANY,	CHR,	EASY
+	TAB	101$,	CHR,	ANY,	INT,	EASY
+	TAB	110$,	LNG,	ANY,	INT,	EASY
+	TAB	111$,	LNG,	ANY,	LNG,	EASY
+	TAB	107$,	INT,	ANY,	INT,	ANY
+	TAB	107$,	CHR,	ANY,	INT,	ANY
+	TAB	112$,	LNG,	ANY,	INT,	ANY
+	TAB	113$,	LNG,	ANY,	LNG,	ANY
+	TABEND
+
+;
+; =
+;
+
+50$:	TAB	100$,	INT,	ANY,	INT,	CON0
+	TAB	100$,	CHR,	ANY,	INT,	CON0
+	TAB	114$,	LNG,	ANY,	INT,	CON0
+	TAB	115$,	INT,	ADDR,	INT,	ANY
+	TAB	115$,	CHR,	ADDR,	CHR,	ANY
+	TAB	115$,	CHR,	ADDR,	INT,	ANY
+	TAB	117$,	LNG,	ADDR,	LNG,	ANY
+	TAB	119$,	INT,	ADDR,	LNG,	ANY
+	TAB	145$,	LNG,	ADDR,	INT,	ANY
+	TAB	121$,	LNG,	ADDR,	UNS,	ANY
+	TAB	124$,	INT,	ANY,	INT,	ADDR
+	TAB	124$,	CHR,	ANY,	CHR,	ADDR
+	TAB	124$,	CHR,	ANY,	INT,	ADDR
+	TAB	101$,	INT,	ANY,	INT,	EASY
+	TAB	101$,	CHR,	ANY,	CHR,	EASY
+	TAB	101$,	CHR,	ANY,	INT,	EASY
+	TAB	125$,	LNG,	ANY,	LNG,	EASY
+	TAB	146$,	LNG,	ANY,	INT,	EASY
+	TAB	127$,	LNG,	ANY,	UNS,	EASY
+	TAB	128$,	INT,	ANY,	LNG,	EASY
+	TAB	129$,	INT,	ANY,	INT,	ANY
+	TAB	129$,	CHR,	ANY,	INT,	ANY
+	TAB	131$,	LNG,	ANY,	LNG,	ANY
+	TAB	147$,	LNG,	ANY,	INT,	ANY
+	TAB	134$,	LNG,	ANY,	UNS,	ANY
+	TAB	135$,	INT,	ANY,	LNG,	ANY
+
+	TAB	200$,	FLT,	ANY,	INT,	CON0			;u2+
+;;	TAB	117$,	FLT,	ADDR,	FLT,	ADDR			;u5/16
+	TAB	250$,	FLT,	ADDR,	DBL,	ANY
+
+	TAB	201$,	DBL,	ANY,	INT,	CON0
+	TAB	251$,	DBL,	ADDR,	FLT,	ANY
+
+	TAB	400$,	INT,	ADDR,	FLT,	ANY
+	TAB	409$,	UNS,	ADDR,	FLT,	ANY			;u11
+;u5	TAB	410$,	CHR,	ADDR,	FLT,	ANY
+	TAB	420$,	LNG,	ADDR,	FLT,	ANY
+
+	TAB	401$,	INT,	ADDR,	DBL,	ANY
+	TAB	419$,	UNS,	ADDR,	DBL,	ANY			;u11
+;u5	TAB	411$,	CHR,	ADDR,	DBL,	ANY
+	TAB	421$,	LNG,	ADDR,	DBL,	ANY
+
+	TABEND
+
+;
+; >>=
+;
+
+60$:
+	TAB	500$,	INT,	ANY,	INT,	CON1			;u6+
+	TAB	501$,	INT,	ANY,	INT,	CON2
+	TAB	502$,	INT,	ANY,	INT,	CON3
+	TAB	500$,	CHR,	ANY,	INT,	CON1
+	TAB	501$,	CHR,	ANY,	INT,	CON2
+	TAB	502$,	CHR,	ANY,	INT,	CON3
+	TAB	510$,	UNS,	ANY,	INT,	CON1
+	TAB	511$,	UNS,	ANY,	INT,	CON2
+	TAB	512$,	UNS,	ANY,	INT,	CON3
+	TAB	519$,	UNS,	ANY,	INT,	CON8			;u6-
+	TAB	143$,	LNG,	ANY,	INT,	CON1
+	TAB	1430$,	LNG,	ANY,	INT,	CON2			;u12
+	TAB	1431$,	LNG,	ANY,	INT,	CON16			;u12
+	TABEND
+
+;
+; <<=
+;
+
+61$:	TAB	500$,	INT,	ANY,	INT,	CON1			;u6+
+	TAB	501$,	INT,	ANY,	INT,	CON2
+	TAB	502$,	INT,	ANY,	INT,	CON3
+	TAB	509$,	INT,	ANY,	INT,	CON8
+	TAB	500$,	CHR,	ANY,	INT,	CON1
+	TAB	501$,	CHR,	ANY,	INT,	CON2
+	TAB	502$,	CHR,	ANY,	INT,	CON3
+	TAB	144$,	LNG,	ANY,	INT,	CON1
+	TAB	1440$,	LNG,	ANY,	INT,	CON2			;u12
+	TAB	1441$,	LNG,	ANY,	INT,	CON16			;u12
+	TABEND
+
+; ASSIGNED EXCLUSIVE OR							;u7+
+
+65$:	TAB	151$,	INT,	ADDR,	INT,	ANY
+	TAB	152$,	LNG,	ADDR,	INT,	ANY
+	TABEND								;u7-
+
+;
+; CODE BURSTS.
+;
+
+100$:	.ASCII	<SLAA>
+	.ASCIZ	"	"<OP.1><TL>"	"<AL><12>
+
+101$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+	.ASCIZ	"	"<OP.0><T>"	"<AR>","<AL><12>
+
+105$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCIZ	"	"<V>"	"<AL><12>
+
+106$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<AL><12>
+
+107$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+	.ASCIZ	"	"<OP.0><T>"	(sp)+,"<AL><12>
+
+108$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL.2><12>
+	.ASCIZ	"	"<V>"	"<AL><12>
+
+109$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL><12>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL.2><12>
+	.ASCIZ	"	"<V>"	"<AL><12>
+
+110$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<AL><12>
+
+111$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<AL.2><12>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<AL><12>
+
+112$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+	.ASCIZ	"	"<OP.0>"	(sp)+,"<AL.2><12>
+
+113$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+	.ASCII	"	"<OP.0>"	(sp)+,"<AL><12>
+	.ASCIZ	"	"<OP.0>"	(sp)+,"<AL.2><12>
+
+114$:	.ASCII	<SLAA>
+	.ASCII	"	clr	"<AL><12>
+	.ASCIZ	"	clr	"<AL.2><12>
+
+115$:	.ASCII	<SRVA>
+	.ASCIZ	"	mov"<T>"	"<AR>","<AL><12>
+
+117$:	.ASCII	<SRVA>
+	.ASCII	"	mov	"<AR>","<AL><12>
+	.ASCIZ	"	mov	"<AR.2>","<AL.2><12>
+
+119$:	.ASCII	<SRVA>
+	.ASCIZ	"	mov	"<AR.2>","<AL><12>
+
+121$:	.ASCII	<SRVA>
+	.ASCII	"	mov	"<AR>","<AL.2><12>
+	.ASCIZ	"	clr	"<AL><12>
+
+124$:	.ASCII	<SLAA>
+	.ASCIZ	"	mov"<T>"	"<AR>","<AL><12>
+
+125$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+	.ASCII	"	mov	"<AR>","<AL><12>
+	.ASCIZ	"	mov	"<AR.2>","<AL.2><12>
+
+127$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+	.ASCII	"	mov	"<AR>","<AL.2><12>
+	.ASCIZ	"	clr	"<AL><12>
+
+128$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+	.ASCIZ	"	mov	"<AR.2>","<AL><12>
+
+129$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+	.ASCIZ	"	mov"<T>"	(sp)+,"<AL><12>
+
+131$:	.ASCII	<PR>				; LNG ANY LNG ANY
+	.ASCII	<SLAA>
+	.ASCII	"	mov	(sp)+,"<AL><12>
+	.ASCIZ	"	mov	(sp)+,"<AL.2><12>
+
+134$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+	.ASCII	"	mov	(sp)+,"<AL.2><12>
+	.ASCIZ	"	clr	"<AL><12>
+
+135$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+	.ASCII	"	tst	(sp)+"<12>
+	.ASCIZ	"	mov	(sp)+,"<AL><12>
+
+138$:	.ASCII	<SLAA>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCIZ	"	"<V>"	"<AL><12>
+
+139$:	.ASCII	<SRV>
+	.ASCII	"	movb	"<ALN>","<R><12>
+	.ASCII	"	"<OP.0>"	"<AR>","<R><12>
+	.ASCIZ	"	movb	"<R>","<AL><12>
+
+140$:	.ASCII	<SLA>
+	.ASCII	"	movb	"<ALN>","<R><12>
+	.ASCII	"	"<OP.0>"	"<AR>","<R><12>
+	.ASCIZ	"	movb	"<R>","<AL><12>
+
+141$:	.ASCII	<PLA>
+	.ASCII	<PR>
+	.ASCII	"	movb	*2(sp),"<R><12>
+	.ASCII	"	"<OP.0>"	(sp)+,"<R><12>
+	.ASCIZ	"	movb	"<R>",*(sp)+"<12>
+
+;142$:	.ASCII	<SLAA>
+;	.ASCII	"	clc"<12>
+;	.ASCIZ	"	ror	"<AL><12>
+
+143$:	.ASCII	<SLAC>
+	BRANCH	14300$		;Common exit				;14
+;	.ASCII	"	"<OP.0>"	"<AL><12>
+;	.ASCIZ	"	ror	"<AL.2><12>
+
+1430$:					;LNG >> CON2			;u12+
+	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AL><12>
+	.ASCII	"	ror	"<AL.2><12>
+14300$:	.ASCII	"	"<OP.0>"	"<AL><12>			;14
+	.ASCIZ	"	ror	"<AL.2><12>
+
+1431$:					;LNG >> CON16
+	.ASCII	<SLAC>
+	.ASCII	"	mov	"<AL>","<AL.2><12>
+.IF NE	C$$SXT								;14
+	.ASCIZ	"	sxt	"<AL.2><12>
+.IFF									;14+
+	.ASCII	"	clr	"<AL.2><12>
+	.ASCII	"	tst	"<AL><12>
+	.ASCII	"	bpl	0f"<12>
+	.ASCII	"	dec	"<AL.2><12>
+	.ASCIZ	"0:"<12>
+.ENDC									;14-
+
+144$:	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AL.2><12>
+	.ASCIZ	"	rol	"<AL><12>
+
+1440$:					;LNG << CON2			;u12+
+	.ASCII	<SLAC>
+	.ASCII	"	"<OP.0>"	"<AL.2><12>
+	.ASCII	"	rol	"<AL><12>
+	.ASCII	"	"<OP.0>"	"<AL.2><12>
+	.ASCIZ	"	rol	"<AL><12>
+
+1441$:					;LNG << CON16
+	.ASCII	<SLAC>
+	.ASCII	"	mov	"<AL.2>","<AL><12>
+	.ASCIZ	"	clr	"<AL.2><12>				;u12-
+
+145$:	.ASCII	<SRVA>
+.IF NE	C$$SXT								;05+
+	.ASCII	"	mov	"<AR>","<AL.2><12>
+	.ASCIZ	"	sxt	"<AL><12>
+.IFF
+	.ASCII	"	clr	"<AL><12>
+	.ASCII	"	mov	"<AR>","<AL.2><12>
+	.ASCII	"	.word	0100002		/ bpl .+4"<12>
+	.ASCIZ	"	dec	"<AL><12>
+.ENDC									;05-
+
+146$:	.ASCII	<SRV>
+	.ASCII	<SLAA>
+.IF NE	C$$SXT								;05+
+	.ASCII	"	mov	"<AR>","<AL.2><12>
+	.ASCIZ	"	sxt	"<AL><12>
+.IFF
+	.ASCII	"	clr	"<AL><12>
+	.ASCII	"	mov	"<AR>","<AL.2><12>
+	.ASCII	"	.word	0100002		/ bpl .+4"<12>
+	.ASCIZ	"	dec	"<AL><12>
+.ENDC									;05-
+
+147$:	.ASCII	<PR>
+	.ASCII	<SLAA>
+.IF NE	C$$SXT								;05+
+	.ASCII	"	mov	(sp)+,"<AL.2><12>
+	.ASCIZ	"	sxt	"<AL><12>
+.IFF
+	.ASCII	"	clr	"<AL><12>
+	.ASCII	"	mov	(sp)+,"<AL.2><12>
+	.ASCII	"	.word	0100002		/ bpl .+4"<12>
+	.ASCIZ	"	dec	"<AL><12>
+.ENDC									;05-
+
+148$:	.ASCII	<SRVA>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<AL><12>
+
+149$:	.ASCII	<SRVA>
+	.ASCII	"	"<OP.0>"	"<AR>","<AL.2><12>
+	.ASCIZ	"	"<V>"	"<AL><12>
+
+150$:	.ASCII	<SRVA>
+	.ASCII	"	"<OP.0>"	"<AR.2>","<AL.2><12>
+	.ASCII	"	"<V>"	"<AL><12>
+	.ASCIZ	"	"<OP.0>"	"<AR>","<AL><12>
+
+151$:	.ASCII	<LR>							;u7+
+	.ASCII	<IFEIS>							;12+
+	.ASCII	"	xor	"<R>","<AL><12>
+	.ASCII	<ELSE>
+	.ASCII	"	mov	"<ALN>",-(sp)"<12>
+	.ASCII	"	bic	"<R>","<ALN><12>
+	.ASCII	"	bic	(sp)+,"<R><12>
+	.ASCII	"	bis	"<R>","<AL><12>
+	.ASCIZ	<IFEND>							;12-
+
+152$:	.ASCII	<LR>
+	.ASCII	<IFEIS>							;12+
+	.ASCII	"	xor	"<R>","<AL.2><12>			;u7-
+	.ASCII	<ELSE>
+	.ASCII	"	mov	"<AL.2>",-(sp)"<12>
+	.ASCII	"	bic	"<R>","<AL.2><12>
+	.ASCII	"	bic	(sp)+,"<R><12>
+	.ASCII	"	bis	"<R>","<AL.2><12>
+	.ASCIZ	<IFEND>							;12-
+
+;
+; FLOATING CODE								;u2+
+;
+
+200$:						; FLT <- 0
+	.ASCII	<SLAA>
+	.ASCII	<FPF>
+	.ASCIZ	"	clrf	"<AL><12>
+
+250$:						; FLT ADDR <- DBL ANY
+	.ASCII	<LR>
+	.ASCII	<FPD>
+	.ASCIZ	"	stcdf	"<R>","<AL><12>
+
+400$:						; INT ADDR <- FLT ANY
+	.ASCII	<LR>
+	.ASCII	<FPI>
+	.ASCII	<FPF>
+	.ASCIZ	"	stcfi	"<R>","<AL><12>
+
+409$:						; UNS ADDR <- FLT ANY	;u11+
+	.ASCII	<LR>
+	.ASCII	<FPL>
+	.ASCII	<FPF>
+	.ASCII	"	stcfl	"<R>",-(sp)"<12>
+	.ASCII	"	tst	(sp)+"<12>
+	.ASCIZ	"	mov	(sp)+,"<AL><12>
+
+420$:						; LNG ADDR <- FLT ANY
+	.ASCII	<LR>
+	.ASCII	<FPL>
+	.ASCII	<FPF>
+	.ASCIZ	"	stcfl	"<R>","<AL><12>
+
+
+
+; DOUBLE CODE
+
+201$:						; DBL <- 0
+	.ASCII	<SLAA>
+	.ASCII	<FPD>
+	.ASCIZ	"	clrd	"<AL><12>
+
+251$:						; DBL ADDR <- FLT ANY
+	.ASCII	<LR>
+	.ASCII	<FPF>
+	.ASCIZ	"	stcfd	"<R>","<AL><12>
+
+401$:						; INT ADDR <- DBL ANY
+	.ASCII	<LR>
+	.ASCII	<FPI>
+	.ASCII	<FPD>
+	.ASCIZ	"	stcdi	"<R>","<AL><12>
+
+419$:						; UNS ADDR <- FLT ANY	;u11+
+	.ASCII	<LR>
+	.ASCII	<FPL>
+	.ASCII	<FPD>
+	.ASCII	"	stcdl	"<R>",-(sp)"<12>
+	.ASCII	"	tst	(sp)+"<12>
+	.ASCIZ	"	mov	(sp)+,"<AL><12>
+
+
+421$:						; LNG ADDR <- DBL ANY
+	.ASCII	<LR>
+	.ASCII	<FPL>
+	.ASCII	<FPD>
+	.ASCIZ	"	stcdl	"<R>","<AL><12>
+
+
+;
+; ASSIGNED MUL/DIV/MOD BY CONSTANT				;u6+
+;
+; Assigned signed shifts
+
+500$:	.BYTE	<SLAA>
+	.ASCIZ	"	"<OP.1><TL>"	"<AL><12>	; SHIFT 1
+
+501$:	.BYTE	<SLAA>
+	.ASCII	"	"<OP.1><TL>"	"<ALN><12>	; SHIFT 2
+	.ASCIZ	"	"<OP.1><TL>"	"<AL><12>
+
+502$:	.BYTE	<SLAA>
+	.ASCII	"	"<OP.1><TL>"	"<ALN><12>	; SHIFT 3
+	.ASCII	"	"<OP.1><TL>"	"<ALN><12>
+	.ASCIZ	"	"<OP.1><TL>"	"<AL><12>
+
+509$:	.BYTE	<SLAA>
+	.ASCII	"	swab	"<ALN><12>		; LEFT SHIFT 8
+	.ASCIZ	"	clrb	"<AL><12>
+
+; Unsigned assigned shifts by a constant ( right only )
+
+510$:	.BYTE	<SLAA>
+  	.ASCII	"	clc"<12>			; SHIFT 1
+	.ASCIZ	"	ror"<TL>"	"<AL><12>
+
+511$:	.BYTE	<SLAA>
+  	.ASCII	"	clc"<12>			; SHIFT 2
+	.ASCII	"	ror"<TL>"	"<ALN><12>
+	.ASCIZ	"	asr"<TL>"	"<AL><12>
+
+512$:	.BYTE	<SLAA>
+  	.ASCII	"	clc"<12>			; SHIFT 3
+	.ASCII	"	ror"<TL>"	"<ALN><12>
+	.ASCII	"	asr"<TL>"	"<ALN><12>
+	.ASCIZ	"	asr"<TL>"	"<AL><12>
+
+519$:	.BYTE	<SLAA>
+	.ASCII	"	clrb	"<ALN><12>		; Right shift 8
+	.ASCIZ	"	swab	"<AL><12>
+
+	.EVEN
+
+	.END

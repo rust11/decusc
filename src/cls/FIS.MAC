@@ -1,0 +1,129 @@
+	.title	$$fsav	Floating-point support routines
+	.ident	/000002/
+;
+;+
+;
+; Internal
+;
+; Index		Floating-point support routines
+;
+; Usage
+;
+;	$$fsav			/* Floating save	*/
+;	$$frta			/* Return to caller a	*/
+;	$$frtb			/* Return to caller b	*/
+;
+; Description
+;
+;	These routines are used internally by the floating-point
+;	simulation package.  They are never called by the C program.
+;
+; Bugs
+;
+;	BEWARE: untested.
+;
+;	Note also that these routines are single-precision, whereas
+;	C requires double precision.  When/if floating-point becomes
+;	a reality, something better will have to be done.
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+	.globl	F$A,	F$B,	F$PC,	F$AF,	F$BF
+	.globl	F$AE,	F$BE,	F$SIGN,	F$SIZE
+
+;
+; Stack items.
+;
+
+F$A	=	40		;Argument A
+F$B	=	34		;Argument B
+
+F$PC	=	32		;Return PC
+
+F$BF	=	12		;Fraction B (2 words)
+F$AF	=	6		;Fraction A (2 words)
+F$BE	=	4		;Exponant B
+F$AE	=	2		;Exponant A
+F$SIGN	=	0		;Signs
+
+F$SIZE	=	16		;Size of extension frame
+
+;
+; $$fsav.
+; Save registers.
+; Aquire stack space.
+; Called by jsr r0,$$fsav
+;
+
+$$fsav::
+	mov	r1,-(sp)
+	mov	r2,-(sp)
+	mov	r3,-(sp)
+	mov	r4,-(sp)
+	mov	r5,-(sp)
+
+	sub	#F$SIZE,sp
+
+	jmp	(r0)
+
+;
+; $$frta
+; $$frtb
+; Return to caller.
+; Remove stuff from the stack.
+; Set codes.
+;
+
+$$frtb::
+	mov	F$B(sp),F$A(sp)
+	mov	F$B+2(sp),F$A+2(sp)
+
+$$frta::
+	add	#F$SIZE,sp		; original has $$frtb	;01
+
+;
+; Remove B from stack.
+;
+
+	mov	sp,r0
+	add	#F$A-F$SIZE,r0
+	mov	sp,r1
+	add	#F$B-F$SIZE,r1
+
+10$:
+	mov	-(r1),-(r0)
+	cmp	r1,sp
+	bhi	10$
+	mov	r0,sp
+
+;
+; Restore registers.
+;
+
+	mov	(sp)+,r5
+	mov	(sp)+,r4
+	mov	(sp)+,r3
+	mov	(sp)+,r2
+	mov	(sp)+,r1
+	mov	(sp)+,r0
+
+;
+; Set codes.
+; FIS clears C and V.
+;
+
+	tst	2(sp)
+	bmi	20$
+	bit	#77600,2(sp)
+
+20$:
+	clc
+	clv
+	rts	pc
+	.end

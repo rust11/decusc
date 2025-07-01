@@ -1,0 +1,142 @@
+	.title	$$utim	Convert $$rtim buffer to Unix time
+	.ident	/000005/
+;
+;+
+;
+; Index		Convert $$rtim buffer to Unix time
+;
+; Usage
+;
+;	long
+;	$$utim(buffer);
+;	struct TIME {
+;		int	year;	/* G.TIYR  year - 1900	*/
+;		int	month;	/* G.TIMO  Jan. = 1	*/
+;		int	day;	/* G.TIDA		*/
+;		int	hour;	/* G.TIHR  00 .. 23	*/
+;		int	minute;	/* G.TIMI  00 .. 59	*/
+;		int	second;	/* G.TISC  00 .. 59	*/
+;		int	tick;	/* G.TICT  00 .. tsec-1	*/
+;		int	tsec;	/* G.TICP  tick/second	*/
+;	} buffer;
+;
+; Description
+;
+;	The user calls $$rtim() to initialize a buffer.
+;	Then, $$utim will convert buffer contents to the
+;	number of seconds since Jan 1, 1970.
+;
+;	Note: $$utim() does not compensate for local timezone
+;	or daylight savings time.
+;
+; Bugs
+;
+;	This routine works only in the range:
+;
+;		1970 <= year < 2100
+;
+;-
+;
+; Edit history
+; 000001 15-Feb-82 MM	Initial edit
+; 000002 23-Feb-82 MM	Typo
+; 000003 01-Mar-82 MM	Misconception masquerading as a reorganization
+; 00003a 07-Jun-85 DLE	Fix constants from .psect c$code to .psect c$mwcn
+; 000004 31-Jan-87 JMC  change c$mwcn .psect type to d
+; 000005 19-Jan-02 BQT	Changed for I/D space.
+;
+; Define offsets into the time buffer, note that this matches RSX11-M
+;
+G.TIYR	=	0		; Year
+G.TIMO	=	2		; Month
+G.TIDA	=	4		; Date
+G.TIHR	=	6		; Hour
+G.TIMI	=	10		; Minute
+G.TISC	=	12		; Second
+G.TICT	=	14		; Ticks
+G.TICP	=	16		; Ticks per second
+
+.macro	div	a, b
+	mov	b,-(sp)
+	mov	a,-(sp)
+	call	div$i
+	cmp	(sp)+,(sp)+
+.endm	div
+
+.macro	mod	a, b
+	mov	b,-(sp)
+	mov	a,-(sp)
+	call	mod$i
+	cmp	(sp)+,(sp)+
+.endm
+
+;
+; Days to the beginning of this month.  The -1 compensates for the
+; fact that Jan 1 is the zero'th day of the year.
+;
+	.psect	c$mwcn,d,ro						;04
+
+montab:	.word	  0.-1,  31.-1,  59.-1,  90.-1, 120.-1, 151.-1
+	.word	181.-1, 212.-1, 243.-1, 273.-1, 304.-1, 334.-1
+
+multab:	.word	365., 24., 60., 60., 0.	; ((((year*365) + day)*24) ...
+
+	.psect	c$code,i,ro
+
+$$utim::
+	jsr	r5,csv$			; Link environments
+	mov	C$PMTR+0(r5),r4		; r4 -> user buffer @ G.TIYR
+;
+; We will modify the month value to the "true" year and change
+; the date value to the number of days since the beginning of the year.
+;
+	mov	(r4)+,r0		; r0 := year - 1900, r4 -> G.TIMO
+	sub	#1970.-1900.,r0		; need year - 1970.
+	mov	(r4),r1			; r1 := current month
+	mov	r1,-(sp)		; Save month
+	mov	r0,(r4)+		; Save year in G.TIMO, r4 -> G.TIDA
+	mov	(r4),-(sp)		; Save current date
+	asl	r1			; Month as an index
+	add	<montab-2>(r1),(r4)	; Get days since year started
+	cmp	r1,#<2*2>		; Is it already March?
+	blt	noleap			; If so, ignore leap year stuff
+	add	#1970.,r0		; Need true year
+	bic	#^C3,r0			; Year mod 4 == 0?
+	bne	noleap			; Can't be leap year
+	inc	(r4)			; Increment day in year
+noleap:
+;
+; r4 -> G.TIDA now has the number of days in this year.  Compute the
+; number of leap days since 1969.
+;
+	mov	-(r4),r0		; r0 has number of years since 1970
+					; r4 -> G.TIMO
+	inc	r0			; years since 1969.
+	asr	r0			; divided by
+	asr	r0			; 4
+	add	r0,G.TIDA-G.TIMO(r4)	; fix days in the year
+;
+; Multiply year/month/day/hour/minute/second to get unix time
+;
+	clr	r0			; r0, r1 will get time
+	clr	r1			; initialize both
+	mov	#multab,r2		; r2 -> multiplication table
+10$:
+	add	(r4)+,r1		; add in table factor
+	adc	r0			; as a longword
+	mov	(r2)+,-(sp)		; here is the dividend
+	beq	20$			; exit at table end
+	mov	r1,-(sp)		; get the divisor low word
+	mov	r0,-(sp)		; and the high word
+	call	mul$li			; multiply
+	add	#6.,sp			; clear the stack
+	br	10$			; and loop for another
+;
+; Cleanup
+;
+20$:	tst	(sp)+			; leftover dividend
+	mov	C$PMTR+0(r5),r4		; get the user buffer pointer	;02
+	mov	(sp)+,G.TIDA(r4)	; recover day
+	mov	(sp)+,G.TIMO(r4)	; and month
+	jmp	cret$			; and exit
+	.end

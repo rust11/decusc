@@ -1,0 +1,35 @@
+	.title	swabb	Byte swap (argument is a buffer pointer)
+	.ident	/000002/
+;
+;+
+;
+; Index		Swap bytes in a buffer
+;
+; Usage
+;
+;	swabb(buffer);
+;	char		*buffer;
+;
+; Description:
+;
+;	Return buffer[0] and buffer[1] as a byte-swapped integer.
+;	Buffer need not be on any particular byte or word boundary.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 01 09-Jan-80	MM	Initial edit
+; 02 07-Mar-80	MM	Renamed swabb
+; 03 15-Jan-02	BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+swabb::
+	mov	2(sp),r0		; R0 -> buffer
+	movb	1(r0),-(sp)		; Get second byte to low  pos.
+	movb	(r0),1(sp)		; Get first  byte to high pos.
+	mov	(sp)+,r0		; Get the return value
+	rts	pc
+	.end

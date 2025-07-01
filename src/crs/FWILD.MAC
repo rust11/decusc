@@ -1,0 +1,1718 @@
+	.title	fwild	Wild-card file open
+.if ne RMSIO
+	.ident	"RMS020"
+.iff
+	.ident	/000020/
+.endc
+;
+;+
+;
+; Index		Wild-card file open
+;
+; Usage
+;
+;	FILE *
+;	fwild(name, mode);
+;	char		*name;	/* File to open 	*/
+;	char		*mode;	/* Open modes		*/
+;
+;	FILE *
+;	fnext(iop);
+;	FILE		*iop;	/* I/O pointer		*/
+;
+; Description
+;
+;	Fwild() opens a new or existing file (whose file name may
+;	contain "wild-cards").  Open modes are identical to those
+;	given in fopen().  On return, the file name has been parsed,
+;	but no file has yet been opened.  A NULL return means that
+;	the file name did not parse correctly.
+;
+;	Fnext() opens the first or next file which was defined
+;	by a previous call to fwild().  If fnext() returns NULL, there
+;	are no (more) files that match the wild-card specification.
+;
+;	fwild/fnext handle RSX file version numbers correctly on
+;	VMS compatibility mode (which uses the ODS2 disk structure).
+;	Fwild/fnext do not handle version numbers correctly on
+;	native RSX systems which use the FILES-11 (ODS1) disk structure.
+;	For example, a program can request "foo.*;3", "foo.*;*", "foo.*;0",
+;	and "foo.*;-1". Omitting a version number "foo.*" is equivalent
+;	to "foo.*;0". Note that version number 0 means the "newest" file,
+;	while version number -1 means the oldest.  (Version numbers are
+;	not used on RT11 or RSTS/E.)
+;
+;	For native RSX systems (using the FILES-11 disk structure), an
+;	explicit version number and the wildcard version number work
+;	correctly.  Version numbers 0 and -1 work only if the directory has
+;	been reorganized by using the SRD utility program.  If the directory
+;	has not been reorganized (such that the youngest version appears
+;	first in the directory), fnext() will yield unpredictable results.
+;
+;	On RT-11, the wildcard filename match is handled internally
+;	to fwild/fnext. The parser will handle several forms of wild
+;	file specs, including imbedded '*' and the single character
+;	wildcard '%', and acts the same as the DIRECTORY wildcard handler.
+;	For convenience, a '?' acts the same as a '%' in a match string.
+;
+;	Note:  if a program executes fclose(), all file name information
+;	will be lost.  The following sequence illustrates proper use
+;	of fwild()/fnext():
+;
+;		if (gets(name_buff) == NULL)
+;			exit();
+;		if ((fd = fwild(name_buff, "r")) == NULL)
+;			error("Can't open %s\n", name_buff);
+;		for (count = 0; fnext(fd) != NULL; count++) {
+;			/*
+;			 * Process each file
+;			 */
+;			while (fgets(buffer, sizeof buffer, fd)
+;					!= NULL) {
+;				/*
+;				 * Process each record
+;				 */
+;			}
+;		}
+;		/*
+;		 * fnext() fails; the channel is closed.
+;		 * count has the number of files processed.
+;		 */
+;		if (count == 0)
+;			error("No matching files found");
+;
+;	The following summarizes the types of wild-card processing
+;	available on the various implementations of the C support
+;	library:
+;
+;	   Environment	Supports
+;
+;	   Native RSX	"*"  matches  any filename, filetype, or
+;			version number.  Version ;0 and ;-1  are
+;			supported on ODS2  systems.   UIC's  may
+;			not contain wildcards.
+;
+;	   RSX/VMS	As above, note that  version  ;-1  means
+;			the "earliest"  version.   Note  warning
+;			below.  Directory identifiers may not be
+;			wildcarded.  VMS systems support ODS2.
+;
+;	   RSX/RSTS	Uses RSTS/E  wildcard  conventions:  "*"
+;			replaces   filename  or  filetype.   "?"
+;			matches any character.  PPN's may not be
+;			wildcarded.   Version  numbers  are  not
+;			supported on RSTS/E.
+;
+;	   Native RT11	"*" replaces  any  string,  "%"  or  "?"
+;			match any non-blank character.
+;
+;	   RT11/RSTS	Uses RSTS/E wildcard  conventions  noted
+;			above.
+;
+; Bugs
+;
+;	On native RSX systems using ODS1 (FILES-11) disk structures,
+;	version numbers will be processed properly only if directories
+;	have been sorted (by using the SRD utility program, for example).
+;	If directories are not sorted, and fwild() is invoked with version
+;	number ;0 or ;-1, it will yield unpredictable results.
+;
+;	The command language scan (CSI1$) on VMS compatibility mode does
+;	not parse version number -1 (because it has a different meaning
+;	on native VMS) and fwild() will consequently fail.
+;
+;	If you want the oldest version, fwild() should be invoked with
+;	a file name of the type "foo.*" or "foo.*;0" and, before calling
+;	fnext() for the first time, you should set the correct bits in
+;	the IOV flag word as follows:
+;
+;		if ((fd = fwild(file, "r")) == NULL)
+;			error("can't open file %s", file);
+;		if ((fd->io_flag & IO_VER) != 0
+;				&& version_minus_1_wanted)
+;			fd->io_flag |= IO_VM1;
+;
+;	Flag bit IO_VER signals "version 0 or -1", while bit IO_VM1
+;	signals version minus 1.  Again, note that this must be done
+;	before the first call to fnext().
+;
+;	On native RT11 and all RSTS/E modes, fwild/fnext will fail
+;	if the device is not directory structured (even if no wildcard
+;	file is specified).  If this is a problem, you should write:
+;
+;		if ((fd = fwild(filename, mode)) != NULL)
+;			iswild = 1;
+;		else if ((fd = fopen(filename, mode) != NULL)
+;			iswild = 0;
+;		else error("cannot open the file");
+;
+;	The program must then test iswild to determine if it
+;	must call fnext() or if processing should be initiated
+;	directly.
+;
+;	On all RSTS/E modes, there may be problems with logical name
+;	translation as file name strings must be parsed more than once.
+;	Thus, if a programer defines a logical name which is identical
+;	to a valid physical device name, a wildcard lookup may access
+;	the wrong unit.  This problem is described in the RSTS/E
+;	documentation.
+;
+;	Fwild/fnext was designed to work only with disk devices.  It
+;	will not necessarily work correctly with other directory-structured
+;	devices, such as magtape.
+;
+; Internal
+;
+;	If you are always running on RSTS/E, or always running
+;	on RSX-11 (native or VMS compatibility mode) or always running
+;	on native RT11, you should consider editing fwild.mac to remove
+;	unnecessary code.
+;
+;	This routine depends on some internal knowledge about RSTS/E
+;	and about the implementation of RSX-11 file control services on
+;	RSTS/E. It may need modification for subsequent releases
+;	of RSTS/E.
+;
+;	The implementors do not apologize for the size of this module.
+;
+;	The distribution of the C language system includes source code
+;	for the SRD (sort directories) utility program.
+;
+;-
+;
+; Edit history
+; 000001 10-Jun-80 MM	Initial edit
+; 000002 26-Jun-80 MM	Added RSTS/E support
+; 000003 28-Jul-80 MM	Changed F.DID and F.STAT to F.FNB+N.????N
+; 000004 01-Aug-80 MM	Use VF$WF1 for first flag (instead of VF$OPN)
+; 000005 01-Aug-80 MM	RSTS definitions eat much .asect space.  Redone
+; 000006 18-Aug-80 RBD	Added native RT11 support, affects fopen, and iov.
+; 000007 25-Aug-80 MM	Added RSTS/RT11 support. Hacked code considerably,
+;			including implemetation of the DIRECTORY match
+;			algorithm.  Edit codes are not always present.
+; 000008 16-Sep-80 MM	RSTS/RSX sets V$UIC word from the firqb
+; 000009 18-Sep-80 MM	Fixed .psect name
+; 000010 23-Sep-80 MM	Clear error code before exit if no wild on RT11
+; 000011 24-Sep-80 MM	Corrected RSTS/RT .FSS call for logical devices
+; 000012 25-Sep-80 MM	Explicitly clear out IOV for RT11 fnext
+; 000013 15-Oct-80 MM	Clear EOF/ERR flag before opening, clear fnext return
+; 000014 27-Feb-81 MM	Handle RSX "next file" for privilege and lock errors
+; 000015 29-Jun-82 MM	Newer library
+; 000016 28-Dec-82 TTC	Fixed several RT-11 bugs.
+; RMS017 29-Dec-83 TTC	Added RMS support.
+; RMS018 08-Jan-83 RBD	Fix bug in fnext status checks
+; 000019 19-Jan-87 JMC  Change .psect for I/D space.
+; 000020 17-Jan-02 BQT	Changed for I/D space
+;
+
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.iif	ndf	l$$ist	l$$ist	=	0	;Supress listings
+
+.iif eq l$$ist .nlist
+;
+; The following must track RSTS/E COMMON.MAC
+;
+
+.MACRO	.DSECT	START,CREF
+.IIF	B	<CREF>,	.DSABL	CRF
+$$$$$$	=	0
+.IIF	B	<CREF>,	.ENABL	CRF
+.IF	NB	<START>
+$$$$$$	=	START
+.ENDC
+.ENDM	.DSECT
+
+.MACRO	WORD	WHAT,N
+.IIF	NB	<WHAT>	WHAT	=	$$$$$$
+.IF	NB	<N>
+$$$$$$	=	$$$$$$+<2*N>
+.IFF
+$$$$$$	=	$$$$$$+2
+.ENDC
+.ENDM	WORD
+
+.MACRO	BYTE	WHAT,N
+.IIF	NB	<WHAT>	WHAT	=	$$$$$$
+.IF	NB	<N>
+$$$$$$	=	$$$$$$+N
+.IFF
+$$$$$$	=	$$$$$$+1
+.ENDC
+.ENDM	BYTE
+
+
+;
+; TRANSFER CONTROL BLOCK (XRB)
+
+; USED BY USER TO INITIATE AN I/O REQUEST
+;	AND FOR MONITOR/USER DATA REQUESTS.
+
+.DSECT	,NOCREF
+
+	WORD	XRLEN	;LENGTH OF I/O BUFFER IN BYTES
+	WORD	XRBC	;BYTE COUNT FOR TRANSFER
+	WORD	XRLOC	;POINTER TO I/O BUFFER
+	BYTE	XRCI	;CHANNEL NUMBER TIMES 2 FOR TRANSFER
+	BYTE	XRBLKM	;RANDOM ACCESS BLOCK NUMBER (MSB)
+	WORD	XRBLK	;RANDOM ACCESS BLOCK NUMBER (LSB)
+	WORD	XRTIME	;WAIT TIME FOR TERMINAL INPUT
+	WORD	XRMOD	;MODIFIERS
+XRBSIZ	=	$$$$$$	;SIZE OF THE XRB IN BYTES
+;
+;
+; FILE REQUEST QUEUE BLOCK (FIRQB)  (PRONOUNCED 'FURK-BE')
+
+; ALL REQUESTS FOR FILE PROCESSING ARE MADE BY SETTING THE NECESSARY PARAMETERS
+;	IN THE FIRQB, AND CALLING THE MONITOR WITH "CALFIP".
+
+.DSECT	,NOCREF
+
+	BYTE		;RESERVED FOR RETURNED ERROR CODE
+	BYTE		;RESERVED BYTE
+	BYTE	FQJOB	;HOLDS YOUR JOB NUMBER TIMES 2
+	BYTE	FQFUN	;FUNCTION REQUESTED
+	BYTE	FQERNO,0;ERROR MESSAGE CODE AND TEXT BEGIN
+	BYTE	FQFIL	;CHANNEL NUMBER TIMES 2
+	BYTE	FQSIZM	;FILE SIZE IN BLOCKS (MSB)
+	WORD	FQPPN	;PROJECT-PROGRAMMER NUMBER
+	WORD	FQNAM1,2;2 WORD FILENAME IN RADIX 50
+	WORD	FQEXT	;.EXT IN RADIX 50
+	WORD	FQSIZ	;FILE SIZE IN BLOCKS (LSB)
+	WORD	FQNAM2,0;3 WORD NEW FILENAME.EXT IN RADIX 50
+	WORD	FQBUFL	;DEFAULT BUFFER LENGTH
+	WORD	FQMODE	;MODE INDICATOR
+	WORD	FQFLAG	;OPENED FILE'S FLAG WORD AS RETURNED
+	BYTE	FQPFLG	;"PROTECTION CODE REAL" INDICATOR
+	BYTE	FQPROT	;NEW PROTECTION CODE
+	WORD	FQDEV	;2 BYTE ASCII DEVICE NAME
+	BYTE	FQDEVN	;1 BYTE UNIT NUMBER
+	BYTE		;"UNIT NUMBER REAL" INDICATOR
+	WORD	FQCLUS	;FILE CLUSTER SIZE FOR FILE CREATES
+	WORD	FQNENT	;NUMBER OF ENTRIES ON DIRECTORY LOOKUP
+FQBSIZ	=	$$$$$$	;SIZE OF THE FIRQB IN BYTES
+
+; MONITOR CALLS (EMT'S)
+
+.DSECT	+EMT,NOCREF
+
+	WORD	CALFIP	;CALL FIP, WITH FIRQB LOADED
+	WORD	.READ	;READ
+	WORD	.WRITE	;WRITE
+	WORD	.CORE	;CHANGE USER MEMORY SIZE
+	WORD	.SLEEP	;SLEEP JOB FOR N SECONDS
+	WORD	.PEEK	;PEEK AT MEMORY
+	WORD	.SPEC	;SPECIAL FUNCTION
+	WORD	.TTAPE	;ENTER TAPE MODE
+	WORD	.TTECH	;ENABLE ECHO
+	WORD	.TTNCH	;DISABLE ECHO
+	WORD	.TTDDT	;DDT SUBMODE
+	WORD	.TTRST	;CANCEL ^O EFFECT
+	WORD	.TIME	;GET TIMING INFORMATION
+	WORD	.POSTN	;GET DEVICE'S HORIZONTAL POSITION
+	WORD	.DATE	;GET CURRENT DATE & TIME
+	WORD	.SET	;SET KEYWORD BIT(S)
+	WORD	.STAT	;GET MY STATISTICS
+	WORD	.RUN	;RUN A NEW PROGRAM
+	WORD	.NAME	;INSTALL A NEW PROGRAM NAME
+	WORD	.EXIT	;EXIT TO DEFAULT RUN-TIME SYSTEM
+	WORD	.RTS	;CHANGE TO A NEW RUN-TIME SYSTEM
+	WORD	.ERLOG	;LOG AN ERROR FROM THE RUN-TIME SYSTEM
+	WORD	.LOGS	;CHECK FOR LOGICAL DEVICES
+	WORD	.CLEAR	;CLEAR KEYWORD BIT(S)
+	WORD	.MESAG	;MESSAGE SEND/RECEIVE
+	WORD	.CCL	;CCL CHECKER
+	WORD	.FSS	;FILE STRING SCANNER
+	WORD	.UUO	;UUO HOOK
+	WORD	.CHAIN	;CHAIN TO A NEW PROGRAM
+	WORD	.PLAS	;RESIDENT LIBRARY CONTROL
+	WORD	.RSX	;ENTER RSX EMULATION
+	WORD	.ULOG	;ASSIGN/REASSIGN/DEASSIGN DEVICE/USER LOGICAL
+
+; FIP (FIRQB @ FQFUN) FUNCTION CODES
+
+.DSECT	,NOCREF
+
+	WORD	CLSFQ	;CLOSE AN OPEN CHANNEL
+	WORD	OPNFQ	;OPEN A CHANNEL
+	WORD	CREFQ	;CREATE/EXTEND/OPEN A CHANNEL
+	WORD	DLNFQ	;DELETE A FILE BY NAME
+	WORD	RENFQ	;RENAME A FILE
+	WORD	DIRFQ	;DIRECTORY INFORMATION
+	WORD	UUOFQ	;PROCESS UUO
+	WORD	ERRFQ	;GET ERROR MESSAGE TEXT
+	WORD	RSTFQ	;RESET (CLOSE) [ALL] CHANNEL[S EXCEPT 0]
+	WORD	LOKFQ	;LOOKUP A FILE
+	WORD	ASSFQ	;ASSIGN A DEVICE
+	WORD	DEAFQ	;DEASSIGN A DEVICE
+	WORD	DALFQ	;DEASSIGN ALL DEVICES
+	WORD	CRTFQ	;CREATE/EXTEND/OPEN A UNIQUE .TMP FILE ON DISK
+	WORD	CRBFQ	;CREATE/EXTEND/OPEN A COMPILED IMAGE FILE ON DISK
+
+FIRQB	=	402
+XRB	=	442							;05-
+
+;
+; l$$rsts has the following values:
+;	1	Compile RSTS/E specific code only
+;	2	Compile native mode specific code only
+;	3	Compile both flavors of code
+;
+.iif	ndf	l$$rsts	l$$rsts	=	3	;Compile all flavors
+
+.macro	rsts..			; Compile RSTS/E specific code
+.if ne	l$$rsts&1
+.endm
+
+.macro	native..		; Compile native-only modes
+.if ne	l$$rsts&2
+.endm
+
+.macro	both..			; Compile if both modes desired
+.if eq	l$$rsts-3
+.endm
+
+.macro	..revert		; End of condiditional compilation
+.endc
+.endm
+.iif eq l$$ist	.list
+;
+;
+;			N o t e
+;
+;	This code has only been tested using l$$rsts set to 3
+;
+;	Any instances of rsts.., native.., both.., and ..revert
+;	are indications only.
+;
+
+.MACRO	PRINTF	FMT,A1,A2,A3,A4,A5,A6,A7,A8,A9,?FORMAT,?EXIT
+	  MOV	R0,-(SP)
+	  MOV	R1,-(SP)
+$$$$$$	=	4
+.IF	NB	A9
+	  MOV	A9,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A8
+	  MOV	A8,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A7
+	  MOV	A7,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A6
+	  MOV	A6,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A5
+	  MOV	A5,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A4
+	  MOV	A4,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A3
+	  MOV	A3,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A2
+	  MOV	A2,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+.IF	NB	A1
+	  MOV	A1,-(SP)
+$$$$$$	=	$$$$$$+2
+.ENDC
+	  MOV	#FORMAT,-(SP)
+	  MOV	STDERR,-(SP)
+	  CALL	FPRINTF
+	  ADD	#$$$$$$,SP
+	  MOV	(SP)+,R1
+	  MOV	(SP)+,R0
+;
+; Note: on RT11 Version 4, you can use the .SAVE and .RESTORE compiler
+; directives to switch to the $strn PSECT as follows:
+;
+;				.SAVE
+;				.psect	c$strn,d
+;			FORMAT:	.ASCII	FMT
+;				.BYTE	12,0
+;				.EVEN
+;				.RESTORE
+;
+; This doesn't compile on RSTS/E, however.
+;
+	  BR	EXIT
+FORMAT:	.ASCII	FMT
+	.BYTE	12,0
+	.EVEN
+EXIT:
+.ENDM	PRINTF
+
+.MACRO	NOTE	TEXT,?TLOC,?EXIT
+	  mov	r0,-(sp)
+	  mov	#tloc,r0
+	  call	$$msg
+	  mov	(sp)+,r0
+;
+; Note: on RT11 Version 4, you can use the .SAVE and .RESTORE compiler
+; directives to switch to the $strn PSECT as follows:
+;
+;				.SAVE
+;				.psect	c$strn,d
+;			TLOC:	.ASCIZ	TEXT
+;				.EVEN
+;				.RESTORE
+;
+; This doesn't compile on RSTS/E, however.
+;
+	  br	exit
+tloc:	.asciz	text
+	.even
+EXIT:
+.ENDM	NOTE
+;
+
+	.list	meb
+.if ne rsx
+
+.if ne RMSIO
+	.mcall	$FETCH $SEARCH $COMPARE $TESTBITS $SET
+
+.iff
+	.mcall	FDOF$L, NBOF$L
+	FDOF$L
+	NBOF$L
+.endc
+
+;
+	.psect	c$code,i,ro
+;
+; Parse the name and setup the tables
+;
+; Note the following special cases:
+;	foo.*		== foo.*;0
+;	foo.*;0		Find latest version only
+;	foo.*;-1	Find earliest version only
+;	foo.*;3		Find version 3 only
+;	foo.*;*		Find all versions
+;
+; Note: although the RSX documentation mentions ";-1" versions,
+; they get an error from CSI$1 on VMS emulation (and no versions
+; work on RSTS).
+;
+; Bits are set in V$FLAG as follows:
+;	VF$VER		set if ;0 or ;-1
+;	VF$VM1		set if version = -1
+;
+fwild::
+	jsr	r5,csv$			; Link environments
+	clr	r4			; No IOV yet
+	call	$$flun			; Get a LUN
+	call	$$fopt			; and scan options
+.if eq RMSIO
+both..									;02+
+	tst	$$rsts			; Running on RSTS/E?
+	beq	docsi			; Br if not, do standard setup
+..revert
+rsts..
+;
+; Do a RSTS csi scan -- if no wildcards, just do standard setup
+;
+	mov	#FIRQB,r0		; Setup to clear
+
+10$:
+	clr	(r0)+			; Clear the FIRQB
+	cmp	r0,#XRB+XRBSIZ		; and the
+	blo	10$			; XRB
+	mov	C$PMTR+0(r5),(sp)	; Get the file name
+	call	strlen			; Get it's length
+	mov	r0,@#XRB+XRLEN		; Stuff in XRB
+	mov	r0,@#XRB+XRBC		; Both places
+	mov	C$PMTR+0(r5),@#XRB+XRLOC ; Stuff file name
+	.FSS				; File name string scan
+	tstb	@#FIRQB			; Error?
+	bne	docsi			; If so, let standard scan die
+	mov	@#XRB+10,r0		; "flag word 2"
+	bit	#1400,r0		; Wild p,pn ?
+	bne	docsi			; Yes, die (we can't lookup [*,])
+	bit	#146,r0			; Anything wild (name or ext)
+	beq	docsi			; No, do it the easy way
+	mov	#FQBSIZ,r0		; Allocate a
+	call	$$falo			; Wild card block
+	mov	r0,V$WILD(r4)		; Stuff it away
+	mov	r0,r2			; Save a copy
+	mov	#FIRQB,r1		; r1 -> firqb
+
+20$:
+	mov	(r1)+,(r0)+		; Save firqb
+	cmp	r1,#FIRQB+FQBSIZ	; all of
+	blo	20$			; it.
+	movb	#LOKFQ,FQFUN(r2)	; We'll use the lookup function
+	mov	#-1,FQERNO(r2)		; Initialize "current file number"
+	bis	#VF$WLD,V$WFLG(r4)	; Set wild-card bit for fnext()	;07/15
+	mov	FIRQB+FQPPN,V$UIC(r4)	; Save Directory ID		;08
+	br	wexit			; Normal exit
+
+..revert
+
+.endc
+
+docsi:
+	MOV	C$PMTR+0(R5),-(SP) ;Push File name from caller
+.if ne RMSIO								;18+
+	;
+	; Set the wild flag prior to calling fpar.  Fpar
+	; checks this flag to see if the call was from
+	; fwild and if so the first file is not opened until
+	; fnext is called.
+	;
+	bis	#VF$WLD,V$WFLG(r4)	; Set wild flag for FPAR
+	call	$$fpar			; Parse the file name
+	mov	r4,r2			; r2 -> iov
+	add	#V$FAB,r2		; r2 -> FAB
+	$FETCH	r1,NAM,r2		; r2 -> NAM block
+	$TESTBITS #NB$WCH,FNB,r1	; Anything wild to do?
+	bne	wexit			; (Yes), wild flag is already set
+	bic	#VF$WLD,V$WFLG(r4)	; Nothing wild clear wild flag	
+	br	wexit			; do no more here
+.iff									;18
+	call	$$fcsi			; Do CSI scan and setup fdb/fnb, too
+	mov	r4,r2			; r2 -> IOV
+	add	#V$FDB+F.FNB+N.STAT,r2	; r2 -> file name block status bits
+	bit	#NB.SNM+NB.STP+NB.SVR,(r2) ; Anything wild?		;07
+	beq	wexit			; If not do nothing		;02
+	bis	#VF$WLD,V$WFLG(r4)	; Something wild to do		;07/15
+native..								;15
+	bit	#NB.SVR,(r2)		; Wild card version specified?
+	bne	wexit			; yes, do no more here		;02
+	bit	#NB.VER,(r2)		; Version specified by caller
+	bne	10$			; Branch if so
+	bis	#NB.VER,(r2)		; None specified, force
+	clr	V$FDB+F.FVER(r4)	; version 0 (last)
+
+10$:
+	mov	V$FDB+F.FVER(r4),r0	; Get version
+	beq	20$			; Br if version is zero
+	inc	r0			; Not zero, is it -1
+	bne	wexit			; Br if not minus 1		;02
+	bis	#VF$VM1,V$WFLG(r4)	; Set "version -1" flag		;15
+
+20$:
+	bis	#VF$VER,V$WFLG(r4)	; Set version hacking flag	;15
+	bis	#NB.SVR,(r2)		; Force "find any version" in FDB
+..revert
+
+.endc
+
+wexit:									;02
+	mov	r4,r0			; All right so far
+	jmp	cret$			; Back to the caller
+
+
+;
+; Now open the (next) file.  Note that the algorithm depends on the
+; fact that the C library cleans up the stack before returning to
+; the calling program.
+;
+fnext::
+	jsr	r5,csv$			; Link environments
+	mov	C$PMTR+0(r5),r4		; r4 -> IOV
+	mov	r4,r1			; r1 -> iov
+.if ne RMSIO
+	add	#V$FAB,r1		; r1 -> FAB
+	bit	#VF$WF1,V$WFLG(r4)	; Has it been opened yet?
+	bne	10$			; Br if so (flag set)
+;
+; First call of fnext for this file specification
+;
+	bis	#VF$WF1,V$WFLG(r4)	; Set flag for next time	
+	bit	#VF$WLD,V$WFLG(r4)	; Anything wild?		
+	bne	fwfind			; Br if a wild-card file	
+	jmp	$$fopn			; Do normal open, instead.
+;
+; Close out the currently opened file
+;
+10$:
+	mov	r4,r0			; Make r0 non-zero
+	call	$$clos			; Close out the file, keep IOV
+	bit	#VF$WLD,V$WFLG(r4)	; Anything wild?
+	beq	nomore			; No wild card, just exit
+;
+; Ready to find the file.
+;
+fwfind:
+	$SEARCH	r1			; Get next file
+	$COMPARE #SU$SUC,STS,r1		; Error?
+	beq	okexit			; (no), go open the file
+
+;
+; No more files to be found
+;
+nomore:
+	$FETCH	r0,STS,r1		; Error return from $SEARCH
+	cmpb	#ER$NMF,r0		; "No more matching files"?
+	bne	badend			; No, a real error
+	clr	r0			; Yes, an expected error
+badend:
+	jmp	$$fope			; Clean up and exit
+;
+; Normal exit -- go open the file
+;
+okexit:
+	bic	#VF$ERR!VF$EOF,V$FLAG(r4) ; Make sure no end of file
+	$SET	#FB$FID,FOP,r1		; Set FIB mask to preserve wild context
+	call	$$fopo			; $$fopo doesn't return if ok
+	
+	cmpb	#ER$PRV,R0		; But if it's "no access",
+	beq	fwfind			; try for another.
+	cmpb	#ER$FLK,r0		; Or if it's "file locked",
+	beq	fwfind			; try for another.
+	br	badend			; So die already.
+
+.iff
+
+	add	#V$FDB+F.FNB,r1		; r1 -> file name block
+	mov	N.STAT(r1),r2		; r2 = N.STAT
+	clr	r3			; flag first/next call
+	bit	#VF$WF1,V$WFLG(r4)	; Has it been opened yet?	;03/15
+	bne	10$			; Br if so (flag set)
+;
+; First call of fnext for this file specification
+;
+	bis	#VF$WF1,V$WFLG(r4)	; Set flag for next time	;03/15
+	inc	r3			; This is the first call
+	bit	#VF$WLD,V$WFLG(r4)	; Anything wild?		;07/15
+	bne	fwfind			; Br if a wild-card file	;14
+	jmp	$$fopn			; Do normal open, instead.
+;
+; Close out the currently opened file
+;
+10$:
+	mov	r4,r0			; Make r0 non-zero
+	call	$$clos			; Close out the file, keep IOV
+	bit	#VF$WLD,V$WFLG(r4)	; Anything wild?		;07/15
+	beq	nomore			; No wild card, just exit
+;
+; Ready to find the file
+;
+fwfind:									;14
+	mov	r4,r0			; r0 -> iov
+	add	#V$FDB,r0		; r0 -> fdb
+rsts..									;02+
+	mov	V$WILD(r4),r3		; RSTS wild card handling?
+	bne	rsnext
+..revert
+native..								;02-
+	bit	#VF$VER,V$WFLG(r4)	; Version number hacking?	;15
+	beq	nfind			; Br if normal (specific or all)
+	bit	#VF$VM1,V$WFLG(r4)	; Version -1			;15
+	bne	40$			; Br if so
+;
+; The algorithms for Version 0 and Version -1 depend on the fact
+; that ODS2 stores the youngest version (highest version number)
+; first in the directory:  "foo.bar;3  foo.bar;2  foo.bar;1"
+;
+; Version 0
+;
+; If this is the first time (there's no current file), just find
+; any file.  Else, save the current file name and
+;	do	read next file (error -> no more files)
+;	while	file names are the same
+;
+	tst	r3			; First time through?
+	bne	nfind			; Yes, just get something
+	mov	N.FTYP(r1),-(sp)	; Save file type (extension)
+	mov	N.FNAM+4(r1),-(sp)	; and the
+	mov	N.FNAM+2(r1),-(sp)	; file
+	mov	N.FNAM+0(r1),-(sp)	; name
+;
+; The stack is now:
+;	 0	file name
+;	 2	file name
+;	 4	file name
+;	 6	file type
+;
+30$:
+	call	.find			; Look for something
+	bcs	nomore			; Out of the loop if no more
+	call	test			; Is it the same?
+	beq	30$			; Keep on trying
+	bne	okexit			; New file if no match
+	br	30$			; keep on trying
+;
+; Version -1
+;
+; Find the next file, then find the last version with this name
+;
+40$:
+	mov	N.NEXT(r1),r2		; Save pointer to next file
+	call	.find			; Find a file
+	bcs	nomore			; Exit if there aren't any
+	mov	N.FTYP(r1),-(sp)	; Save file type (extension)
+	mov	N.FNAM+4(r1),-(sp)	; and the
+	mov	N.FNAM+2(r1),-(sp)	; file
+	mov	N.FNAM+0(r1),-(sp)	; name
+
+50$:
+	mov	r2,r3			; Save pointer to current file
+	mov	N.NEXT(r1),r2		; Save pointer to next file
+	call	.find			; Try for another file
+	bcs	60$			; Exit loop at end
+	call	test			; Got a match?
+	beq	50$			; continue while we do
+
+60$:
+	mov	r3,N.NEXT(r1)		; Restuff the NEXT indicator
+	mov	(sp)+,N.FNAM+0(r1)	; and
+	mov	(sp)+,N.FNAM+2(r1)	; the
+	mov	(sp)+,N.FNAM+4(r1)	; file
+	mov	(sp)+,N.FNAM+6(r1)	; name
+
+..revert								;02
+;
+; Find any file (here for specific versions, or any version)
+;
+nfind:
+	call	.find			; Find next file
+	bcc	okexit			; Br if found one
+
+;
+; No more files to be found
+;
+nomore:
+	movb	F.ERR(r0),r0		; Error return from .find
+	cmpb	#IE.NSF,r0		; "No such file"
+	bne	badend			; No, a real error
+	clr	r0			; Yes, an expected error
+badend:
+	jmp	$$fope			; Clean up and exit
+;
+; Normal exit -- go open the file
+;
+okexit:
+	bic	#VF$ERR!VF$EOF,V$FLAG(r4) ; Make sure no end of file	;13/15
+	call	$$fopo			; No return if ok		;14+
+	cmpb	#IE.PRI,R0		; But if it's "no access",
+	beq	fwfind			; try for another.
+	cmpb	#IE.LCK,F.ERR(r0)	; Or if it's "file locked",
+	beq	fwfind			; try for another.
+	br	badend			; So die already.		;14-
+	.page
+
+native..								;02
+
+;
+; Test for a file name match
+;
+; Entry:
+;
+;	r1 ->	file name block
+;	0(sp)	return address
+;	2(sp)	file name start
+;
+; Return: condition codes setup for test (beq if match, bne if no match)
+;
+test:
+	cmp	N.FNAM+0(r1),2(sp)	; Check for a file match
+	bne	10$			; Found
+	cmp	N.FNAM+2(r1),4(sp)	; a
+	bne	10$			; new
+	cmp	N.FNAM+4(r1),6(sp)	; file
+	bne	10$			; if
+	cmp	N.FTYP(r1),10(sp)	; mismatch
+
+10$:
+	return				; Return, condition codes setup
+
+..revert								;02+
+rsts..
+;
+; Find the next file on RSTS/E.  Note that we do all the firqb stuff
+;
+; This routine depends on some internal knowledge about the RSTS/RSX
+; implementation.  It may need modification for subsequent releases
+; of RSTS/E.
+;
+;
+; On entry,
+;	r0 -> fdb
+;	r1 -> fdb @ fnb
+;	r3 -> Wild card buffer (firqb after .fss call)
+;
+
+rsnext:
+	inc	FQERNO(r3)		; Increment lookup count
+	mov	#FIRQB,r2		; R2 -> firqb
+10$:
+	mov	(r3)+,(r2)+		; Copy firqb
+	cmp	r2,#FIRQB+FQBSIZ	; Until
+	blo	10$			; It's done
+	CALFIP				; Do it
+	tstb	@#FIRQB			; Did it work?
+	beq	15$			; Yes, continue			;14+
+	movb	#IE.NSF,F.ERR(r0)	; No, fake "no more files"
+	br	nomore			; Take normal exit
+15$:					;				;14-
+
+;
+; Gotcha, setup file name block
+;
+	mov	r1,r2			; Another copy of the name block
+	add	#S.FNB,r2		; r2 -> end of name block
+
+20$:
+	clr	(r1)+			; Clear out the
+	cmp	r1,r2			; file name
+	blo	20$			; block
+	bis	#NB.SVR,F.FNB+N.STAT(r0) ; reset "wild card" flag
+	mov	#FIRQB+FQPPN,r2		; r2 -> FQPPN
+	mov	(r2)+,F.FNB+N.DID(r0)	; Save UIC
+	mov	(r2)+,F.FNAM(r0)	; and name
+	mov	(r2)+,F.FNAM+2(r0)	; and the
+	mov	(r2)+,F.FTYP(r0)	; extension
+	mov	@#FIRQB+FQDEVN,F.UNIT(r0) ; Device unit
+	clrb	F.UNIT+1(r0)		; Clear "is real" flag in fdb
+;
+; Note, the following bit of hackery is needed as, if no device name
+; is given, FCS will use the "assigned LUN device" from link time.
+; Since the C library assigns channels as they are used, something must
+; be present, else disaster will strike.
+;
+	mov	@#FIRQB+FQDEV,F.DVNM(r0) ; Device name
+	bne	okexit			; Br if there is one
+	mov	#"SY,F.DVNM(r0)		; No device given, force
+	clr	F.UNIT(r0)		; system disk
+	br	okexit			; Go find it
+
+..revert
+.endc
+
+.iff
+;
+; RT-11 wild file processing:
+;
+; Since native RT-11 has no intrinsic wildcard support, fwild() must do
+; the lexical analysis and parsing of the supplied wild filespec string
+; to produce a match template for the directory search. See the comments
+; local to the "expand" subroutine for more on this.
+;
+; In order to simultaneously accommodate more than one wild file process,
+; the state information for the wild processing is stored in a "wild
+; data block" pointed to by the V$WILD field in the iov. Typically
+; r4 is used to point to the iov, and r3 to point to the "wdb".
+; It looks like this: (In fact it's defined here too)
+
+W.NSIZ	=	12.		; Longest match pattern (with NULL trail)
+	.DSECT			; Wild file data block:
+				; ** Order-dependent data **
+	WORD	W.DEV		; ** Device name in RAD50
+	BYTE	W.NAME,W.NSIZ	; ** "ABCDEF GHI <0>"
+				; ** End of order-dependent data **
+	WORD	W.CHST,5.	; .SAVESTATUS area
+	WORD	W.DSEG		; Current directory segment
+	WORD	W.DENT		; Next entry to search
+	WORD	W.ESIZ		; Size of directory entry in bytes
+WDBSIZ	=	$$$$$$		; Size of WDB in bytes
+
+; The iov and the wdb are set up on the call to fwild(). The iov is
+; extended by 512. bytes so that the buffer may be easily used for
+; directory operations as well as file access. Part of fopen() is used to
+; open the directory. Any but a directory device is rejected. A .SAVESTATUS
+; keeps the directory channel context in the wdb. Then the directory
+; is closed.
+;
+; On a call to fnext(), any open file is closed. The directory is
+; .REOPEN'ed and the current segment read into the data buffer. The
+; directory is then searched starting with the first entry not yet
+; checked for match. Additional segments are read in as required until
+; a matching file is found or the end of the directory is reached. The
+; directory channel is closed and the matching file, if any, is opened.
+
+; fwild()
+;   Get a LUN and iov
+;   Extend iov by 512. bytes so buffer holds 512. words
+;   If extend failed
+;     error(E$$NSP)		{ No memory }
+;   Get a wild data block and hook to iov
+;   Scan filename for device spec
+;   If devspec given
+;     Convert to RAD50
+;     Copy devspec to wdb
+;   else
+;     Copy default devspec to wdb
+;   Do a non file structured open on device.
+;   If device not directory device
+;     error(E$$NOD)		{ Not valid device }
+;   else
+;     savestatus on directory
+;   expand filename/type into wild match template --> wdb
+;   If expand error
+;     error(E$$ILF)		{ Illegal file name }
+;   else (expanded OK)
+;     scan options string and set bits ($$fopt)
+;     initialize the directory next entry pointer to first entry loc.
+;     initialize the directory next segment link to 1 (segs start at 1)
+;     return pointer to iov
+;
+
+.macro	.priv			; This macro preceeds native RSTS/E EMT's
+	  emt	377
+.endm	.priv
+
+defdev	= ^RDK				; *** Default Device ***
+
+	.psect	c$code,i,ro
+;
+; Main entry point
+;
+fwild::
+	jsr	r5,csv$			; Link environments
+	clr	r4			; Need new iov...
+	call	$$flun			; ...so get it, assign LUN, etc.
+	call	$$fopt			; and get the options
+both..
+	tst	$$rsts			; Running on RSTS/E
+	beq	fwild1			; No, do native lookup
+..revert
+rsts..
+;
+; Do a RSTS/E csi scan
+;
+	mov	C$PMTR+0(r5),r0		; R0 -> asciz string		;11
+	emt	365			; .DOFSS			;11
+	tstb	@#FIRQB			; Error?
+	bne	20$			; If so, just die
+	mov	@#XRB+10,r0		; "flag word 2"
+	bit	#1400,r0		; Wild p,pn ?
+	beq	30$			; No, ok
+20$:
+	jmp	fwerr			; Yes, can't do it
+;
+30$:
+	mov	#FQBSIZ,r0		; Allocate a
+	call	$$falo			; Wild card block
+	mov	r0,V$WILD(r4)		; Stuff it away
+	mov	r0,r2			; Save a copy
+	mov	#FIRQB,r1		; r1 -> firqb
+
+40$:
+	mov	(r1)+,(r0)+		; Save firqb
+	cmp	r1,#FIRQB+FQBSIZ	; all of
+	blo	40$			; it.
+	movb	#LOKFQ,FQFUN(r2)	; We'll use the lookup function
+	mov	#-1,FQERNO(r2)		; Initialize "current file number"
+	bis	#VF$WLD,V$WFLG(r4)	; Set wild-card bit for fnext()	;07/15
+	jmp	fwexit			; Normal exit
+.even
+;
+; Here on native RT11 fwild call
+;
+fwild1:
+..revert
+native..
+	mov	#V$SIZE+1024.,-(sp)	; Extend iov for block buffer	;15
+	mov	r4,-(sp)		; realloc(iov, (V$SIZE + 1024.));
+	call	realloc			; Extend
+	cmp	(sp)+,(sp)+		; Remove parameters
+	mov	r0,r4			; R4 -> IOV
+	bne	10$			; Br if it succeeded
+	mov	#E$$NSP,r0		;   error(not enough memory)
+	jmp	$$fope
+
+10$:
+	movb	V$LUN(r4),r0		; Reset iov pointer		;15+
+	asl	r0			; (lun as an index)
+	mov	r4,$$luns(r0)		; in the iov table
+	mov	r4,r0			; r0 -> iov			;16
+	add	#V$SIZE,r0		; r0 -> data buffer
+	mov	r0,V$BASE(r4)		; record base
+	mov	#512.,V$RBSZ(r4)	; normal size record		;15-
+	mov	#WDBSIZ,r0		; Allocate a wild data block
+	call	$$falo
+	mov	r0,V$WILD(r4)		; Hook it to iov
+	mov	r0,r3			; r3 --> wdb
+	clr	(r0)+			; Clear out the RAD50 filespec
+	clr	(r0)+
+	clr	(r0)+
+	clr	(r0)+
+;
+; Test for and handle a device spec in the given filespec string. If there
+; is none given, default to "DK:", the RT-11 default storage device.
+; In any case, leave r1 -> first character in given file name.
+;
+	mov	#3,r0			; Look for ':' in 3 char positions
+	mov	C$PMTR+0(r5),r1		;    starting with
+	inc	r1			;    the second character
+20$:	cmpb	#':,(r1)+
+	beq	30$			; Found a ':', scan off the devspec
+	dec	r0			; Loop to the end
+	bne	20$			; of the specification
+;
+; No device name, default to DK:
+;
+	mov	C$PMTR+0(r5),-(sp)	; Save pointer to filename.ext
+	mov	#defdev,(r3)		; Set for default device
+	br	40$			; Go open the directory
+
+30$:	mov	r1,-(sp)		; Save pointer to filename.ext
+	mov	r3,-(sp)		; (sp) --> wdb cell for device name
+	mov	C$PMTR+0(r5),-(sp)	; (sp) --> ASCII device name
+	mov	#4,-(sp)		; Compute device name length
+	sub	r0,(sp)			; (sp) = length of device name
+	call	ascr50			; Convert to RAD50 in wdb
+	add	#<3*2>,sp		; Clean off stack
+
+40$:	mov	r4,-(sp)		; Set up to open directory
+	mov	r3,-(sp)
+	call	dfopen			; Open directory
+	cmp	(sp)+,(sp)+		; Clean off stack
+	tst	r0			; If directory open error
+	bne	50$
+	mov	#E$$NOD,r0		;   error("No device")
+	jmp	$$fope
+
+50$:
+	bit	#VF$FIL,V$FLAG(r4)	; If not a directory device	;15
+	bne	60$
+;
+; Note: the code really should be clever enough to handle "any device"
+; as long as there are no wild cards.  Of course, the program could
+; handle this as:
+;		if ((fd = fwild(name, mode)) == NULL &&
+;			(fd = fopen(name, mode)) == NULL)
+;				error("can't open it noways");
+;
+	mov	#E$$NOD,r0		;   error("No device")
+	jmp	$$fope
+
+60$:	mov	r3,-(sp)		; SAVESTATUS on the directory
+	add	#W.CHST,(sp)		; r0 --> !  5  ! chan!
+	mov	V$LUN(r4),-(sp)		;        !   cblk    !
+	bis	#<400*5>,(sp)		; .savestatus
+	mov	sp,r0			; r0 -> parameter block
+	emt	375			; .savestatus
+	bcc	70$			; Continue if ok
+;
+; As dfopen has returned successfully, an error from savestatus is impossible
+;
+	CRASH				; "can't happen"
+70$:
+	cmp	(sp)+,(sp)+		; Junk the dpb.
+
+
+;
+; Scan the filename argument, building a match string in the
+; wild-card buffer.  Note that the filename and extension both terminate
+; with blanks.  The match string also terminates with a NULL to allow
+; it's printing by a debugger.
+;
+; Ignoring the terminating NULL, the string is exactly 11 bytes long:
+;
+;	-- 6 bytes filename (with blank padding as needed)
+;	-- 1 blank (instead of a dot)
+;	-- 3 bytes filetype (with blank padding as needed)
+;	-- 1 blank terminator
+;
+;
+; Entry:
+;	(sp)	--> source filename (after parsing device name)
+;	r3	--> Wild-card buffer
+;	r4	--> IOV
+;
+
+SPACE	=	040			; Blank character's value
+
+scanst:
+	mov	(sp)+,r1		; R1 -> source filename
+	mov	r4,-(sp)		; save IOV pointer
+	mov	r3,-(sp)		; save WDB pointer
+	add	#W.NAME,r3		; R3 -> pattern area
+	mov	r3,r0			; R0 -> pattern area
+	mov	#W.NSIZ-1,r2		; R2 := pattern size (less NULL)
+
+10$:
+	movb	#' ,(r0)+		; Blank out the pattern
+	dec	r2			; Count bytes
+	bne	10$			; Loop until done
+	clrb	(r0)			; NULL-trail the pattern
+	mov	#6.,-(sp)		; Filename is six bytes long
+;
+; Now:
+;	4(sp)	-> IOV
+;	2(sp)	-> WDB
+;	0(sp)	:= maximum number of bytes in pattern segment
+;	r0	:= current pattern byte
+;	r1	-> source string
+;	r2	:= flag (-1 when the '.' is seen)
+;	r3	-> match buffer
+;	r4	-> scan table pointer
+;
+scan:
+	movb	(r1)+,r0		; Get next byte
+	bne	10$			; Br if not done
+;
+; At end of string, if the dot was seen, we're finished, else fake
+; an asterisk ("foo" == "foo.*")
+;
+	tst	r2			; Dot seen if non-zero
+	bne	parsok			; Br if really done
+;
+; No dot seen, if (sp) == 6, we've been handed a null string, which isn't
+; what we want.
+;
+	cmp	(sp),#6.		; Scanned anything?
+	beq	prserr			; No, sorry.
+	mov	2(sp),r3		; r3 -> wdb
+	movb	#'*,W.NAME+7(r3)	; Stuff in an asterisk
+	br	parsok			; And exit normally.
+;
+; Not at the end of the string, do funny stuff if it's a dot
+;
+10$:
+	cmpb	r0,#SPACE		; Ignore control characters
+	blos	scan			; Br if blank, tab, etc.
+	cmpb	r0,#'.			; Not control, is it the fearsome DOT?
+	bne	20$			; Br if not
+	com	r2			; Flip the DOT flag
+	beq	prserr			; Die if we've gotten DOTted twice
+	mov	2(sp),r3		; Move to the filetype section
+	add	#W.NAME+7.,r3		; R3 -> first byte of filetype
+	mov	#3.,(sp)		; Set the count for the filetype
+	br	scan			; And continue
+;
+; If it's alphabetic, force it to uppercase (and drop parity, too)
+; Then, scan the table to see if it's an acceptable character.
+;
+20$:
+	cmp	r0,#'A			; Is it alphabetic?
+	blo	30$			; Br (unsigned) if not
+	bic	#177640,r0		; 'a' -> 'A', clear out high byte
+
+30$:
+	mov	#sctab,r4		; r4 -> scan table
+
+40$:
+	cmpb	r0,(r4)+		; Is it too low
+	blo	prserr			; Sorry about that
+	cmpb	r0,(r4)+		; Is it within range
+	blos	50$			; Gotcha
+	inc	r4			; Too high, drop the flag
+	br	40$			; And try another
+
+50$:
+	mov	r0,-(sp)		; Save r0			;16+
+	mov	6(sp),r0		; r0 -> iov
+	bisb	(r4),V$WFLG(r0)		; Set "wild-card" flag in IOV
+	mov	(sp)+,r0		; and restore r0.		;16-
+;
+; An OK byte
+;
+	dec	(sp)			; Have we done enough?
+	bmi	prserr			; Exit if name or .ext is too long
+	movb	r0,(r3)+		; Stuff the pattern byte
+	br	scan			; Back for more
+;
+;
+;
+; Error. exit through $$fope
+;
+prserr:					; Parse error
+	mov	4(sp),r4		; Restore r4 --> iov to free buffers
+
+..revert
+
+fwerr:					; Parse error
+	mov	#E$$ILF,r0		; "Illegal filename"
+	jmp	$$fope			; finish up in fopen error
+
+native..
+
+;
+; Successful parse/expansion. The wild match template is in the wdb.
+;
+parsok:					; Parse OK
+	tst	(sp)+			; Pop temp from stack
+	mov	(sp)+,r3		; Restore r3 --> wdb
+	mov	(sp)+,r4		; Restore r4 --> iov
+	bit	#VF$WLD,V$WFLG(r4)	; Wild?				;15
+	bne	20$			; Br if so
+	mov	r3,r2			;   Copy original filespec to wdb
+	add	#W.DEV,r2		;   using the dev and wildmatch area
+	mov	c$pmtr+0(r5),r1		;   r1 --> supplied filespec
+
+10$:
+	movb	(r1)+,(r2)+		; Copy the filespec
+	bne	10$			; Until it's done
+	br	fwexit			; And exit normally
+
+20$:
+;;;	mov	r4,W.DENT(r3)		; Set for 1st entry in segment	;16
+	mov	V$BASE(r4),W.DENT(r3)	; In the data buffer		;15
+	add	#L.HDR,W.DENT(r3)	; At this point			;15
+	mov	#1,W.DSEG(r3)		; Set for first segment
+
+..revert
+
+;
+; Normal exit from fwild()
+;
+fwexit:
+	mov	r4,r0			; Return the iov pointer
+	jmp	cret$			; ALL DONE.
+
+;
+; The scan table contains three bytes per entry:
+;	low_byte	The lowest valid byte in the range
+;	high_byte	The highest valid byte in the range
+;	flag		1 if this (range) signals a wild-card
+; Note that the entries are ordered in ascending ASCII order.
+; Note also that VF$WLD must be <= 128.
+;
+	.psect	c$stcn,d,ro					        ;09,19
+sctab:
+	.byte	'%,'%,VF$WLD
+	.byte	'*,'*,VF$WLD
+	.byte	'0,'9,0
+	.byte	'?,'?,VF$WLD
+	.byte	'A,'Z,0
+	.byte	377		; Everything is too small for this one.
+
+	.psect	c$code,i,ro
+
+;
+; fnext()
+;
+;   If first call to fnext()
+;     If not wild open file normally (-> $$fopo)
+;   else
+;     If not wild
+;       Exit saying "no more files"
+;     else
+;       Close any currently open file on this LUN (dont free iov).
+;
+;   If still more directory to search
+;     Reopen directory from status in wdb
+;     Repeat for each segment
+;       Read directory segment
+;       Compute dir. entry size
+;       Allocate a match working buffer
+;       Repeat
+;         If file type == permanent
+;           Convert RAD50 filename/type to ASCII
+;           If name matches template
+;             Do a savestatus on the directory
+;             Assemble a correct Ascii device:filename.type,
+;             Replace C$PMTR+0(r5) with ptr to  the filename.
+;             Open file via $$fopa entry in fopen()
+;         Else
+;           Get next directory entry
+;       Until file type == end of segment marker
+;       Reset entry pionter in wdb to first entry
+;	Update segment number in wdb via link in current segment header
+;     Until end of directory
+;     Exit saying "no more files"
+;
+; The following was lifted from RT-11, the match routine is
+; identical to that used in DUP (the RT11 file copy program).
+
+;
+
+;		RT-11 DIRECTORY ENTRY DEFINITION
+; A DIRECTORY ENTRY FOR A FILE STRUCTURED DEVICE'S DIRECTORY
+; IS ORGANIZED AS FOLLOWS:
+;
+; OFFSET	MEANING
+; ------	-------
+;   0		STATUS WORD
+;		4000 = END OF DIRECTORY SEGMENT MARKER
+;		2000 = PERMANENT FILE
+;		1000 = EMPTY ENTRY
+;		400 = TENTATIVE ENTRY ON CHANNEL
+;   2-7		FILNAM.EXT IN RADIX 50
+;   10		LENGTH OF HOLE ALLOCATED ON DEVICE
+;   12		DATA LENGTH (HIGHEST BLOCK USED)
+;		12 IS ALSO USED IN ENTER TO HOLD ADDRESS WHICH
+;		FLAGS A TENTATIVE ENTRY, AND IDENTIFIES IT FOR CLOSE
+;   14		CREATION DATE
+;
+; THESE WORDS MAY BE FOLLOWED BY EXTRA 'USER' WORDS
+;
+; STATUS WORD VALUES:
+
+ENDBLK	= 4000		;END OF BLOCK MARKER
+PERM	= 2000		;PERMANENT FILE
+EMPTY	= 1000		;EMPTY ENTRY
+TENT	= 400		;TENTATIVE FILE
+DOFSET	= 4		;DIRECTORY SEGMENT #1 STARTS AT BLOCK 6
+
+; DIRECTORY ENTRY OFFSET DEFINITIONS
+
+E.NAME	= 2		;FILNAM.EXT STARTS AT WORD 2
+E.LENG	= 10		;SIZE OF HOLE ALLOCATED
+E.USED	= 12		;HIGHEST BLOCK WRITTEN (NOW 0)
+E.CHAN	= 12		;WHILE TENTATIVE, HOLDS CHANNEL NUMBER
+E.JNUM	= 13		;FOR BF, HOLDS JOB NUM
+E.DATE	= 14		;CREATION DATE
+L.ENTR	= 16		;LENGTH OF DIR ENTRY
+
+; THE DIRECTORY HEADER IS LOCATED AT THE FRONT OF EACH DIRECTORY
+; SEGMENT.  THE DIRECTORY PROPER STARTS AFTER THE HEADER.
+;
+; WORD		MEANING
+; ----		-------
+;  0		TOTAL NUMBER OF SEGMENTS.
+;  1		SEGMENT NUMBER OF NEXT LOGICAL DIRECTORY SEGMENT IN LINKED LIST.
+;  2		NUMBER OF HIGHEST SEGMENT IN USE.
+;  3		NUMBER OF EXTRA BYTES IN EACH DIRECTORY ENTRY.
+;  4		BLOCK NUMBER WHERE FILES IN THIS SEGMENT BEGIN.
+
+L.HDR	= 12		;LENGTH OF DIRECTORY HEADER IN BYTES.
+D.TOTAL	= 0		;TOTAL NUMBER OF SEGMENTS
+D.NEXT	= 2		;NEXT LOGICAL SEGMENT
+D.HIGH	= 4		;HIGHEST SEGMENT IN USE
+D.EXTR	= 6		;EXTRA BYTES PER ENTRY
+D.STRT	= 10		;STARTING BLOCK NUMBER FOR THIS SEGMENT.
+
+;
+; fnext()
+;
+	.mcall	.reope	.readw	.close
+;
+; Entry point for fnext()
+;
+
+fnext::
+	jsr	r5,csv$			; Link environments
+	mov	C$PMTR+0(r5),r4		; r4 --> iov
+	mov	V$WILD(r4),r3		; r3 --> wdb
+both..									;07+
+	tst	$$rsts			; If it is native RT11,
+	beq	fnext1			; Continue natively
+..revert
+rsts..
+
+	bit	#VF$WF1,V$WFLG(r4)	; If it's the first call	;15
+	beq	10$			; Don't close the file
+;
+; Close out the current file
+;
+	mov	r4,r0			; Make r0 non-zero
+	call	$$clos			; Close the file, keep iov
+	bit	#VF$WLD,V$WFLG(r4)	; Is it really wild?		;15
+	bne	10$			; yes, continue
+	clr	$$ferr			; No, clear error code and	;10
+	jmp	nomore			; take normal exit
+;
+; Ready to find the next file -- r3 -> firqb
+;
+10$:
+	bis	#VF$WF1,V$WFLG(r4)	; Mark second time around	;15
+	inc	FQERNO(r3)		; Increment lookup count
+	mov	#FIRQB,r2		; r2 -> system firqb
+20$:
+	mov	(r3)+,(r2)+		; Copy firqb
+	cmp	r2,#FIRQB+FQBSIZ	; Until
+	blo	20$			; it's done
+	.PRIV				; Signal "RSTS call"
+	CALFIP				; Lookup the file
+	movb	@#FIRQB,r0		; Any errors?
+	beq	40$			; If ok, go open next
+	cmp	#E$$FNF,r0		; File not found?
+	bne	30$			; No -- bad end
+	clr	r0			; Yes, an acceptable error
+30$:
+	jmp	$$fope			; Clean up and exit
+;
+; Got a file, make an ascii file name
+; The longest file name is "_dk7:[100,100]foobar.foo<NULL>"
+;
+40$:
+	sub	#26.,sp			; Get some stack space
+	mov	sp,r0			; r0 -> work area
+	mov	#FIRQB+FQDEV,r2		; r2 -> firqb @ device name
+	tst	(r2)			; is one specified?
+	beq	70$			; Don't output one if not.
+	tstb	@#FIRQB+FQDEVN+1	; Real unit number, too?
+	beq	50$
+	movb	#'_,(r0)+		; supress logical dev. name trans.
+50$:
+	movb	(r2)+,(r0)+		; device name
+	movb	(r2)+,(r0)+		; both bytes
+	tstb	1(r2)			; Real unit?
+	beq	60$			; No, ignore it
+	movb	(r2)+,(r0)		; unit number
+	bisb	#'0,(r0)+		; (make it ascii)
+60$:
+	movb	#':,(r0)+		; Here's the device colon
+70$:
+	mov	V$WILD(r4),r2		; Get our wild card buffer
+	mov	FQPPN(r2),r2		; Get ppn from .fss
+	beq	80$			; None, do file name
+	movb	#'[,(r0)+		; Yes, output marker
+	mov	r0,-(sp)		; buffer
+	mov	r2,-(sp)		; onto the stack
+	swab	(sp)			; Get proj part
+	bic	#177400,(sp)		; Just the byte
+	call	itoa			; Convert it
+	movb	#',,(r0)+		; syntax
+	mov	r0,2(sp)		; update buffer pointer
+	mov	r2,(sp)			; Get programmer number
+	bic	#177400,(sp)		; As a byte
+	call	itoa			; do it
+	movb	#'],(r0)+		; more syntax
+	cmp	(sp)+,(sp)+		; Clean up
+80$:
+	mov	#FIRQB+FQNAM1,r2	; R2 -> firqb @ file name
+	mov	(r2)+,r1		; File name, part 1
+	call	$$c5ta			; convert to ascii
+	mov	(r2)+,r1		; File name, part 2
+	call	$$c5ta			; convert to ascii
+	movb	#'.,(r0)+		; Terminate file name
+	mov	(r2),r1			; File extension
+	call	$$c5ta			; Into ascii
+	clrb	(r0)			; Terminate the file name
+	mov	sp,C$PMTR+0(r5)		; sp -> file name string
+..revert
+both..
+fnextx:									;12+
+	mov	V$LUN(r4),r3		; r3 := lun
+	bic	#VF$EOF!VF$ERR,V$FLAG(r4) ; No errors now		;13/15
+	clr	V$BPTR(r4)		; Clear block pointer
+	clr	V$BCNT(r4)		; and block count
+	clr	V$BNBR(r4)		; and block number
+	jmp	$$fopa			; Open it up			;12-
+
+fnext1:
+..revert
+native..
+;
+; Here on RT11 native wild card open
+;
+	bit	#VF$WF1,V$WFLG(r4)	; Is it the first call?		;15
+	bne	10$			; Br if not
+	bit	#VF$WLD,V$WFLG(r4)	; Is it a wild file?		;15
+	bne	30$			; Br if so
+	mov	r3,C$PMTR+0(r5)		; Get non-wild name
+	br	fnextx			; And go open it up.
+
+10$:
+	bit	#VF$WLD,V$WFLG(r4)	; Not the first call, is it wild? ;15
+	bne     20$			; Br if it's wild
+	jmp	nomore			; Not wild, close up shop
+
+20$:
+	mov	r4,r0			; Make r0 non-zero and
+	call	$$clos			; Close current file
+;
+; Setup to scan for the next file
+;
+;
+; The filename is "dk1:foobar foo <NULL>"  [The blanks are mandatory]
+; Make room for a filename on the stack.  Note: at this point, any
+; "push" must be matched by a corresponding "pop" as (sp) will be the
+; first byte of the filename.
+;
+30$:
+	sub	#16.,sp			; Make ASCII match buffer
+	mov	r3,-(sp)		;
+	add	#W.CHST,(sp)		; Reopen the directory
+	mov	V$LUN(r4),-(sp)		; r0 ->	!  6  ! chan!
+	add	#<400*6>,(sp)		;	!   cblk    !
+	mov	sp,r0			; r0 -> argument block
+	emt	375			; .REOPEN
+	bcc	40$			; Branch if ok
+	jmp	nogood			; Exit if directory won't .reopen
+
+40$:
+	cmp	(sp)+,(sp)+		; Clean off the stack
+;
+; Loop through the directory
+;
+fscan1:
+	mov	W.DSEG(r3),r1		; Compute lbn of segment
+	beq	done			; Exit if at directory end
+	asl	r1
+	add	#DOFSET,r1
+	clr	-(sp)			; Build .readw parameter block
+	mov	#512.,-(sp)		; r0 ->	! 10  ! chan!
+	mov	V$BASE(r4),-(sp)	;	!    blk    !
+	mov	r1,-(sp)		;	!    buf    !
+	mov	V$LUN(r4),-(sp)		;	!   wcnt    !
+	add	#<400*10>,(sp)		;	!     0     !
+	mov	sp,r0			; r0 -> argument block
+	emt	375			; .READW
+	bcs	nogood			; br if error reading directory
+	add	#<5*2>,sp		; Clean off the stack
+	mov	#L.ENTR,r0		; Std dir. entry size = 7 words
+	mov	V$BASE(r4),r2		; r2 --> directory header	;16
+	add	D.EXTR(r2),r0		; Add in extra bytes per entry
+	mov	r0,W.ESIZ(r3)		; Store entry size in wdb
+	bit	#VF$WF1,V$WFLG(r4)	; Second time through		;15
+	bne	fscan3			; Yes, step to next entry
+	bis	#VF$WF1,V$WFLG(r4)	; No set flag for next time.	;15
+
+fscan2:					; Repeat for each entry
+	mov	W.DENT(r3),r2		; r2 --> next entry
+	bit	#PERM,(r2)+		; If file type isn't permanent
+	beq	fscan3			; go for the next one.
+	mov	sp,r0			; r0 --> ASCII buffer
+	mov	W.DEV(r3),r1		; device name
+	call	$$c5ta			; to ascii
+	movb	#':,(r0)+		; followed by a ":"
+	mov	(r2)+,r1		; file name
+	call	$$c5ta			; to ascii
+	mov	(r2)+,r1		; both halves
+	call	$$c5ta			; to ascii.
+	movb	#SPACE,(r0)+		; Then a space, followed by
+	mov	(r2),r1			; the extension
+	call	$$c5ta			; to ascii
+	movb	#SPACE,(r0)+		; followed by a blank,
+	clrb	(r0)			; then terminate the string
+	mov	sp,r1			; r1 -> ASCII string
+	add	#4.,r1			; r1 -> file name
+	mov	r3,r2			; r2 -> pattern string
+	add	#W.NAME,r2		; (now it does)
+	call	match			; Match the file name
+	tst	r0			; r0 != 0 if success
+	beq	fscan3			; Br if no match
+	mov	sp,r1			; r1 -> ASCII string
+	add	#<4.+7.>,r1		; Step to filetype in name
+	add	#7.,r2			; Step to filetype in pattern
+	call	match			; Match the filetype
+	tst	r0			; r0 != 0 if success
+	beq	fscan3			; Br if failure
+;
+; File name matches, stuff a dot and terminator to make fgetname happy.
+;
+	movb	#'.,-(r1)		; Stuff a '.'
+	clrb	4(r1)			; And terminate the name
+	mov	r3,-(sp)		; SAVESTATUS on the directory
+	add	#W.CHST,(sp)		; r0 ->	!  5  ! chan!
+	mov	V$LUN(r4),-(sp)		;	!   cblk    !
+	add	#<400*5>,(sp)		;
+	mov	sp,r0			; r0 -> argument block
+	emt	375			; .SAVESTATUS
+	bcs	nogood			; Exit on impossible error
+;
+; We have a file, sp -> file name string
+;
+	cmp	(sp)+,(sp)+		; Clear the stack
+	mov	sp,C$PMTR+0(r5)		; Stuff file name
+	jmp	fnextx			; Go open the file
+;
+; Not a permanent file, or no match for this one.
+;
+fscan3:
+	add	W.ESIZ(r3),W.DENT(r3)	; Point to next entry
+;; call test1
+	cmp	@W.DENT(r3),#ENDBLK	; At end of segment?
+	bne	fscan2			; Until type == end of segment mkr.
+	mov	V$BASE(r4),W.DENT(r3)	; Reset to 1st entry in segment	;15+
+	add	#L.HDR,W.DENT(r3)	;
+;; call test2
+	mov	V$BASE(r4),r0						;16
+	mov	D.NEXT(r0),W.DSEG(r3)	; Link to next logical segment	;16
+;;;	add	#D.NEXT,W.DSEG(r3)	; Link to next logical segment;15-/16--
+	bne	fscan1			; Continue if more
+done:
+	.CLOSE	V$LUN(r4)		; Close directory channel
+..revert
+;
+; Nothing left in the directory
+;
+nomore:
+	clr	r0			; Indicate no more files
+	call	$$fcls			; Close out the IOV
+	clr	r0			; Successful finish		;13
+	jmp	cret$			; And exit
+native..
+;
+; Unexpected error
+;
+nogood:
+	mov	#E$$ERR,$$ferr		; Unexpected error
+	br	nomore			; Error exit
+;
+; Special routine for opening directory
+; fp = dfopen(&r50nam,&iov)
+;
+dfopen:
+	jsr	r5,csv$
+	mov	C$PMTR+0(r5),r1		; r1 --> RAD50 filespec (incl dev)
+	mov	C$PMTR+2(r5),r4		; r4 --> iov
+	mov	V$LUN(r4),r3		; r3 = lun
+	jmp	$$fopr			; Open with RAD50 spec
+
+;
+; ** MATCH
+;
+; This routine performs a wildcard pattern match against an ASCII
+; pattern string.  The matchable wildcards are:
+;
+;	'%' or '?'	Match any non-null, non-blank character
+;	'*'		Match any (even null) string
+;
+; Both strings must end in an ascii blank.
+;
+; Entry:
+;	r1	string to match
+;	r2	pattern
+;
+; Return:
+;	r0	non-zero if there is a match
+;	r1	modified.
+;
+match:
+	jsr	r5,$$svr1		; Save registers r1-r5
+	clr	r0			; Assume failure
+	mov	#SPACE,r4		; An ASCII blank is often used
+10$:
+	movb	(r2)+,r3		; Get the next pattern character
+	cmpb	#'*,r3			; Is it an asterisk?
+	bne	20$			; Br if not
+	cmpb	(r2),r4			; Are we at the end of the string?
+	beq	30$			; Br if so, we have a match.
+
+20$:
+	cmpb	(r1),r4			; At the end of the test string?
+	bne	40$			; Br if not.
+	cmpb	r3,r4			; Yes, at the end of the pattern?
+	bne	60$			; Br if not, returning one level
+
+30$:
+	inc	r0			; Match
+	br	60$			; Take common return
+
+40$:
+	cmpb	r3,r4			; Is this the end of the pattern?
+	beq	60$			; Return if so
+	cmpb	#'*,r3			; Is this the wild string pattern?
+	beq	50$			; Br if so
+	cmpb	(r1)+,r3		; No, does it match the pattern?
+	beq	10$			; Br if so, try for another
+	cmpb	#'%,r3			; No match, is it single-byte joker?
+	beq	10$			; It "matches" if so
+	cmpb	#'?,r3			; Try for the RSTS joker
+	beq	10$			; It "matches" if so
+	br	60$			; Sorry, return one level.
+
+50$:
+	mov	r1,-(sp)		; Asterisk, push r1
+	mov	r2,-(sp)		; and r2
+	jsr	pc,10$			; and call ourselves
+	mov	(sp)+,r2		; restore context
+	mov	(sp)+,r1		; both of them
+	tst	r0			; Did the strings match?
+	bne	60$			; Unwind if so
+	cmpb	(r1)+,r4		; No, at the end of the test string?
+	bne	50$			; No, try another match
+
+60$:
+	return				; Unwind one level
+
+..revert
+.endc
+	.end

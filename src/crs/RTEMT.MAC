@@ -1,0 +1,41 @@
+	.title	rtemt	Execute a RT11 EMT
+	.ident	/000002/
+;
+;+
+;
+; Index		Execute a RT11 EMT after loading r0
+;
+; Usage
+;
+;	int
+;	rtemt(emt, r0value)
+;
+; Description
+;
+;	Execute a rt11 emt after loading r0.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 21-Apr-82 JLB	Initial edit
+; 000002 19-Jan-02 BQT	Changed for I/D space.
+;
+
+;
+; Do an RT11 EMT after loading R0
+;
+; Usage:
+;	rtemt(emt, r0)
+;
+	.psect	c$code,i,ro
+rtemt::
+	jsr	r5,	csv$	; Save the regs and setup R5
+	mov	C$PMTR+2(r5),r0	; Load R0 from the second arg
+	mov	(pc)+,	-(sp)	; Push a "return from stack" on the stack
+	  jsr	sp, @(sp)+	;  "Return" to be pushed
+	mov	C$PMTR+0(r5),-(sp) ; Push the EMT (No error checking!!!)
+	jsr	pc,	(sp)	; Call the routine created on the stack
+	jmp	cret$		; And return to our caller
+	.end

@@ -1,0 +1,533 @@
+	.title	atod	Convert Ascii to double floating
+	.ident	/000005/
+;
+;+
+;
+; Index		Convert Ascii to floating point
+;
+; Usage
+;
+;	double
+;	atod(buffer)
+;	char		*buffer;
+;
+; Description
+;
+;	Converts a double-precision floating point number written in
+;	scientific notation from ASCII to a "double" number.  The BNF
+;	for numbers which can decoded by this routine follows:
+;
+;	    <number> := <sign> <real number>
+;	    <real number> :=
+;		<decimal number>
+;		| <decimal number> <exponent>
+;		| <exponent>
+;	    <decimal number> :=
+;		<integer>
+;		| <integer> .
+;		| . <integer>
+;		| <integer> . <integer>
+;	    <integer> := <digit> | <integer> <digit>
+;	    <exponent> :=
+;		{ E | e | D | d } <sign> <integer>
+;	    <digit> := 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+;	    <sign> := + | - | <empty>
+;
+;	The conversion stops on the first non-legal character.  (Note:
+;	if this routine is declared type char *, it will return a pointer
+;	to the first non-legal character.)
+;
+; Bugs
+;
+; Internal
+;
+;	If the C library is compiled using "inline EIS" (C$$EIS=1),
+;	hardware floating point is also required.
+;
+;	Note:  This routine uses the table in the DOUTAB module.
+;
+;-
+;
+; Edit history
+; 000001 29-Apr-80 MM	First attempt, not using EIS
+; 000002 28-Jan-82 SDR	Added "EIS" version using FPP by modifying Bruce
+;			Shimano's very accurate, single precision routine
+; 00002a 07-Jun-85 DLE	Change .psect .prog. to c$code; also .data. to c$data
+; 000003 19-Jan-87 JMC  Change .psect for I/D space.
+; 000004 15-Jan-02 BQT	Changed for I/D space.
+;
+
+.iif	ndf	C$$EIS	C$$EIS	=	0
+
+	.PSECT	c$code,i,ro
+
+.if eq C$$EIS
+
+; Note:  Taken from CC101 without much attempt at conversion.
+;
+; LOCAL DATA USED BY ATOD.
+; FBEX MUST BE JUST BEFORE FBUF.
+; FESGN MUST BE LAST.
+;
+
+FLOCAL	=	0
+
+.MACRO	ASSIGN	NAME	WORDS
+NAME	=	-FLOCAL
+FLOCAL	=	FLOCAL + WORDS + WORDS
+.ENDM	ASSIGN
+
+
+
+	ASSIGN	FBEX	1		;BINARY EXP.
+	ASSIGN	FBUF	4		;MAIN ACC.
+	ASSIGN	FSAV	4		;AUX. ACC.
+	ASSIGN	FSGN	1		;SIGN.
+	ASSIGN	FEXP	1		;DECIMAL EXP.
+	ASSIGN	FDOT	1		;DOT FLAG.
+	ASSIGN	FESGN	1		;EXP. SIGN.
+
+;
+; THIS ROUTINE IS BASED ON THE ROUTINE IN MACRO-11 THAT PROCESSES THE
+; ".FLT2" AND ".FLT4" PSEUDO OPERATIONS. THE CODE THAT MULTIPLIES THE
+; NUMBER BY 4/5 IS ESPECIALLY CLEVER, AND WAS LIFTED ALMOST AS IS.
+;
+;-
+
+ATOD::
+.if ne	0
+	CRASH			; not yet written
+.iff
+	MOV	R0,-(SP)	;SAVE ALL REGISTERS.
+	MOV	R1,-(SP)	;
+	MOV	R2,-(SP)	;
+	MOV	R3,-(SP)	;
+	MOV	R4,-(SP)	;
+	MOV	R5,-(SP)	;
+
+	MOV	#FBUF,R0	;CLEAR WORK AREAS.
+10$:	CLR	(R0)+		;
+	CMP	R0,#FESGN+2	;
+	BLO	10$		;
+	MOV	#65.,FBEX	;SET BINARY EXP.
+
+	MOV	#NB,R5		;POINT AT ASCII NUMBER.
+
+
+	MOVB	(R5)+,R0	;GRAB A CHARACTER.
+	CMP	R0,#'+		;IS IT A "+"
+	BEQ	20$		;YES, IGNORE
+	CMP	R0,#'-		;IS IT A "-"
+	BNE	30$		;NO
+	MOV	#100000,FSGN	;YES, SET SIGN FLAG
+
+20$:	MOVB	(R5)+,R0	;GET NEXT CHARACTER
+
+30$:	CMP	R0,#'0		;IS IT A DIGIT
+	BLO	60$		;NO
+	CMP	R0,#'9		;WELL
+	BHI	60$		;NO
+	BIT	#174000,FBUF	;CAN WE HANDLE ANOTHER DIGIT.
+	BEQ	40$		;YES
+	INC	FEXP		;NO, ADJUST SCALE.
+	BR	50$		;
+
+40$:	CALL	FM5		;MULTIPLY BY 10
+	CALL	FLS		;
+	MOV	#FBUF+10,R1	;ADD IN THE DIGIT
+	SUB	#'0,R0		;
+	ADD	R0,-(R1)	;
+	ADC	-(R1)		;
+	ADC	-(R1)		;
+	ADC	-(R1)		;
+
+50$:	ADD	FDOT,FEXP	;FDOT IS -1 AFTER THE "."
+	BR	20$		;
+
+60$:	CMP	R0,#'.		;DECIMAL POINT
+	BNE	70$		;NO
+	COM	FDOT		;FLIP DOT FLAG
+	BMI	20$		;GO FOR MORE
+	BR	110$		;SECOND ".", QUIT
+
+70$:	CMP	R0,#'E		;EXPONANT
+	BEQ	80$		;YES
+	CMP	R0,#'e		;IN EITHER CASE
+	BNE	110$		;NO, END
+
+80$:	CLR	R1		;GET EXPONANT
+	MOVB	(R5)+,R0	;GET FIRST CHARACTER
+	CMP	R0,#'+		;IS IT A "+"
+	BEQ	90$		;YES, IGNORE
+	CMP	R0,#'-		;IS IT A "-"
+	BNE	100$		;NO
+	INC	FESGN		;SET FLAG
+
+90$:	MOVB	(R5)+,R0	;GRAB NEXT CHARACTER
+
+100$:	CMP	R0,#'0		;IS IT A DIGIT
+	BLO	105$		;NO
+	CMP	R0,#'9		;
+	BHI	105$		;NO
+	ASL	R1		;ADD IN THE DIGIT
+	MOV	R1,R2		;
+	ASL	R1		;
+	ASL	R1		;
+	ADD	R2,R1		;
+	SUB	#'0,R0		;
+	ADD	R0,R1		;
+	BR	90$		;
+
+105$:	TST	FESGN		;IS IT NEGATIVE
+	BEQ	106$		;NO
+	NEG	R1		;FIX
+
+106$:	ADD	R1,FEXP		;FIX EXPONANT
+
+;
+; DONE COLLECTING THE NUMBER.
+; IF "FEXP" IS NON ZERO (DECIMAL SCALE) APPLY
+; THE SCALING TO THE BINARY NUMBER.
+;
+
+110$:	MOV	#FBUF,R0	;QUICK CHECK FOR "0".
+	MOV	(R0)+,R1	;
+	BIS	(R0)+,R1	;
+	BIS	(R0)+,R1	;
+	BIS	(R0),R1		;
+	BEQ	200$		;BR IF 0.
+
+	TST	FEXP		;ANY SCALING?
+	BEQ	180$		;NO
+	BLT	150$		;YES, DIVIDE
+
+120$:	CMP	FBUF,#31426	;CAN IT HANDLE A * 5?
+	BHI	130$		;NO
+	CALL	FM5		;YES, MULTIPLY BY 5
+	INC	FBEX		;AND BY 2
+	BR	140$		;
+
+130$:	CALL	FM54		;MULTIPLY BY 5/4
+	ADD	#3,FBEX		;AND BY 8
+
+140$:	DEC	FEXP		;LOOP UNTIL ALL DONE
+	BNE	120$		;
+	BR	180$		;
+
+150$:	TST	FBUF		;LEFT JUSTIFY
+	BMI	155$		;
+	DEC	FBEX		;
+	CALL	FLS		;
+	BR	150$		;
+
+155$:	MOV	#40,R1		;SET STEP COUNT
+	CALL	FRS		;SHIFT RIGHT ONCE AND
+	CALL	FSV		;COPY TO SAVE BUFFER
+
+160$:	BIT	#1,R1		;ODD ITERATION?
+	BNE	170$		;YES.
+	CALL	FRS		;NO, 2 EXTRA
+	CALL	FRS		;SHIFTS.
+
+170$:	CALL	FRS		;SHIFT RIGHT.
+	CALL	FAD		;ADD IN SAVE BUFFER.
+	DEC	R1		;
+	BNE	160$		;
+
+	SUB	#3,FBEX		;DIVIDE BY 8.
+	INC	FEXP		;DO ALL THE SCALING.
+	BNE	150$		;
+
+;
+; NORMALISE.
+; ROUND.
+; PUT THE NUMBER TOGETHER.
+;
+
+180$:	DEC	FBEX		;NORMALISE AND
+	CALL	FLS		;GOBBLE UP THE
+	BCC	180$		;HIDDEN BIT.
+
+	MOV	#FBUF+10,R0	;BEGIN D.P. ROUND.
+	ADD	#400,-(R0)	;JUST BELOW LAST BIT WE KEEP.
+	ADC	-(R0)		;RIPPLE
+	ADC	-(R0)		;IN
+	ADC	-(R0)		;CARRIES.
+	BCC	185$		;IF NC, HIDDEN BIT STILL "1".
+	INC	FBEX		;CARRY COMPLEMENTS THE
+	CALL	FRS		;HIDDEN BIT.
+
+185$:	ADD	#200,FBEX	;EXCESS 128.
+;	BLE	GAK		;UNDERFLOW.
+;	TSTB	FBEX+1		;AND
+;	BNE	GAK		;OVERFLOW.
+
+	MOV	#FBUF+10,R0	;SLIDE DOWN BY 8 BITS.
+	MOV	#FBUF+6,R1	;
+190$:	CMP	-(R0),-(R1)	;BACK UP 1 WORD.
+	MOVB	(R1),(R0)	;SLIDE A BYTE.
+	SWAB	(R0)		;WATCH BYTE ORDER.
+	CMP	R0,#FBUF	;DO IT ALL
+	BHI	190$		;INCLUDING FBEX.
+
+	CALL	FRS		;THEN MAKE ROOM FOR SIGN
+	ADD	FSGN,FBUF	;AND ADD IT IN.
+
+200$:	MOV	#FBUF,R0	;MOVE
+	MOV	#VAL1,R1	;RETURN
+	MOV	(R0)+,(R1)+	;VALUE
+	MOV	(R0)+,(R1)+	;TO
+	MOV	(R0)+,(R1)+	;RIGHT
+	MOV	(R0)+,(R1)+	;PLACE
+
+	MOV	(SP)+,R5	;RETURN
+	MOV	(SP)+,R4	;
+	MOV	(SP)+,R3	;
+	MOV	(SP)+,R2	;
+	MOV	(SP)+,R1	;
+	MOV	(SP)+,R0	;
+	RETURN			;
+
+; LOCAL ROUTINES -- non EIS
+;
+
+FSV:	MOV	#FBUF,R2	;MOVE FBUF TO FSAV
+	MOV	#FSAV,R3	;
+
+10$:	MOV	(R2)+,(R3)+	;
+	CMP	R2,#FBUF+10	;
+	BLO	10$		;
+	RETURN			;
+
+FRS:	MOV	#FBUF,R2	;RIGHT SHIFT
+	CLC			;
+	ROR	(R2)+		;
+	ROR	(R2)+		;
+	ROR	(R2)+		;
+	ROR	(R2)		;
+	RETURN			;
+
+FLS:	MOV	#FBUF+10,R2	;LEFT SHIFT
+	ASL	-(R2)		;
+	ROL	-(R2)		;
+	ROL	-(R2)		;
+	ROL	-(R2)		;
+	RETURN			;
+
+FM54:	CMP	FBUF,#146314	;MULTIPLY BY 5/4
+	BLO	10$		;ROOM.
+	CALL	FRS		;ADJUST.
+	INC	FBEX		;
+
+10$:	CALL	FSV		;SAVE IN FSAV
+	CALL	FRS		;SCALE
+	CALL	FRS		;RIGHT.
+	BR	FAD		;ADD AND RETURN.
+
+FM5:	CALL	FSV		;MULTIPLY BY 5.
+	CALL	FLS		;
+	CALL	FLS		;
+
+FAD:	MOV	#FBUF+10,R2	;ADD FSAV TO FBUF
+	MOV	#FSAV+10,R3	;
+
+10$:	ADD	-(R3),-(R2)	;DO AN ADD
+	BCC	30$		;NO CARRIES.
+	MOV	R2,R4		;RIPPLE UP THE CARRIES.
+20$:	ADC	-(R4)		;
+	BCS	20$		;
+
+30$:	CMP	R2,#FBUF	;LOOP TIL DONE
+	BHI	10$		;
+	RETURN			;
+
+.endc	; .if CRASH
+
+.iff	; not Z C$$EIS
+
+;; ATOD  -- String to floating point number conversion routine
+
+; PURPOSE:  Converts a floating point number written in scientific notation
+;	from ASCII to a number in internal floating point representation.
+;	The BNF for numbers which can decoded by this routine follows:
+;
+;	<number> := <sign> <real number>
+;	<real number> := <decimal number> | <decimal number> <exponent>
+;			 | <exponent>
+;	<decimal number> := <integer> | <integer> . | . <integer>
+;			    | <integer> . <integer>
+;	<integer> := <digit> | <integer> <digit>
+;	<exponent> := {E | e | D | d} <sign> <integer>
+;	<digit> := 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+;	<sign> := + | - | <empty>
+;
+; INPUT PARM.:	2(SP) = Pointer to the string containing the value to be
+;		     converted.  NO LEADING SPACE CHARACTERS ARE ALLOWED.
+;
+; OUTPUT PARM.: if no error, C bit cleared
+;		   R0 = points at first character following last character of
+;			number
+;		   AC0= converted floating point value
+;		else, C bit set
+;		   AC0= trash
+;		   R0 = points at character that generated error condition
+;
+; SIDE EFFECTS: R0,R1,AC0 altered.  The FPS error bit is cleared and may
+;	be set by this routine.
+
+; REGISTER DEFINITIONS
+
+CHR	= R0	;CHARACTER BUFFER
+ERRFLG	= R1	;ERROR FLAG:  -1=ERROR STATE, 0=NO # FOUND YET, +=GOT NUM
+SGNFLG	= R2	;SIGN FLAG: -1 IF NEGATIVE ELSE 0
+SCL	= R3	;SCALING REGISTER.  **MUST BE ODD REGISTER**
+SG	= R5
+AC0	= %0
+
+; Start of routine.
+
+ATOD::	MOV	R2,-(SP)	; Save em
+	MOV	R3,-(SP)
+	MOV	R5,-(SP)
+	MOV	10(SP),SG	; Pointer to input string
+
+	LDFPS	#5200		; Reset F.P. error bit and do SETD
+	CLRD	AC0		;ACCUMULATE NUMBER IN HERE
+	CLR	ERRFLG		;INDICATE NO NUMBER ENCOUNTERED YET
+
+
+; Decode "INTEGER . INTEGER"
+
+	CALL	GSIGN		;DECODE SIGN CHAR, ALTER SGNFLG & ERRFLG
+	CALL	ACCUM		;ACCUMULATE A INTEGER NUMBER IN AC0
+	CMPB	#'.,CHR		;DECIMAL FRACTION FOLLOWS?
+	BNE	10$		;	NO
+	CLR	SCL		;KEEP TRACK OF HOW TO SCALE FRACTION PART
+	CALL	ACCUM		;APPEND FRACTION AS MORE INTEGER PART
+
+;	[Continued]
+
+;;	[ATOD - CONTINUED]
+
+	TST	ERRFLG		;SYNTAX ERROR IF WE FOUND "." AND NO DIGITS
+	BMI	60$		;	SYNTAX ERROR
+	CMP	SCL,#38.*10	;SCALE FRACTIONAL PART, BUT MUST BE IN RANGE
+	BGT	60$		;	SCALING CANT BE DONE
+	DIVD	$$TENS(SCL),AC0	;NOW HAVE DECIMAL NUMBER CORRECTLY REPRESENTED
+
+; Correct decimal number for proper sign
+
+10$:	TST	ERRFLG		;ANY DIGITS ENCOUNTERED YET?
+	BGT	15$		;	YES
+	LDD	#1.0,AC0	;DECIMAL NUMBER IS AN IMPLIED 1
+15$:	TST	SGNFLG		;CORRECT DECIMAL NUMBER FOR PROPER SIGN
+	BPL	20$
+	NEGD	AC0
+
+; Decode exponent and correct decimal integer
+
+20$:	CMP	#'E,CHR		;EXPONENT FOLLOWS DECIMAL NUMBER?
+	BEQ	25$		;	YES
+	CMP	#'e,CHR		;LOWER CASE E AS EXPONENT?
+	BEQ	25$		;	YES
+	CMP	#'D,CHR
+	BEQ	25$		;	YES
+	CMP	#'d,CHR
+	BNE	50$		;	NO
+25$:	MOV	#-1,ERRFLG	;WE ARE NOW IN ERROR STATE UNTIL DIGIT FOUND
+
+	CALL	GSIGN		;PICK OFF SIGN OF EXPONENT
+	CLR	SCL		;ACCUMULATE EXPONENT VALUE IN HERE
+30$:	CALL	DIGIT		;GET A DIGIT OF THE EXPONENT
+	BLT	40$		;	NO MORE DIGITS FOUND
+	MUL	#10.,SCL	;EXPONENT = EXPONENT*10 + DIGIT
+	ADD	CHR,SCL
+	CMP	SCL,#38.	;EXPONENT OUT OF RANGE?
+	BLE	30$		;	NO, KEEP ACCUMULATING
+	BR	60$		;	ERROR
+
+40$:	ASH	#3,SCL		;SCALE DECIMAL NUMBER BY EXPONENT
+	TST	SGNFLG		;NEED TO SCALE UP OR DOWN?
+	BPL	45$
+	DIVD	$$TENS(SCL),AC0	;SCALE DOWN
+	BR	50$
+45$:	MULD	$$TENS(SCL),AC0	;SCALE UP
+
+; Test for error conditions before exiting
+
+50$:	STFPS	CHR		;FETCH FLOATING POINT STATUS
+	TST	CHR		;F.P. OVERFLOW?
+	BMI	60$		;	OVERFLOW ERROR
+
+	TST	ERRFLG		;NUMBER OK, NOT FOUND, OR BAD SYNTAX?
+	BGT	70$		;	OK
+
+; Error and normal exit
+
+60$:	SEC			;SIGNAL ERROR CONDITION
+
+70$:	DEC	SG		;POINT AT BREAK CHARACTER
+	MOV	SG,R0		; Return pointer in R0
+	MOV	(SP)+,R5	; Restore em
+	MOV	(SP)+,R3
+	MOV	(SP)+,R2
+	RETURN
+
+;	[CONTINUED]
+
+;;	[ATOD SUBROUTINES]
+
+; Decode sign.  set SGNFLG and indicate error state until a digit is found
+
+GSIGN:	CLR	SGNFLG		;ASSUME NUMBER POSITIVE
+	CMPB	#'+,(SG)	;"+" CHARACTER?
+	BEQ	10$		;	ITS "+"
+	CMPB	#'-,(SG)	;"-" CHARACTER?
+	BNE	20$		;	ITS NOT A SIGN CHARACTER
+	DEC	SGNFLG		;INDICATE ITS A NEGATIVE CHAR
+10$:	INC	SG		;ADVANCE PTR PAST SIGN CHARACTER
+	MOV	#-1,ERRFLG	;NOW IN ERROR STATE UNLESS MORE FOLLOWS
+20$:	RETURN
+
+
+; Accumulate a floating point integer in AC0.
+
+ACCUM:	CALL	DIGIT		;GET A CHAR AND CONVERT DIGIT TO BINARY
+	BLT	10$		;	NO DIGIT FOUND
+	MULD	#10.0,AC0	;SUM = SUM*10 + DIGIT
+	ASH	#3,CHR
+	ADDD	DIGLST(CHR),AC0
+	ADD	#10,SCL		;KEEP TRACK OF NUMBER OF DIGITS FOUND
+	BR	ACCUM
+10$:	RETURN
+
+
+
+; Convert ascii digit to binary and leave in "CHR"
+
+DIGIT:	MOVB	(SG)+,CHR	;GET NEXT CHARACTER
+	CMP	CHR,#'0		;COMPARE TO ASCII 0
+	BLT	10$		;	OUT OF RANGE
+	CMP	#'9,CHR		;NOT 0-9?
+	BLT	10$		;	OUT OF RANGE
+	SUB	#'0,CHR		;CONVERT TO INTEGER
+	MOV	#77777,ERRFLG	;CLEAR ERROR FLAG
+10$:	RETURN
+
+
+
+; End of ATOD and its subroutines
+
+;; DATA AREA
+
+	.psect	c$mwcn,d,ro
+
+; F.P. Digits From 0.0 To 9.0
+
+DIGLST:	.flt4	0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0
+
+
+
+.endc	; NZ C$$EIS
+
+.END

@@ -1,0 +1,6 @@
+; RSXRMS - A small file to setup things to build RMS version of
+; the DECUS C library on RSX.
+;
+	.include	/sr:rsx/
+RMSIO	=	1		; Assemble for RMS
+n$$fil	=	0		; Default number of block buffers.

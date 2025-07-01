@@ -1,0 +1,139 @@
+	.title	calltr	Trace Path to the Caller
+	.ident	/000010/
+;+
+;
+; Index		Trace path to the caller
+;
+; Usage
+;
+;	calltrace(outfd);
+;	FILE		*outfd;
+;
+; Description
+;
+;	calltrace() prints the calling path (from main()) to the
+;	routine that called calltrace()) on the indicated file.
+;	The path is printed on one line as:
+;
+;		[ main sub1 sub2 ]
+;
+;	If a subroutine within the path was not compiled with
+;	profiling, or does not start with a call to the C register
+;	register save routine, it will be printed as <nnnnnn>
+;	(where <nnnnnn> is the octal address of the entry to the routine).
+;	Note that the last entry on the line is the routine that
+;	invoked calltrace().
+;
+;	A call trace will be printed on exit if profiling is enabled
+;	and the program aborts or calls error().
+;
+; Internal
+;
+;	Warning -- this routine is sensitive to the format of
+;	the environment frame and profile information layout.  If
+;	csv$, pcsv$, or $$prof change, this may have to be modified.
+;
+;	A special entry for error() is provided, which allows the
+;	proper "bug" address to be displayed, rather than the return
+;	address of error() itself.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 27-Jun-80 MM		Initial edit
+; 000002 30-Jun-80 MM		Add error()
+; 000003 ??-???-80
+; 000004 ??-???-80
+; 000005 15-Jul-80 RB Denny	Fix up $$ctra entry for correct address.
+; 000006 15-Jul-80 RB Denny	Catch odd address during chain back
+; 000007 18-Jul-80 MM		"bug at ..." message fixed
+; 000008 13-Oct-80 MM		Random return in $$ctra fixed edits removed
+; 000009 19-Jan-87 JMC		Change .psect for I/D space.
+; 000010 14-Jan-02 BQT		Changed for I/D space and new stack layout
+;
+LF	=	12			;Line feed
+	.enabl	gbl,lc
+	.psect	c$prof,d,rw						;09
+name:	.word	0			;For call of $$ctra
+	.asciz	/error/			;fake a name for the trace
+	.even
+
+	.psect	c$stcn,d,ro
+setup:	.asciz	<LF>/[/			;Line feed on entrance
+done:	.asciz	/ ]/<LF>		;Line feed on exit, too
+noname:	.asciz	/ <%06o>/		;If we don't know it's name
+isname:	.asciz	/ %s/			;If we do know it's name
+
+	.psect	c$data,d,rw
+loop:	.byte	1			;Count times through error()
+	.even
+
+	.psect	c$code,i,ro
+calltr::
+	jsr	r5,csv$			;Save environment
+	mov	C$PMTR+0(r5),r4		;r4 -> output file
+	mov	r5,r3			;r3 -> environment
+	call	10$			;Do the work
+	mov	#done,(sp)		;Print final message
+	mov	r4,-(sp)		;on the file
+	call	fprintf			;using fprintf
+	jmp	cret$
+;
+; Recurse through the environment list 'till the 0 from $$main
+;
+10$:
+	tst	r3			;Done yet?
+	bne	20$			;Continue if more
+	return				;Done with this one
+
+20$:
+	mov	r3,-(sp)		;Save current environment
+	mov	(r3),r3			;Chain back
+	call	10$			;Try another
+	mov	(sp),r3			;Get current environment, keep stack
+;
+; Print the environment
+;
+	mov	(r3),r1			;r1 -> caller's environment
+	bne	30$			;Br if there was one
+	mov	#setup,-(sp)		;At main, say so
+	br	60$			;Continue main sequence
+
+30$:
+	mov	-10(r1),(sp)		;Called routine
+	beq	50$			;No profiling
+	add	#2,(sp)			;text starts at second word
+	mov	#isname,-(sp)		;format string
+	br	60$
+
+50$:
+	mov	2(r3),(sp)		;Plant subroutine entry address
+	mov	#noname,-(sp)		;format string
+
+;
+; Print the (partial) calling string, on entrance:
+;	2(sp)	argument (or dummy)
+;	0(sp)	format string
+;
+
+60$:
+	mov	r4,-(sp)		;iov
+	call	fprintf			;print it
+	add	#6,sp			;pop stack
+	return				;back we go
+;
+; This is called from error() if tracing was enabled.
+; $$ctra calls pcsv$ to force "error" into the trace.
+;
+$$ctra::
+	mov	#name,r0	;Who are we
+	jsr	r5,pcsv$	;Establish context with pcsv
+	asrb	loop		;How often hither
+	bcc	10$		;Too often, sorry
+	mov	stderr,(sp)	;Trace to stderr
+	call	calltr		;Do a trace
+10$:
+	jmp	cret$		; and exit
+	.end

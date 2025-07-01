@@ -1,0 +1,72 @@
+	.title	isatty	Test if terminal file
+	.ident	/000008/
+;
+;+
+;
+; Index		Test if a file is a terminal
+;
+; Usage
+;
+;	isatty(channel_number)
+;	int		channel_number;
+;
+; Description
+;
+;	Return 1 if the file open on this channel is a
+;	terminal-type device.
+;	In general, this means the user's command terminal.
+;
+;	Note that the argument is a file descriptor,
+;	not a FILE * pointer.  File descriptors are used on
+;	Unix to identify the channel on which the file is
+;	open.  As Decus C does not support file descriptor
+;	I/O processing, the logical unit number assigned
+;	to a file by fopen() is used instead. Use isatty()
+;	as follows:
+;
+;		if (isatty(fileno(fd))) ...
+;
+; Bugs
+;
+;	Note that Decus C channel numbers are not related to
+;	Unix file descriptors.  Specifically,
+;
+;		isatty(0)
+;
+;	does not necessarily check stdin.  Use
+;
+;		isatty(fileno(stdin))
+;
+;	instead.
+;
+;-
+;
+; Edit history
+; 000001 24-Jul-79 MM	Initial edit
+; 000002 10-Mar-80 MM	Conversion for the newer library
+; 000003 08-Oct-81 MM	Bummed code
+; 000004 23-Nov-81 MM	redone from ftty from scratch
+; 000005 20-May-82 MM	Bugfix
+; 000006 02-Jul-82 MM	Newer library
+; 000007 19-Aug-82 MM	Dumb bug
+; 000008 18-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1				;05
+
+	.psect	c$code,i,ro
+
+isatty::
+	clr	r0
+	mov	2(sp),r1		; lun pointer
+	asl	r1			; as an index
+.if ne	rsx								;05+
+	mov	$$luns-4(r1),r1	; r1 -> iov				;06/07
+.iff
+	mov	$$luns(r1),r1		; r1 -> iov			;06/07
+.endc									;05-
+	bit	#VF$TTY,V$FLAG(r1)	; check it			;06
+	beq	10$
+	inc	r0
+10$:
+	return
+	.end

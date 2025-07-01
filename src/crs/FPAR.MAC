@@ -1,0 +1,166 @@
+	.title	$$fpar	Parse & Set up Blox RMS fopen
+	.enabl	lc
+	.ident	/RMS006/
+;
+;+
+;
+; Internal
+;
+; Index		Parse file name argument for fopen/fwild (RMS-11)
+;
+; Usage
+;
+;	mov	iov,r4	;r4 -> iov
+;	call	$$fpar	;C$PMTR+0(r5) => file name
+;			;file name is parsed and FAB/RAB etc. setup.
+;			;r0-r3 random
+;			;error: return to caller via $$fope
+;
+; Description
+;
+;	Parse the file name argument, and dynamically create the
+;	RMS-11 specific blox (FAB, RAB, NAM block, DAT block &
+;	PRO block).  Used on RSX/RMS-11 only.  If possible, this
+;	routine establishes RMS-11 wildcard context.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 ??-???-?? TTC	Initial edit, after $$fcsi
+; RMS001 13-Dec-83 RBD	Many changes here.  No edit trails.  Will change
+;			to use $STORE & friends later.
+; RMS002 17-Dec-83 RBD	Cleaned up.  $OPEN is tried even if $PARSE
+;			or $SEARCH fail here.
+; RMS003 29-Dec-83 TTC	Added test to see if we were called from fwild
+;			and if so don't do initial search here.
+; RMS004 02-Mar-84 RBD	Get rid of $$DFNA for RMS ... the "SY:" isn't
+;			compatible with DECnet (DAP) access to VMS systems.
+; RMS005 19-Jan-02 BQT	Changed for I/D space.
+; RMS006 21-Jan-02 BQT	Dropped PRO XAB if creating file.
+;			Added default name, since something funny happens
+;			with RMS images, and we don't get deferred binding
+;			on SY:
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+.iif	ndf	rmsio	rmsio	=	0	;Assume FCS-11
+.if ne	RSX
+.if ne RMSIO
+	.MCALL	$PARSE	$SEARCH	$FETCH	$STORE	$SET	$COMPARE
+
+;	.psect	c$stcn,d,ro
+;defnam:	.ascii	/SY:/
+;defl=.-defnam
+
+	.psect	c$data,d,rw
+$$dpro::	.word	-1		;Default protection.
+;									;04--
+FNMSIZ	=	82.		;Filename size maximum
+
+;
+;
+; ** $$FPAR
+;
+; Parse the file name and setup the FDB for the open
+;
+; Calling sequence:
+;
+;	jsr	r5,csv$		;standard setup
+;	mov	iov,r4		;r4 -> io vector
+;	call	$$fpar		;parse the file name
+;				;return: r0 -> fdb
+;				;r0-r3 have been destroyed
+;				;(exit via $$fope on error)
+;
+	.psect	c$code,i,ro
+
+$$FPAR::
+;
+; Set up the FAB & its XAB chain, RAB and parse the file
+; name using the RMS PARSE MACRO.  We are creating the
+; blox on the fly here.
+;
+	MOV	R4,R2		;R2 --> IOV
+	ADD	#V$FAB,R2	;R2 --> FAB
+	MOV	R4,R1		;R1 --> IOV
+	ADD	#V$NAM,R1	;R1 --> NAM block
+	$STORE	#FB$BID,BID,R2	;Fill in ID & Length fields
+	$STORE	#FB$BLN,BLN,R2
+	$STORE	R1,NAM,R2	;Fill in name attributes block
+	MOV	#FNMSIZ,R0	;R0 = File name size
+	CALL	$$FALO		;Allocate or die
+	$STORE	R0,ESA,R1	;Fill in the expanded string buffer address
+	$STORE	#FNMSIZ,ESS,R1	;Fill in expanded string buffer size
+	MOV	#FNMSIZ,R0	;R0 = File name size
+	CALL	$$FALO		;Allocate or die
+	$STORE	R0,RSA,R1	;Fill in the resultant string buffer address
+	$STORE	#FNMSIZ,RSS,R1	;Fill in resultant string buffer size
+	MOV	R4,R0		;R0 --> IOV
+	ADD	#V$DAT,R0	;R0 --> DAT block
+	$STORE	R0,XAB,R2	;Fill in date/time in XAB of FAB
+	$STORE	#XB$DAT,COD,R0	;Fill in it's trademarks
+	$STORE	#XB$DTL,BLN,R0
+	MOV	R4,R1		;R1 --> IOV
+	ADD	#V$PRO,R1	;R1--> PRO block
+	$STORE	R1,NXT,R0	;Fill in protection XAB link
+	$STORE	#XB$PRO,COD,R1	; Fill in its trademarks
+	$STORE	#XB$PRL,BLN,R1
+	$STORE	$$DPRO,PRO,R1	;Set protection to use.
+	$STORE	#0,NXT,R1	;End of XAB chain
+	BIT	#VF$WRT,V$FLAG(R4)	;Creating file?
+	BEQ	5$		;No.
+	CMP	$$DPRO,#-1	;Default prot?
+	BNE	5$		;Yes.
+	$STORE	#0,NXT,R0	;We should create a file with defprot.
+				;Drop PRO XAB then.
+5$:	MOV	R4,R1		;R1 --> IOV again
+	ADD	#V$RAB,R1	;R1 --> RAB
+	$STORE	#RB$BID,BID,R1	; Fill in ID & Length Fields
+	$STORE	#RB$BLN,BLN,R1
+	$STORE	R2,FAB,R1	;Fill in FAB address in RAB
+	MOV	C$PMTR+0(R5),R1	;R1 --> File name from caller		;04--
+	$STORE	R1,FNA,R2	;Stuff file name address in FAB
+
+	CLR	R0		;Count length of file name
+10$:	TSTB	(R1)+		;At null?
+	BEQ	20$		;If so r0 = file name size
+	INC	R0		;Count the data byte
+	BR	10$		;keep trucking
+
+20$:	$STORE	R0,FNS,R2	;Stuff size into FAB
+;	$STORE	#DEFNAM,DNA,R2	;Stuff default name
+;	$STORE	#DEFL,DNS,R2
+;
+; If $PARSE/$SEARCH fails, may be a device rather than a file.  In any
+; case, we'll try the OPEN or CREATE and let it fail there if it
+; needs to.  To do this properly, we do not set FB$FID.
+;
+	$PARSE	R2		;Parse the file name, fill in NAM block
+	$COMPARE #SU$SUC,STS,R2	;Error?
+	BNE	30$		;(Yes)
+	BIT	#VF$WLD,V$WFLG(R4) ; (No), called from fwild()? 	;03
+	BNE	40$		; If so, return without searching	;03
+	$SEARCH	R2		;Complete the job as best we can
+	$COMPARE #SU$SUC,STS,R2	;Error?
+	BNE	30$		;(yes, let $OPEN or $CREATE try it)
+
+	$SET	#FB$FID,FOP,R2	;Use everything we can from the NAM block
+	BR	40$
+
+;
+; $PARSE or $SEARCH failed -- release resultant string buffer
+;
+30$:	$FETCH	R1,NAM,R2	; R1 --> NAM block
+	$FETCH	R0,RSA,R1	; R0 --> Resultant string buffer
+	CALL	$$FREE		; Free it
+	$STORE	#0,RSA,R1	; Clear the RSA field in NAM block
+
+40$:	CLR	V$DNAM(R4)	;No need to save disk:[dir] for VMS ...
+	RETURN				;all done for now
+100$:
+	$FETCH	R0,STS,R2		;Error in R0
+	JMP	$$FOPE			;and exit.
+.endc
+.endc
+	.END

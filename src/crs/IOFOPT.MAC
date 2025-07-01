@@ -1,0 +1,145 @@
+	.title	$$fopt	Scan options parameter for fopen
+	.ident	/000004/
+;
+;+
+;
+; Internal
+;
+; Index		Scan fopen/fwild options argument
+;
+; Usage
+;
+;	mov	iov,r4	;r4 -> iov
+;	call	$$fopt	;C$PMTR+2(r5) => options string
+;			;return: option flags in fdb
+;			;r0 random
+;			;error: return to caller via $$fope
+;
+; Description
+;
+;	$$fopt parses the options argument in calls to fopen,
+;	freopen(), or fwild().  It returns to the caller (via $$fope)
+;	if the argument was incorrect.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 14-Oct-81 MM	Split out of fopen
+; 000002 01-Jul-82 MM	Redone for the new library
+; 000003 19-Jan-87 JMC  Move data to c$data .psect.
+; 			Change .psect for I/D space.
+; 000004 18-Jan-02 BQT	Changed for I/D space
+; 000005 15-Feb-04 IJH	Add standard C "b" option. Same as "n"
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+
+;
+; RMODE, WMODE, and AMODE are indexes into OPTCOD
+;
+RMODE	=	 1.
+WMODE	=	 2.
+AMODE	=	 4.
+UMODE	=	 8.
+NMODE	=	16.
+	.psect	c$data,d,rw						;03
+;
+; OPTSTR and OPTVAL yield unique bits for the option bytes.
+; OPTVAL is accessed via the bitmask for read/write/append.
+;	a zero byte is illegal, else it is an index to MASK.
+;
+MASK:	.WORD	VF$REA,VF$WRT,VF$APN
+	.psect	c$stcn,d,ro
+OPTSTR:	.ASCIZ	"rwaun"	
+	.psect	c$mwcn,d,ro
+OPTVAL:	.BYTE	RMODE,WMODE,AMODE,UMODE,NMODE	;follows OPTSTR
+OPTCOD:	.BYTE	0,2,4,0,6,0,0,0	; Index to mask
+	.EVEN
+	.psect	c$code,i,ro
+;
+; ** $$FOPT
+;
+; Scan the user option string -- called by fopen and fwild
+;
+; Calling sequence:
+;
+;	mov	iov,r4		;r4 -> iov
+;	jsr	r5,csv$		;Standard C setup
+;	call	$$fopt		;Scan options
+;				;r0 is destroyed
+;
+; If the option string is in error, $$fopt returns NULL to the
+; fopen caller with an error code in $$ferr.
+;
+$$FOPT::
+	MOV	R3,-(SP)	;Save temp register
+	MOV	R2,-(SP)	;Save temp register
+	CLR	R1		;Option word built here
+	MOV	C$PMTR+2(R5),R0	;R0 -> option string
+	BEQ	30$		;Ignore null parameter string
+;
+10$:
+	MOVB	(R0)+,R3	;Get next byte
+	BEQ	30$		;Exit on null finish
+	BIS	#040,R3		;Force lowercase
+	MOV	#OPTSTR,R2	;Scan possible options string
+	CMPB	R3,#'b		;Binary mode?				;5
+	BNE	20$		;Nope					;5
+	MOVB	#'n,R3		;Yes, treat as "n" mode			;5
+
+20$:
+	TSTB	(R2)		;End of options?
+	BEQ	80$		;Yep, sorry
+	CMPB	R3,(R2)+	;Found it?
+	BNE	20$		;Nope, try another
+	BISB	OPTVAL-OPTSTR-1(R2),R1 ;Gotcha, set the bit
+	BR	10$		;Do another
+
+30$:
+	MOV	R1,R0		;Get a copy of the option bits
+	BIC	#^C<RMODE!WMODE!AMODE>,R0 ;Just want read/write/append
+	MOVB	OPTCOD(R0),R0	;Get option bits to set
+	BEQ	80$		;Die if illegal				;02
+	MOV	MASK-2(R0),R0	;Get actual bit to set in V$FLAG	;02
+
+.if eq	rsx
+	BIT	#VF$APN,R0	;Can't append on RT11			;02
+	BEQ	50$		;No problem, continue
+	TST	$$RSTS		;But, we can on RSTS (??)
+	BEQ	80$		;Sorry					;02
+.endc
+
+50$:
+	BIT	#NMODE,R1	;No LF stuff?
+	BEQ	60$		;Nope,
+	BIS	#VF$NOS,R0	;Set the flag				;02
+
+60$:
+	BIT	#UMODE,R1	;User buffered?
+	BEQ	70$		;Nope
+.if ne	rsx
+	BIS	#VF$NOS!VF$NBF,R0 ;Yep, set both flags			;02
+.iff
+	BIS	#VF$NBF,R0	;Yep, set the flag
+.endc
+70$:
+	MOV	R0,V$FLAG(R4)	;Save mode flags			;02+
+	BIT	#VF$NOS,R0	;"n"?
+	BEQ	75$		;No
+	BIS	#VF$NLH,V$WFLG(R4) ;Yes, set funny flag, too
+75$:				;					;02-
+	MOV	(SP)+,R2	;Restore temp register
+	MOV	(SP)+,R3	;Restore temp register
+	RETURN			;Return to caller
+;
+; Bad option given
+;
+80$:
+.if ne	rsx
+	MOV	#IE.BAD,R0	;Get an error code
+.iff
+	MOV	#E$$ILF,R0	;Illegal call
+.endc
+	JMP	$$FOPE		;And die
+	.END

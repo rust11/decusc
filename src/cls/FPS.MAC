@@ -1,0 +1,45 @@
+	.title	fps	Set floating point status (FPS)
+	.ident	/000002/
+;
+;+
+; Index		Set floating point status (FPS)
+;
+; Usage
+;
+;	#include <fps.h>
+;
+;	fps(status)
+;	unsigned int	status;
+;
+; Description
+;
+;	This routien sets the floating point status by simply executing
+;	the LDFPS instruction.  This allows a user program to switch
+;	between roundoff and truncation modes or enable/disable
+;	floating point interrupts.  Bit definitions are in the
+;	include file, "fps.h".
+;
+;	For example, to enable rounding and all fpu error interrupts
+;	except underflow, do the following:
+;
+;		#include <fps.h>
+;		fps(FIUV | FIV | FIC);
+;
+; Bugs
+;
+;	The C library doesn't initialize the floating point status.
+;	This routine -- with appropriate parameters -- should be
+;	in all C main programs that require floating point operations.
+;
+;-
+;
+; Edit History
+; 000001 05-Aug-82 SDR	Initial edit (retyped by MM)
+; 000002 14-Jan-02 BQT	Changed for I/D space
+;
+
+	.psect	c$code,i,ro
+fps::	ldfps	2(sp)
+	return
+	.end
+

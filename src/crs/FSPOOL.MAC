@@ -1,0 +1,286 @@
+	.title	fspool  Spool file to default print queue
+	.ident	/000006/
+
+;+
+;
+; Index		Spool file to default print queue
+;
+; Usage
+;
+;	fspool(fp);
+;	FILE		*fp;	/* Open file IOV	*/
+;
+; Description
+;
+;	This routine is called in lieu of fclose() when it is
+;	desired to spool the file to the system line printer.
+;	There is no control over the disposition or printout
+;	parameters.
+;
+;	Fspool() returns zero if the file was spooled,  it returns
+;	an error code if spooling could not be initiated.
+;	If called on native RT11, the file will be closed and
+;	an "illegal device error" (E$$NOD = 6) will be returned.
+;
+;	If the program needs access to the power of the queue
+;	manager print spooler on native RSX, the RSX extensions library
+;	spwn() routine should be used to spawn a command line to MCR after
+;	closing the file as usual.
+;
+;	If the program needs access to the power of the queue manager
+;	on RSTS/E, it should close the file and use the routines in
+;	the RSTS/E extensions library to execute the UU.SPL system
+;	function call.
+;
+;	On RSTS/E V7.0, the file is spooled to any line printer (RSX mode) 
+;	or to LP0: in RT11 mode.  The particular line printer cannot
+;	be selected without modifying the source of fspool().
+;
+;	If the file was opened by calling fwild()/fnext(), internal
+;	buffers will not be freed, allowing the program to call
+;	fnext() for subsequent files.
+;
+; Bugs
+;
+;	On RSTS/E RT11 mode, error codes will follow the description of the
+;	spooling system function call.
+;
+;-
+;
+; Edit history
+; 000001 25-Jul-80 RBD	Initial edit.
+; 000002 31-Jul-80 MM	Trivial error message changes
+; 000003 01-Aug-80 MM	Added RSTS/E support, fwild interaction
+;			(never call error()), many changes, no edit codes
+; 000004 02-Aug-80 MM	RSTS/RSX supports .print directly. Cleanup of RT11
+; 000005 29-Jun-82 MM	New library -- many changes, no edit codes
+; 000006 17-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume rsx
+
+;
+; The following must track RSTS/E COMMON.MAC
+;
+
+.MACRO	.DSECT	START,CREF
+.IIF	B	<CREF>,	.DSABL	CRF
+$$$$$$	=	0
+.IIF	B	<CREF>,	.ENABL	CRF
+.IF	NB	<START>
+$$$$$$	=	START
+.ENDC
+.ENDM	.DSECT
+
+.MACRO	WORD	WHAT,N
+.IIF	NB	<WHAT>	WHAT	=	$$$$$$
+.IF	NB	<N>
+$$$$$$	=	$$$$$$+<2*N>
+.IFF
+$$$$$$	=	$$$$$$+2
+.ENDC
+.ENDM	WORD
+
+.MACRO	BYTE	WHAT,N
+.IIF	NB	<WHAT>	WHAT	=	$$$$$$
+.IF	NB	<N>
+$$$$$$	=	$$$$$$+N
+.IFF
+$$$$$$	=	$$$$$$+1
+.ENDC
+.ENDM	BYTE
+
+; TRANSFER CONTROL BLOCK (XRB)
+
+; USED BY USER TO INITIATE AN I/O REQUEST
+;	AND FOR MONITOR/USER DATA REQUESTS.
+
+.DSECT	,NOCREF
+
+	WORD	XRLEN	;LENGTH OF I/O BUFFER IN BYTES
+	WORD	XRBC	;BYTE COUNT FOR TRANSFER
+	WORD	XRLOC	;POINTER TO I/O BUFFER
+	BYTE	XRCI	;CHANNEL NUMBER TIMES 2 FOR TRANSFER
+	BYTE	XRBLKM	;RANDOM ACCESS BLOCK NUMBER (MSB)
+	WORD	XRBLK	;RANDOM ACCESS BLOCK NUMBER (LSB)
+	WORD	XRTIME	;WAIT TIME FOR TERMINAL INPUT
+	WORD	XRMOD	;MODIFIERS
+XRBSIZ	=	$$$$$$	;SIZE OF THE XRB IN BYTES
+
+
+; FILE REQUEST QUEUE BLOCK (FIRQB)  (PRONOUNCED 'FURK-BE')
+
+; ALL REQUESTS FOR FILE PROCESSING ARE MADE BY SETTING THE NECESSARY PARAMETERS
+;	IN THE FIRQB, AND CALLING THE MONITOR WITH "CALFIP".
+
+.DSECT	,NOCREF
+
+	BYTE			;RESERVED FOR RETURNED ERROR CODE
+	BYTE			;RESERVED BYTE
+	BYTE	FQJOB		;HOLDS YOUR JOB NUMBER TIMES 2
+	BYTE	FQFUN		;FUNCTION REQUESTED
+	BYTE	FQERNO,0	;ERROR MESSAGE CODE AND TEXT BEGIN
+	BYTE	FQFIL		;CHANNEL NUMBER TIMES 2
+	BYTE	FQSIZM		;FILE SIZE IN BLOCKS (MSB)
+	WORD	FQPPN		;PROJECT-PROGRAMMER NUMBER
+	WORD	FQNAM1,2	;2 WORD FILENAME IN RADIX 50
+	WORD	FQEXT		;.EXT IN RADIX 50
+	WORD	FQSIZ		;FILE SIZE IN BLOCKS (LSB)
+	WORD	FQNAM2,0	;3 WORD NEW FILENAME.EXT IN RADIX 50
+	WORD	FQBUFL		;DEFAULT BUFFER LENGTH
+	WORD	FQMODE		;MODE INDICATOR
+	WORD	FQFLAG		;OPENED FILE'S FLAG WORD AS RETURNED
+	BYTE	FQPFLG		;"PROTECTION CODE REAL" INDICATOR
+	BYTE	FQPROT		;NEW PROTECTION CODE
+	WORD	FQDEV		;2 BYTE ASCII DEVICE NAME
+	BYTE	FQDEVN		;1 BYTE UNIT NUMBER
+	BYTE			;"UNIT NUMBER REAL" INDICATOR
+	WORD	FQCLUS		;FILE CLUSTER SIZE FOR FILE CREATES
+	WORD	FQNENT		;NUMBER OF ENTRIES ON DIRECTORY LOOKUP
+FQBSIZ	=	$$$$$$		;SIZE OF THE FIRQB IN BYTES
+
+; MONITOR CALLS (EMT'S)
+
+.DSECT	+EMT,NOCREF
+
+	WORD	CALFIP	;CALL FIP, WITH FIRQB LOADED
+	WORD	.READ	;READ
+	WORD	.WRITE	;WRITE
+	WORD	.CORE	;CHANGE USER MEMORY SIZE
+	WORD	.SLEEP	;SLEEP JOB FOR N SECONDS
+	WORD	.PEEK	;PEEK AT MEMORY
+	WORD	.SPEC	;SPECIAL FUNCTION
+	WORD	.TTAPE	;ENTER TAPE MODE
+	WORD	.TTECH	;ENABLE ECHO
+	WORD	.TTNCH	;DISABLE ECHO
+	WORD	.TTDDT	;DDT SUBMODE
+	WORD	.TTRST	;CANCEL ^O EFFECT
+	WORD	.TIME	;GET TIMING INFORMATION
+	WORD	.POSTN	;GET DEVICE'S HORIZONTAL POSITION
+	WORD	.DATE	;GET CURRENT DATE & TIME
+	WORD	.SET	;SET KEYWORD BIT(S)
+	WORD	.STAT	;GET MY STATISTICS
+	WORD	.RUN	;RUN A NEW PROGRAM
+	WORD	.NAME	;INSTALL A NEW PROGRAM NAME
+	WORD	.EXIT	;EXIT TO DEFAULT RUN-TIME SYSTEM
+	WORD	.RTS	;CHANGE TO A NEW RUN-TIME SYSTEM
+	WORD	.ERLOG	;LOG AN ERROR FROM THE RUN-TIME SYSTEM
+	WORD	.LOGS	;CHECK FOR LOGICAL DEVICES
+	WORD	.CLEAR	;CLEAR KEYWORD BIT(S)
+	WORD	.MESAG	;MESSAGE SEND/RECEIVE
+	WORD	.CCL	;CCL CHECKER
+	WORD	.FSS	;FILE STRING SCANNER
+	WORD	.UUO	;UUO HOOK
+	WORD	.CHAIN	;CHAIN TO A NEW PROGRAM
+	WORD	.PLAS	;RESIDENT LIBRARY CONTROL
+	WORD	.RSX	;ENTER RSX EMULATION
+	WORD	.ULOG	;ASSIGN/REASSIGN/DEASSIGN DEVICE/USER LOGICAL
+
+; FIP (FIRQB @ FQFUN) FUNCTION CODES
+
+.DSECT	,NOCREF
+
+	WORD	CLSFQ	;CLOSE AN OPEN CHANNEL
+	WORD	OPNFQ	;OPEN A CHANNEL
+	WORD	CREFQ	;CREATE/EXTEND/OPEN A CHANNEL
+	WORD	DLNFQ	;DELETE A FILE BY NAME
+	WORD	RENFQ	;RENAME A FILE
+	WORD	DIRFQ	;DIRECTORY INFORMATION
+	WORD	UUOFQ	;PROCESS UUO
+	WORD	ERRFQ	;GET ERROR MESSAGE TEXT
+	WORD	RSTFQ	;RESET (CLOSE) [ALL] CHANNEL[S EXCEPT 0]
+	WORD	LOKFQ	;LOOKUP A FILE
+	WORD	ASSFQ	;ASSIGN A DEVICE
+	WORD	DEAFQ	;DEASSIGN A DEVICE
+	WORD	DALFQ	;DEASSIGN ALL DEVICES
+	WORD	CRTFQ	;CREATE/EXTEND/OPEN A UNIQUE .TMP FILE ON DISK
+	WORD	CRBFQ	;CREATE/EXTEND/OPEN A COMPILED IMAGE FILE ON DISK
+
+FIRQB	=	402
+XRB	=	442
+
+
+;
+; l$$rsts has the following values:
+;	1	Compile RSTS/E specific code only
+;	2	Compile native specific code only
+;	3	Compile both flavors of code
+;
+.iif	ndf	l$$rsts	l$$rsts	=	3	;Compile all flavors
+
+.macro	onrsts
+.if ne	l$$rsts&1
+.endm
+
+.macro	onrsx
+.if ne	l$$rsts&2
+.endm
+
+.macro	revert
+.endc
+.endm
+
+	.psect	c$code,i,ro
+
+fspool::
+	jsr	r5,csv$			;Link environments
+	mov	C$PMTR+0(r5),r4		;r4 -> iov
+.if ne rsx
+	mov	V$FDB+F.FNB+N.STAT(r4),r3	;File name bits		;04
+	bic	#^C<NB.SVR!NB.STP!NB.SNM>,r3	;non-zero wild		;04
+	call	$$cflu			;Flush last buffer
+	clr	r2			;No error yet
+	mov	r4,r0			;r0 --> iov
+	add	#V$FDB,r0		;r0 --> fdb
+	call	.print			;Attempt to spool it.
+	bcs	20$			;Branch if it failed
+	mov	r3,r0			;Wild flag
+	call	$$fcls			;Clear out buffers
+	br	exit			;And exit
+
+20$:
+	movb	f.err(r0),r2		;Get error code
+	bne	30$			;File error
+	mov	$dsw,r2			;Not file, gotta be message
+30$:
+;
+; Couldn't spool the file, just close it ourselves
+;
+	mov	r3,r0			;Wild flag (keep buffers)
+	call	$$clos			;Close the file
+
+exit:
+	mov	r2,$$ferr		;Remember error code
+	mov	r2,r0			;Error code
+	jmp	cret$			;and exit
+.iff									;04+
+;
+; On RT11 RSTS/E, we have to do the work ourselves, we fail on native RT.
+;
+	mov	V$WILD(r4),r3		;r3 is non-zero if wildcard file
+	mov	#E$$NOD,r2		;Assume native failure
+onrsts
+	tst	$$rsts			;Running native?
+	beq	exit			;Go fail if so
+	mov	pc,r0			;Make r0 non-zero
+	call	$$clos			;Flush buffers and close file.
+	mov	V$NAME(r4),r0		;File name (saved by $$clos)
+	emt	0365			;DOFSS
+	movb	@#FIRQB,r2		;Did it parse?
+	bne	exit			;Exit if not
+	clr	@#FIRQB+16		;Clear "device to spool to"
+	clr	@#FIRQB+20		;"Device is real"
+	clr	@#FIRQB+FQMODE		;"Must be zero"
+	clr	@#FIRQB+24		;"Flag word passed to queman"
+	movb	#-28.,@#FIRQB+FQFUN	;UU.SPL Spool a file
+	emt	377			;.PRIV
+	.UUO				;Do it
+	movb	@#FIRQB,r2		;Get error code
+exit:
+revert
+	mov	r3,r0			;Make r0 non-zero if wild
+	call	$$clos			;Can't hurt to close it again.
+	mov	r2,$$ferr		;Save any error code
+	mov	r2,r0			;Return error code, too.
+	jmp	cret$			;Normal exit
+.endc									;04-
+	.end

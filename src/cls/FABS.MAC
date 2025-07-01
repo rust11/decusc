@@ -1,0 +1,37 @@
+	.title	fabs	Floating absolute value
+	.ident	/000003/
+;
+;+
+;
+; Index		Floating absolute value
+;
+; Usage
+;
+;	double
+;	fabs(val)
+;	double		val;
+;
+; Description
+;
+;	Return absolute value of a floating argument.
+;
+; Bugs
+;
+;-
+; Edit history
+;
+; 000001 12-Jul-82 JSL	Creation
+; 000002 14-Aug-82 MM	Save/restore fpu status
+; 000003 14-Jan-02 BQT	Changed for I/D space.
+;
+; Note that this code requires RSTS/E V7.1 patch kit B to be installed.
+;
+	.psect	c$code,i,ro
+fabs::
+	stfps	-(sp)		; Save fpu status			;02
+	setd			; Make sure we're in double mode
+	ldd	4(sp),r0	; Pick up the value			;02
+	absd	r0		; Take the absolute value - easy
+	ldfps	(sp)+		; Restore fpu status			;02
+	return
+	.end

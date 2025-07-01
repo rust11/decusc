@@ -1,0 +1,117 @@
+	.title	rewind	Rewind a file for re-reading
+.iif ndf RMSIO 	RMSIO = 0
+.if ne RMSIO
+	.ident	"RMS012"
+.iff
+	.ident	/000012/
+.endc
+;
+;+
+;
+; Index		Rewind a file for re-reading
+;
+; Usage
+;
+;	rewind(iop);
+;	FILE		*iop;
+;
+; Description
+;
+;	Rewind the indicated file.  Return -1 if failure, 0 if ok.
+;
+;	On RT11, if the file was opened for output, it is closed and
+;	reopened for input.
+;
+; Diagnostics
+;
+;	RT11 exits fatally if the file name won't parse.  As the
+;	filename was stored by fopen(), this probably means that
+;	the user program has stored randomly in memory.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 18-May-79 MM	Initial edit
+; 000002 11-Mar-80 MM	Conversion for the new library
+; 000003 27-Mar-80 MM	Added RT11 support
+; 000004 21-May-80 MM	Track $$fcls change
+; 000005 01-Aug-80 MM	Track IOV change, allow open for input
+; 000006 25-Sep-80 MM	Removed VF$BAD as it isn't used
+; 000007 29-Dec-80 MM	Dumb bug?
+; 000008 22-Jan-80 MM	typo.  Nothing like testing
+; 000009 02-Jul-82 MM	Newer library
+; RMS010 20-Jan-84 RBD	Add RMS-11 (V2) support
+; RMS011 04-Feb-84 RBD	Dumb typo.
+; 000012 19-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX
+	.psect	c$code,i,ro
+
+rewind::
+	jsr	r5,csv$						;02
+	mov	C$PMTR+0(r5),r4
+
+.if ne	rsx							;02+
+.if ne RMSIO
+	.mcall	$rewind
+	mov	r4,r0			;r0 -> IOV			;10+
+	add	#V$RAB,r0		;r0 -> RAB			;11
+	$REWIND	R0							;10-
+.iff
+	.globl	.point
+
+	clr	r1
+	mov	#1,r2
+	clr	r3
+	mov	r4,r0		;r0 -> fdb
+	add	#V$FDB,r0	;
+	call	.point
+.endc
+	bic	#VF$EOR,V$FLAG(r4) ;No end of record		;09
+	clr	(r4)		;No current byte (V$RBSZ == 0)	;09
+;;	clr	V$RBSZ(r4)	;Current record is size zero	;07
+	clr	r0		;Good exit
+	jmp	cret$		;Exit rewind			;05
+
+.iff
+
+	.mcall	.close, .csispc, .lookup
+
+	bit	#VF$WRT,V$FLAG(r4) ;Is it an output file	;04/05/09
+	beq	20$		;Don't close it if not.		;04
+;
+; This should really call freopen()
+;
+	.close	V$LUN(r4)	;Close the file
+	sub	#39.*2,sp	;Get a csi area
+	mov	sp,r1		;r1 -> csi area
+	clr	-(sp)		;Get a (fake) default extension
+	mov	sp,r2		;r2 -> default extension
+	.csispc	r1,r2,V$NAME(r4) ;Parse the file name
+	bcs	40$		;Bug if it won't parse
+	mov	r1,r2		;Get another pointer to scratch area
+	add	#<3*5*2>,r2	;r1 -> first input area
+	.lookup	r1,V$LUN(r4),r2	;Open the file
+	bcc	20$		;Go on if ok
+	mov	#E$$FNF,$$ferr	;Set "file not found"
+	clr	r0		;Dump the iov			;04+
+	call	$$fcls		;Do close cleanup
+	mov	-1,r0		;return error
+	br	30$		;quite simple, really		;04
+
+20$:	clr	(r4)		;Clear byte count V$BCNT	;09+
+	clr	V$BNBR(r4)	;and block number to initialize
+	bic	#VF$WRT+VF$EOR,V$FLAG(r4) ;It's an input file, now ;05
+	bis	#VF$READ,V$FLAG(r4) ;Really is an input file	;09-
+	clr	r0		;Ok exit
+
+30$:
+	jmp	cret$		;All done
+
+40$:	mov	V$NAME(r4),(sp)	;Why won't it parse?			;09
+	call	perror		;Print something			;09
+	call	abort		;urk
+.endc								;02-
+	.end

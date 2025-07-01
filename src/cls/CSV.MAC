@@ -1,0 +1,177 @@
+	.title	csv$	C register save and restore
+	.ident	/000007/
+;
+;+
+;
+;
+; Index		C register save and restore
+; Index		C program execution environment
+;
+; Usage
+;
+;	jsr	r5,csv$
+;	...
+;	jmp	cret$
+;
+; Description
+;
+; 		C program Run-time Environment
+;
+;	Each C subroutine starts with a call to CSV$ and exits by
+;	jumping to CRET$.  Upon exit, the stack need not be equal
+;	to its value on entrance.
+;
+;	During the execution of all C subroutines, register R5
+;	points to the current "environment."  Within a subroutine,
+;	it appears as follows:
+;
+;		 _______________
+;		|		|
+;	  SP ->	| 1st loc. var. | -12(R5)	C$AUTO-2(R5)
+;		|_______________|
+;		|		|
+;		| Profile ptr	| -10(R5)
+;		|_______________|
+;		|		|
+;		| Saved R2	|  -6(R5)
+;		|_______________|
+;		|		|
+;		| Saved R3	|  -4(R5)
+;		|_______________|
+;		|		|
+;		| Saved R4	|  -2(R5)
+;		|_______________|
+;		|		|
+;	  R5 ->	| Saved R5	|
+;		|_______________|
+;		|		|
+;		| Return add.	|  +2(R5)
+;		|_______________|
+;		|		|
+;		| First arg.	|  +4(R5)	C$PMTR+0(R5)
+;		|_______________|
+;		|		|
+;		| Second arg.	|  +6(R5)	C$PMTR+2(R5)
+;		|_______________|
+;
+;	Within a subroutine, Registers R0-R4 and the top of the
+;	stack, (sp) are available for use. Registers R0 and R1
+;	are not preserved by subroutines and may be used to pass
+;	a return value.
+;
+;	R5 must not be modified by a subroutine.  All variable
+;	addressing must be done by offsets to R5.  Subroutine
+;	arguments must be accessed by reference to C$PMTR.
+;	Subroutine local variables must be accessed by reference
+;	to C$AUTO.  This permits modification of calling sequences
+;	without rewriting all subroutines.
+;
+;	CSV$ refers to global symbol $$main to call the run-time startup
+;	program from the (RSX) library.
+;
+; Internal
+;
+;	The global symbols needed for the Whitesmith's C compiler
+;	are also included.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 01 JMT	Original
+; 02 MM		Documentation
+; 03 MM		Fix bug in CRET$ and define C$PMTR, C$AUTO
+; 04 MM		Bum one word and name $$main
+; 05 MM		C$PMTR/C$AUTO are now defined in RSX.MAC and RT11.MAC
+; 06 MM		Added C$SAV, C$RET and C$RETS entries for Whitesmith's
+; 07 BQT	Changed for I/D space and new stack format.
+; 08 IJH	Fudged exit code at DIVL.MAC EXIT: did not match C$RET.
+;		Note on dependency added at C$SAV. Comment only.
+; 09 IJH	Use .END to invoke $$MAIN. RT-11 only.
+; 10 IJH	Add C$$CRA replacing CRASH <BPT> with a message.
+;
+;
+; If C$PMTR/C$AUTO are undefined, just define them		;05+
+;
+.iif	ndf	C$PMTR,	C$PMTR	=  4	;formal[n] @ c$pmtr+<n*2>(r5)
+.iif	ndf	C$AUTO,	C$AUTO	= -10	;local[n]  @ c$auto-<n*2>(r5)
+	.globl	C$PMTR, C$AUTO
+.iif	ne	C$PMTR-4,	.error	Bad definition of C$PMTR
+.iif	ne	C$AUTO+10,	.error	Bad definition of C$AUTO
+;
+; By defining C$PMTR and C$AUTO as local symbols, the task
+; builder need not do so much work				;05-
+
+	.GLOBL	$$MAIN	;Call start from the library		;04
+
+	.psect	c$code,i,ro
+;
+; save R4-R2 and make a one-word temp slot on the stack.
+;
+; DEPENDENCIES:
+;
+; DIVL.MAC EXIT: routine fudges C$RET. Update for any changes.	;08
+;
+;
+C$SAV::								;06
+CSV$::	MOV	R5, R1
+	MOV	SP, R5
+	MOV	R4, -(SP)
+	MOV	R3, -(SP)
+	MOV	R2, -(SP)
+	CLR	-(SP)		;No profile area
+	JSR	PC,(R1)		;TST -(SP) JMP (R1)		;04
+;
+; pop R2-R4 and restore stack linkage registers.
+;
+C$RET::								;06
+CRET$::
+	MOV	R5, R2						;03 +
+	MOV	-(R2), R4
+	MOV	-(R2), R3
+	MOV	-(R2), R2					;03 -
+C$RETS::			;Funny Whitesmith's entry	;06
+	MOV	R5, SP
+	MOV	(SP)+, R5
+	RTS	PC
+
+.iif	ndf	rsx	rsx	=	1			;09
+
+.if eq RSX							;09
+C$MAIN::JMP	$$MAIN		;Pull SUPORT.OBJ in from library;09
+
+;	RT-11 CRASH now displays a message.			;10+
+;
+;	?CC-F-Crash at <location>
+;
+;	Previously, C apps crashed with <BPT> which is reserved
+;	for use with debuggers under RT-11.
+
+.iif ndf c$$cra c$$cra = 0					
+.if ne c$$cra
+	.mcall	.print,.exit
+C$RASH::.print	#40$		; <?CC-F-Crash at >
+	mov	(sp),r1		; get the location
+	sub	#4,r1		; less the <call c$rash>
+	mov	#111111,r2 	; loop control
+10$:	clr	r0		; init next digit
+20$:	asl	r1		; well, its fetch a bit here
+	rol	r0		; and fudge a bit there
+	asl	r2		; until we set carry
+	bcc	20$		; keep fiddling
+	beq	30$		; must print the final digit
+30$:	add	#'0,r0		; start or continue printing
+	.mcall	.ttyout		;
+	.ttyout			; say it
+	tst	r2		; done all digits ?
+	bne	10$		; nope, go scritch it
+	.print	#50$		; newline
+	.exit			; get out of here
+40$:	.ascii	/?CC-F-Crash at /<200>
+50$:	.byte	0
+	.even							;10-
+.endc
+.endc								;09
+.iif ne rsx, .END						;09
+.iif eq rsx, .END	C$MAIN					;09

@@ -1,0 +1,1478 @@
+.IIF	NDF	RSX	RSX	=	1	;Assume RSX	;01+
+	.TITLE	CC200
+	.ident	/X01.26/
+
+	.NLIST	BEX, CND
+	.ENABL	LC, GBL
+	.LIST	MEB						;01 -
+
+;
+; C COMPILER
+; CODE GENERATOR
+;
+; VERSION X01
+;
+; DAVID G. CONROY	21-NOV-77
+;
+; UPDATED:
+;
+; DGC01		DAVID G. CONROY		28-SEP-79
+;		CHANGE NAMES OF LIBRARY GLOBALS TO PREVENT
+;		CLASHES WITH RMS-11.
+;
+; Edit history
+; 01 04-Mar-80 MM	Added RT11 support
+; 02 04-Mar-80 MM	Unix calling sequence, rad50 $ is now tilde
+; 03 26-Mar-80 MM	All code is now pure, fixed bug in switch
+; 04 13-May-80 MM	Max number of cases now set to 100
+; 05 16-May-80 MM	Added ABORT2 sudden death routine
+; 06 22-Jul-80 MM	Fixed bug in switch, generate pure code
+; 07 22-Jul-80 MM	Global data is now output to .data. psect.
+; 08 06-Jan-81 RBD	Make STR11 and STR13 global for CC205
+; 09 25-Feb-81 MM	Added @ directive (echo text as comment)
+; 10 06-Mar-81 MM	For inline fpu
+; u1 04-Sep-81 CCG	Fixed bug in type conversion for RETURN.
+;			Bug may also be present for SWITCH processing.
+; u2 08-Sep-81 CCG	Added support for automatic Floating Point mode select.
+;    04-Dec-81 CCG	Fixed bug in Floating Point mode select.
+; u3 11-Sep-81 CCG	Fixed bug in register allocation.
+;			Removed ~~facc symbol.
+; 11 19-Oct-81 MM	RT11 file open changes
+; 12 04-Dec-81 MM	.psect stuff
+; 13 09-Dec-82 MM	Merged 11,12 into Unimation sources -- no
+;			substantive changes.
+; u4 19-Apr-82 CCG	Removed edit u3.  New reg allocation is smarter.
+;			Don't reference CSV$ or CRET$ unless function seen.
+; 14 01-Jul-82 MM	Changed .psect names
+; 15 02-Jul-82 JSL	Changed them again - AS doesn't like "$"!
+; 16 23-Jul-82 MM/CCG	More .psect changes, added qualifiers
+; 17 31-Jul-82 MM	Global names are marked with '_'
+; 18 16-Oct-82 RBD	Add "ident" directive. Add conditional support of
+;			old P-section names.
+; 19 24-Oct-82 RBD	Supress .even for P-sects not seen to avoid map
+;			clutter.
+; 20 29-Nov-82 MM	Buffer size named
+; 21 30-Jan-83 MM	Merged Unimation sources, changed tilde to <176>
+;			Note -- changes are not marked.
+; 22 18-Mar-85 MM       Changed CCABRT to CCFAIL
+; 23 19-Jan-87 JC       Changed .psects for I and D space.  Put i or d on
+;			each .psect
+; 24 10-Jan-02 BQT	Changed r/w attributes on some psects.
+; 25 14-Jan-02 BQT	Changed profiling code to not have data in I space.
+; 26 30-Jan-02 BQT	Added [ directive for pragma.
+;
+
+	.GLOBL	CC200
+	.GLOBL	TREESP
+	.GLOBL	ABORT2						;05
+	.GLOBL	ABTREE						;10
+	.GLOBL	ERROR
+	.GLOBL	WARN
+	.GLOBL	FPFLAG						;10
+	.GLOBL	STR11,STR13					;08
+
+.IIF	NDF	SIZ.OB	SIZ.OB = 80.				;20
+
+.IF NE	RSX							;01
+	.GLOBL	FREMEM		;FIRST FREE MEMORY		;01
+
+	.MCALL	CALLR
+	.MCALL	GPRT$S
+.ENDC								;01
+
+;
+; EQUIVALENCES
+;
+
+TILDE	=	176		;RT11 MACRO DISLIKES TILDE	;02
+MSWIT	=	100.		;MAX NUMBER OF SWITCHES		;03
+				;NOTE: MSWIT >= MCASES IN CC102	;03
+BLANK	=	40		;ASCII BLANK
+
+; CURRENT PSECT TYPE CODES, FOUND IN PSECTM			;u2+
+
+PSDAT	=	1		;DATA PSECT			;12
+PSSTR	=	2		;STRING PSECT
+PSPRG	=	3		;PROGRAM PSECT			;u2-/12
+;								;12+
+; The following gets overwritten by the U (psect/dsect) directive
+; WARNING: keep in order -- make sure they're all the same length,
+; and null trailed.						;14+/15+/16+
+;
+.IF NDF OLDPSC							;18
+PSPROG::			;This group gets .even's
+	.ASCIZ	"c"<176>"code i r"				;23
+PSDATA::
+	.ASCIZ	"c"<176>"data d w"				;23
+PSMWCN::
+	.ASCIZ	"c"<176>"mwcn d r"				;23
+PSPROF::
+	.ASCIZ	"c"<176>"prof d w"				;23
+PSSTRN::			;Follows all .even'ed
+	.ASCIZ	"c"<176>"strn d w"				;14-/15-/23
+PSTABE	=	.
+PSSIZE	=	.-PSSTRN
+PSTSIZ	=	PSTABE-PSPROG
+	.even							;12-
+.IFF								;18+
+; Use old P-section names. INCOMPATIBLE WITH CURRENT LIBRARY!!
+PSPROG::			;This group gets .even's
+	.ASCIZ	".prog."
+PSDATA::
+	.ASCIZ	".data."
+PSMWCN::
+	.ASCIZ	".mwcn."
+PSPROF::
+	.ASCIZ	".prof."
+PSSTRN::			;Follows all .even'ed
+	.ASCIZ	".strn."
+PSTABE	=	.
+PSSIZE	=	.-PSSTRN
+PSTSIZ	=	PSTABE-PSPROG
+	.even
+.ENDC								;18-
+;
+; LOCAL DATA
+;
+
+SWTAB:	.BLKW	2*MSWIT		;2 WORDS PER SWITCH
+.IF NE	RSX							;01
+PPBUF:	.BLKW	3		;FOR GPRT$S
+.ENDC								;01
+DEFLAB:	.BLKW	1		;DEFAULT LABEL FOR SWITCH
+TTREE:	.BLKW	1		;POINTER TO TOP OF TREE
+TMEM:	.BLKW	1		;POINTER TO TOP OF MEMORY
+BMEM:	.WORD	0		;POINTER TO BOTTOM OF MEMORY (0=INVALID)
+LINENO:	.WORD	1		;LINE NUMBER
+INAST:	.BYTE	0		;AST pragma in effect...
+SAWAST:	.BYTE	0		;AST pragma seen.
+.IF NE	RSX							;01
+LIMITS:	.LIMIT			;LIMITS+2 = BOTTOM OF FREE MEMORY
+FREMEM	=	LIMITS+2	;LIMITS+2 = FREE MEMORY BOTTOM	;01
+.ENDC								;01
+PSECTM:	.BLKB	1		;CURRENT PSECT TYPE INDICATOR	;u2
+FPFLAG:	.BLKB	1		;FLOATING POINT FLAG		;10
+				;   xx0 NOT double func()
+				;   xx1 is double/float func()
+				;   0xx function doesn't use fpu
+				;   2xx function uses fpu
+BUF:	.BLKB	SIZ.OB+1	;INPUT BUFFER (+1 FOR THE NUL)		;20
+ID:	.BLKB	9.		;ID BUFFER, 8. BYTES + THE NUL
+MBUF:	.BLKB	100		;MESSAGE BUFFER
+FILE:	.BYTE	0		;FILE NAME
+	.BLKB	39.		;BUFFER
+SAWFN:	.BYTE	0		; Flag = 1 if function seen, 0 otherwise ;u4
+
+;									;19+
+; Following flags are used to determine whether a given P-Sect has
+; actually been seen.  If not, .even is supressed.
+;
+; WARNING! Keep these in the same order as the "PSxxxx" P-sect
+; strings above (which also have an order warning).
+;
+SAWCOD:	.BYTE	0		; Saw C$CODE
+SAWDAT:	.BYTE	0		; Saw C$DATA
+SAWMWC:	.BYTE	0		; Saw C$MWCN
+SAWPRF:	.BYTE	0		; Saw C$PROF				;19-
+
+;
+; ASCII
+;
+INTRO:	.ASCIZ	<15>"Begin phase 2."
+
+ERR01:	.ASCIZ	'Bad I.L., phase 2'
+ERR02:	.ASCIZ	'Out of tree space, phase 2'
+ERR03:	.ASCIZ	'Unexpected EOF, phase 2'
+ERR04:	.ASCIZ	'Duplicated case constant'
+
+PSMASK:					; Note: follows PSPROG	;12+
+	.ASCII	'...cod i r'<0>'...dat d w'<0>'...mwc d r'<0>
+	.ASCII	'...pro d w'<0>'...str d w'<0>
+.iif ne <.-psmask>-<pstsiz>		.error psmask size error	;14-
+	.BYTE	377				; end of table
+.IF NDF OLDPSC								;18
+;
+; Each entry in this table must be 6 bytes long with a null trailer.
+;
+PSNORM:	.ASCII	"c"<176>"code i r"<0>				;14+/15+/16+
+DATAST:	.ASCII	"c"<176>"data d w"<0>		;Accessed by UDIR dsect handler
+	.ASCII	"c"<176>"mwcn d r"<0>
+	.ASCII	"c"<176>"data d w"<0>
+	.ASCII	"c"<176>"strn d w"<0>
+.iif ne <.-psnorm>-<pstsiz>	.error psnorm size error	;14-/15-/16-
+	.BYTE	377						;12-
+.IFF								;18+
+;
+; Each entry in this table must be 6 bytes long with a null trailer.
+; Use old P-section names. INCOMPATIBLE WITH CURRENT LIBRARY!!
+;
+PSNORM:	.ASCII	'.prog.'<0>
+DATAST:	.ASCII	'.data.'<0>		;Accessed by UDIR dsect handler
+	.ASCII	'.mwcn.'<0>
+	.ASCII	'.data.'<0>
+	.ASCII	'.strn.'<0>
+.iif ne <.-psnorm>-<pstsiz>	.error psnorm size error
+	.BYTE	377
+.ENDC								;18-
+;
+; PSECT qualifier string storage.
+;
+PSQUAL:	.BYTE	0
+	.BLKB	8.
+	.BYTE	0
+;
+DSQUAL:	.BYTE	0
+	.BLKB	8.
+	.BYTE	0
+;
+; CODE STRINGS.
+;
+;
+; Note: Code strings have been revised (back to the original	;02
+; UNIX sequence).  This is incompatible with old libraries.	;02
+
+STR01:	.ASCII	"	.globl	csv"<176><12>			;DGC01/02
+	.ASCIZ	"	.globl	cret"<176><12>			;DGC01/02
+STR02:	.ASCIZ	"	.even"<12>
+STR03:	.ASCIZ	"	.blkb	"
+STR04:	.ASCIZ	":"<12>
+STR05:	.ASCIZ	"	jsr	r5,csv"<176><12>		;DGC01/02
+STR06:	.ASCIZ	"	tst	-(sp)"<12>
+STR07:	.ASCIZ	"	sub	$"
+STR08:	.ASCIZ	",sp"<12>
+STR10:	.ASCIZ	"	jmp	cret"<176><12>			;DGC01/02
+STR11:	.ASCIZ	"	.byte	"
+STR12:	.ASCIZ	"	.globl	"
+STR13:	.ASCIZ	"	.word	"
+STR17:	.ASCIZ	"	mov	$"				;25
+STR19:	.ASCIZ	",r0"<12>"	jsr	r5,pcsv"<176><12>	;DGC01/02
+STR20:	.ASCII	"	.globl	pcsv"<176><12>			;DGC01/02
+	.ASCIZ	"	.globl	cret"<176><12>			;DGC01/02
+STR23:	.ASCIZ	",r0"<12>
+STR24:	.ASCIZ	<12>"	cmp	r0,$"				;03
+STR25:	.ASCIZ	<12>"	bhi	"
+STR26:	.ASCIZ	<12>"	asl	r0"<12>"	jmp	*"
+STR27:	.ASCIZ	"(r0)"<12>					;03+/12
+STR28:	.ASCIZ	"	dec	r0"				;03-
+STR29:	.ASCIZ	"	.even"<12>				;12-
+STR30:	.ASCIZ	"	.word	0"<12>				;03+
+STR31:	.ASCIZ	<12>"	blt	"				;03-
+STR32:	.ASCIZ	"	.ident	"				;18
+STR33:	.ASCII	"	.globl	"<176><176>"asr0"<12>
+	.ASCII	"	.globl	"<176><176>"asr1"<12>
+	.ASCIZ	"	.globl	acret"<176><12>
+STR34:	.ASCII	"	mov	r0,"<176><176>"asr0"<12>
+	.ASCII	"	mov	r1,"<176><176>"asr1"<12>
+	.ASCIZ	"	clr	-(sp)"<12>
+STR35:	.ASCIZ	"	jmp	acret"<176><12>			;DGC01/02
+;
+; STRINGS FOR TABLE SWITCH					;06+
+;
+TSW01:	.ASCIZ	"	mov	$"
+TSW02:	.ASCIZ	",r1"<12>
+TSW03:	.ASCII	"	cmp	r0,(r1)+"<12>
+	.ASCIZ	"	bhi	"
+TSW04:	.ASCIZ	"	bne	"
+TSW05:	.ASCIZ	"	jmp	*"
+TSW06:	.ASCIZ	"-2(r1)"<12>
+TSW07:	.ASCIZ	"	.word	-1"<12>				;06-
+	.EVEN
+
+;+
+; ** CC200 - CODER MAINLINE
+;
+;								;01+
+; THIS IS THE MAINLINE OF THE CODE GENERATOR. IT IS CALLED FROM THE
+; ROOT WITH THE ASM OUTPUT FILE OPEN ON P2OUT, AND THE INTERMEDIATE
+; FILE (FROM PHASE 1)  OPEN ON P2IN.  THIS FILE NEEDS TO BE REWOUND
+; BEFORE USE.
+;								;01-
+;
+; ERRORS IN THE FORMAT OF THE INTERMEDIATE FILE ARE FATAL, BUT  THE
+; CODER CONTINUES. PERHAPS IT WOULD BE BETTER TO ABORT.
+;-
+
+CC200:	TSTB	DEBUGF		;DEBUG?				;14
+	BEQ	5$		;NO
+	MOV	#INTRO,R0	;SAY HELLO
+	CALL	CCTTY		;
+
+	BPT			;TRAP TO ODT			;01
+
+5$:								;01+
+	MOV	#P2IN,R0	;REWIND INPUT
+	CALL	REWIND		;				;01-
+.IF EQ RSX							;11+
+	MOV	#OPMTR,R1	;OUTPUT FILE
+	CALL	DOOPEN		;OPEN IT
+.ENDC								;11-
+	CLRB	SAWFN		;Clear function seen flag	;u4
+	CLRB	SAWCOD		;Clear P-Sect seen flags	;19+
+	CLRB	SAWDAT
+	CLRB	SAWMWC
+	CLRB	SAWPRF						;19-
+	CLRB	SAWAST
+	CLRB	INAST
+
+10$:	CALL	GET		;READ INPUT RECORD
+	BCS	20$		;EOF
+	CALL	PROCES		;PROCESS THE RECORD
+	BR	10$		;
+
+20$:	TSTB	SAWFN		;Seen a function?		;u4
+	BEQ	35$		;Skip if not			;u4
+	MOV	#STR01,R0	;PUT OUT GLOBALS
+	TSTB	PFLAG		;PROFILING
+	BEQ	30$		;NO
+	MOV	#STR20,R0	;GET CORRECT GLOBALS
+30$:	CALL	CODSTR		;PUT OUT
+35$:	TSTB	SAWAST		;Seen asts?
+	BEQ	36$		;No.
+	MOV	#STR33,R0	;Yes. Output more globals.
+	CALL	CODSTR
+36$:	CALL	PSEVEN		;FLUSH PSECT'S			;u4
+	MOV	#P2OUT,R0	;FLUSH OUT THE OUTPUT
+	CALLR	FLUSH		;BUFFER AND RETURN
+
+;+
+; ** PSEVEN
+;
+; ENTER ALL PSECTIONS AND PUT OUT A ".EVEN" TO
+; INSURE ALL PSECTIONS HAVE AN EVEN LENGTH.
+; THIS BLEW ADVENTURE OUT OF THE WATER.
+;
+; In order to keep load map clutter down, only .even those
+; P-Sections which have been entered. On a program with
+; 30 or so modules and no profiling, this resulted in a load
+; map (RSX) which was shorter by an entire page.
+;-
+;
+PSEVEN:
+	MOV	#PSPROG,R1	;FIRST .PSECT			;12+
+	MOV	#SAWCOD,R2	;FIRST 'SEEN' FLAG		;19+
+40$:	TSTB	(R2)+		;THIS P-SECT SEEN?
+	BEQ	45$		;(NO)				;19-
+	MOV	R1,R0		;GET THE STRING
+	CALL	CODPS		;OFF WE GO
+	CALL	ADIR		;.EVEN, TOO
+45$:	ADD	#PSSIZE,R1	;LOOK AT THE NEXT		;19
+	CMP	R1,#PSSTRN	;AT THE END?
+	BLO	40$		;NO, DO ANOTHER
+	RETURN			;ALL DONE			;12-
+
+;
+; PROCESS RECORD.
+;
+
+PROCES:	MOV	#BUF,R5		;POINT AT RECORD
+	MOVB	(R5)+,R0	;GET OPCODE
+	CALL	MAPUP		;MAP TO UPPER CASE
+
+;
+; MAKE THE CODE SLIGHTLY BETTER (SMALLER AND FASTER)		;01+
+;
+$$$$$	=	'@		;FIRST DIRECTIVE		;09
+	CMP	R0,#$$$$$	;IS IT WITHIN RANGE?		;09
+	BLO	10$		;NO, DIE
+	CMP	R0,#'[		;STILL WITHIN RANGE?
+	BLOS	20$		;YES, GO DO IT
+10$:	CALLR	NASTY		;URK
+20$:	ASL	R0		;MULTIPLY BY 2
+	CALLR	@50$-<$$$$$*2>(R0) ;GO DO IT (100 = '@')	;09
+
+50$:	.WORD	ATDIR		;'@'	ECHO TEXT		;09
+	.WORD	ADIR		;'A'	ALLIGN EVEN		;09
+	.WORD	BDIR		;'B'	BLOCK
+	.WORD	CDIR		;'C'	STRING PSECTION
+	.WORD	DDIR		;'D'	GLOBAL LABEL
+	.WORD	EDIR		;'E'	TREE FOR EFFECT
+	.WORD	FDIR		;'F'	JUMP FALSE
+	.WORD	GDIR		;'G'	GLOBL
+	.WORD	HDIR		;'H'	BYTE INITIALISER
+	.WORD	IDIR		;'I'	WORD POINTER INITIALISER
+	.WORD	JDIR		;'J'	JUMP
+	.WORD	KDIR		;'K'	TREE INITIALISER
+	.WORD	LDIR		;'L'	LOCAL LABEL
+	.WORD	MDIR		;'M'	LINE NUMBER
+	.WORD	NDIR		;'N'	ENTER FUNCTION
+	.WORD	ODIR		;'O'	C$DATA PSECTION			;07
+	.WORD	PDIR		;'P'	PROGRAMME PSECTION
+	.WORD	QDIR		;'Q'	SYMBOL TABLE ENTRY
+	.WORD	RDIR		;'R'	RETURN VALUE			;u1
+	.WORD	SDIR		;'S'	SWITCH VALUE			;u1
+	.WORD	TDIR		;'T'	JUMP TRUE
+	.WORD	UDIR		;'U'	PSECT FOO		;12
+	.WORD	VDIR		;'V'	IDENT BAR		;18
+	.WORD	WDIR		;'W'	SWITCH
+	.WORD	XDIR		;'X'	EXIT FUNCTION
+	.WORD	YDIR		;'Y'	WORD INITIALISER
+	.WORD	NASTY		;'Z'	NO SUCH ANIMAL
+	.WORD	PRGDIR		;'['	PRAGMA DIRECTIVE
+;								;01-
+PRGDIR:	INC	R5		;Go to pragma type.
+	MOVB	(R5)+,R0	;Get type.
+	CMP	R0,#'A		;AST?
+	BEQ	ASTDIR		;Yes.
+	RETURN			;Ignore all others for now.
+ASTDIR:	MOVB	(R5),R0		;Set AST status.
+	SUB	#'0,R0
+	MOVB	R0,INAST
+	RETURN			;Done.
+
+ATDIR:	MOVB	#'/,-(R5)	;ECHO TEXT AS A COMMENT		;09+
+	MOV	R5,R0		;TO R0 FOR CODSTR
+	CALL	CODSTR		;OUTPUT IT
+	CALLR	CODNL		;NEWLINE AFTER			;09-
+
+ADIR:	MOV	#STR02,R0	;.EVEN
+	CALLR	CODSTR		;
+
+BDIR:	MOV	#STR03,R0	;.BLKB
+	CALL	CODSTR		;
+	CALL	GETNUM		;OUTPUT SIZE OF BLOCK
+	CALL	CODNUM		;
+	CALLR	CODNL		;
+
+CDIR:	CALL	PFLUSH		;FLUSH BRANCHES
+	MOVB	#PSSTR,PSECTM	;Set PSECT type			;u2
+	MOV	#PSSTRN,R0	;.PSECT $STRN			;12
+	CALLR	CODPS		;				;12
+
+DDIR:
+	CALL	GETID		;GET IDENTIFIER
+	MOV	#ID,R0		;PUT IT OUT
+	CALL	CODID		;				;17
+	MOV	#STR04,R0	;THEN : NEWLINE
+	CALLR	CODSTR		;
+
+EDIR:	CALL	CLRTRE		;PURGE OLD TREE
+	CALL	TREEIN		;READ IN THE NEW TREE
+	MOV	#ETAB,R3	;TABLE = EFFECT TABLE
+	CALLR	RCEXPR		;
+
+FDIR:	CALL	GETNUM		;GET LABEL FROM INPUT
+	MOV	R0,R3		;
+	CALL	CLRTRE		;PURGE THE OLD TREE
+	CALL	TREEIN		;READ IN THE NEW TREE
+	CALLR	RJFALS		;
+
+GDIR:	MOV	#STR12,R0	;.GLOBL
+	CALL	CODSTR		;
+	CALL	GETID		;GET THE NAME
+	MOV	#ID,R0		;PUT IT OUT
+	CALL	CODID		;					;17
+	CALLR	CODNL		;
+
+HDIR:	MOV	#STR11,R0	;.BYTE
+	CALL	CODSTR		;
+	CALL	GETNUM		;VALUE OF INITIALISER
+	BIC	#177400,R0	;
+	CALL	CODNUM		;
+	CALLR	CODNL		;
+
+IDIR:	MOV	#STR13,R0	;.WORD
+	CALL	CODSTR		;
+	CALL	GETNUM		;LABEL
+	CALL	CODLAB		;
+	CALLR	CODNL		;
+
+JDIR:	CALL	GETNUM		;PUT OUT BRANCH
+	CALLR	BRANCH		;
+
+KDIR:	CALL	CLRTRE		;TREE INITIALISER
+	CALL	TREEIN		;READ IT IN
+	CALLR	ITREE		;PUT IT OUT
+
+LDIR:	CMPB	#PSPRG,PSECTM	;Is this a label in a program psect?	;u2+/12
+	BNE	10$		;Skip if not
+	CALL	FPMINI		;Set floating point mode to "unknown"
+10$:	CALL	GETNUM		;LABEL					;u2-
+	CALLR	LABEL		;
+
+MDIR:	CALL	GETNUM		;GET LINE NUMBER
+	MOV	R0,LINENO	;
+
+	CLRB	FILE		;SET NO NAME
+	MOV	#FILE,R1	;POINT AT FILE NAME
+10$:	MOVB	(R5)+,R0	;SKIP BLANKS
+	BEQ	30$		;NO NAME
+	CMP	R0,#BLANK	;
+	BEQ	10$		;
+
+	MOVB	R0,(R1)+	;COPY NAME
+20$:	MOVB	(R5)+,(R1)+	;
+	BNE	20$		;
+
+30$:	RETURN			;DONE
+
+NDIR:	MOVB	#1,SAWFN	;Set function-seen flag			;u4
+	CALL	GETNUM		;GET SIZE OF AUTOS
+	MOV	R0,-(SP)	;
+	CALL	GETNUM		;HIGHEST REGISTER
+1$:	MOV	R0,FHGPR	;
+
+	CLRB	FPFLAG		;CLEAR FLOAT FLAG			;10+
+	CALL	GETNUM		;GET FUNCTION TYPE
+	CMPB	R0,#TY.FLT	;FLOAT?
+	BEQ	5$		;IS OURS
+	CMPB	R0,#TY.DBL	;ELSE IT BETTER
+	BNE	7$		;BE DOUBLE
+5$:	INCB	FPFLAG		;SET FLOAT/DOUBLE BIT
+7$:				;					;10-
+
+	TSTB	INAST		;ARE WE AST
+	BEQ	8$		;BR IF NO
+	MOV	#STR34,R0	;YES. OUTPUT AST PREAMBLE.
+	CALL	CODSTR		;
+	MOVB	#1,SAWAST	;NOTE THAT WE'VE SEEN AST FUNCTION.
+8$:	TSTB	PFLAG		;ARE WE PROFILING
+	BNE	10$		;BR IF YES
+	MOV	#STR05,R0	;NO, STANDARD SAVE
+	CALL	CODSTR		;
+	BR	30$		;
+
+10$:	MOV	#STR17,R0	;PROFILE NAME AND SAVE		;25
+	CALL	CODSTR		;				;25
+	CALL	GENLAB		;GET LABEL TO PROFILE AREA	;25
+	MOV	R0,-(SP)	;SAVE LABEL NAME		;25
+	CALL	CODLAB		;CODE LABEL			;25
+	MOV	#STR19,R0	;PROFILE SAVE
+	CALL	CODSTR		;
+	BISB	#1,SAWPRF	;SET THE "SEEN" FLAG		;19
+	MOV	#PSPROF,R0	;SWITCH INTO $PROF PSECTION	;12
+	CALL	CODPS		;				;12
+;	CALL	ADIR		;FORCE A .even			;12
+	MOV	(SP)+,R0	;OUTPUT LABEL FOR THE STRING
+	CALL	LABEL		;
+	MOV	#STR30,R0	;AND THE .WORD FOR THE COUNT	;03
+	CALL	CODSTR		;				;03
+
+20$:	MOVB	(R5)+,R0	;PUT OUT THE NAME (ASCIZ)
+	CMPB	R0,#BLANK	;
+	BEQ	20$		;
+	MOV	R0,-(SP)	;
+	MOV	#STR11,R0	;.BYTE
+	CALL	CODSTR		;
+	MOV	(SP),R0		;THE VALUE
+	CALL	CODNUM		;
+	CALL	CODNL		;
+	TST	(SP)+		;CONTINUE UNTIL NUL
+	BNE	20$		;
+
+	CALL	ADIR		;FORCE .EVEN			;12
+	MOV	#PSPROG,R0	;SWITCH INTO $CODE PSECTION	;12/19
+	CALL	CODPS		;				;12
+	BISB	#1,SAWCOD	;SET 'SEEN' FLAG		;19
+	BR	30$
+
+30$:	MOV	(SP)+,R0	;RECOVER AUTO SIZE
+	BEQ	60$		;ZERO
+	CMP	R0,#2		;IS IT THE SPECIAL CASE OF 2
+	BNE	40$		;NO
+	MOV	#STR06,R0	;YES, TEST -(SP)
+	BR	50$		;
+
+40$:	MOV	R0,R1		;SAVE SIZE
+	MOV	#STR07,R0	;SUB $
+	CALL	CODSTR		;
+	MOV	R1,R0		;THE SIZE
+	CALL	CODNUM		;
+	MOV	#STR08,R0	;,SP
+
+50$:	CALL	CODSTR		;
+60$:
+	RETURN			;DONE
+
+ODIR:	MOVB	#PSDAT,PSECTM	;Set PSECT type			;u2/12
+	MOV	#DSQUAL,-(SP)	;Qualifier if any		;16+
+	MOV	#PSDATA,-(SP)	;.PSECT	C$DATA			;07/12
+	BISB	#1,SAWDAT	;SET 'SEEN' FLAG		;19
+	BR	PDIR1		; Do common code
+
+PDIR:	MOVB	#PSPRG,PSECTM	;Set PSECT type			;u2/12
+	MOV	#PSQUAL,-(SP)	;Qualifier if any
+	MOV	#PSPROG,-(SP)	;.PSECT $CODE			;03/12
+	BISB	#1,SAWCOD	;SET 'SEEN' FLAG		;19
+	.BR	PDIR1		; Do common code
+PDIR1:
+	MOV	#PSTEXT,R0	;Common header
+	CALL	CODSTR
+	MOV	(SP)+,R0	;psect/dsect name
+	CALL	CODSTR		;Output it.
+	MOV	(SP),R0		;Qualifier.
+	TSTB	(R0)		;Is there one?
+	BEQ	10$		;Br if none
+	CALL	CODSTR		;Output it
+10$:	CLRB	@(SP)+		;Clear the qualifier string
+	CALLR	CODNL		;Terminate the psect/dsect name
+
+QDIR:	MOVB	#'/,R0		;JUST PUT OUT THE 'Q'
+	CALL	CODC		;
+	MOV	#BUF,R0		;AS A COMMENT
+	CALL	CODSTR		;
+	CALLR	CODNL		;
+
+RDIR:	CALL	CLRTRE		;PURGE OLD TREE			;u1+
+	CALL	TREEIN		;READ IN NEW ONE
+	MOV	#ETAB,R3	;USE ETAB (RTAB CAN'T DO ALL TYPE CONVERSIONS)
+	BR	RSDIR		;ENTER COMMON CODE		;u1-
+
+SDIR:	CALL	CLRTRE		;PURGE OLD TREE			;u1
+	CALL	TREEIN		;READ IN NEW ONE
+	MOV	#RTAB,R3	;TABLE = REGISTER TABLE
+RSDIR:	CALL	RCEXPR		;				;u1
+	TST	R0		;MAKE SURE RESULT IS IN R0
+	BEQ	10$		;
+	CLR	R1		;
+	MOVB	E.TYPE(R5),R2	;
+	CALL	MOVREG		;
+10$:	RETURN			;DONE
+
+TDIR:	CALL	GETNUM		;GET LABEL
+	MOV	R0,R3		;
+	CALL	CLRTRE		;PURGE OLD TREE
+	CALL	TREEIN		;GET NEW ONE
+	CALLR	RJTRUE		;
+
+;
+; UDIR updates the psect strings				;12+
+;
+;	NOTE: This code will not work correctly if U is read
+;	within a function.  The current program section MUST
+;	be c$data (or one of its clones).
+;
+; Format: (on entry, r5 -> blank after 'U')
+;	U Pxxx<TAB>yyyyy	"xxx" and "<TAB>yyyyy" are optional
+;	U Dxxxxx<TAB>yyyyy
+;
+UDIR:
+	call	getid		;get P/D<id>
+	cmpb	id,#'P		;psect?
+	beq	udir1		;yes, do it
+	call	adir		;flush current c$data
+	mov	#id+1,r0	;r0 -> id buffer after 'D'
+	mov	#psdata,r1	;r1 -> output
+	tstb	(r0)		;dsect ""?
+	bne	10$		;continue if not
+	mov	#datast,r0	;yes, r0 -> c$data
+10$:	movb	(r0)+,(r1)+	;move the string
+	bne	10$		;All of it.
+	mov	#dsqual,r1	;Where qualifier (if any) goes.
+	br	udir2		;Common exit.
+
+UDIR1:				;psect processor
+	call	pseven		;put out lots of .even's
+	mov	#psmask,r0	;r0 -> mask table
+	mov	#psprog,r1	;r1 -> psect table
+	tstb	id+1		;Was it psect "";?
+	bne	30$		;if not, do the mask
+	mov	#psnorm,r0	;r0 -> normal psect table
+
+30$:
+	tstb	(r0)		;at the end?
+	bmi	40$		;br if so
+	movb	(r0)+,(r1)+	;no, do another byte
+	br	30$		;do 'em all.
+
+40$:
+	mov	#id+1,r0	;r0 -> id buffer
+	tstb	(r0)		;Was it psect "";?
+	beq	60$		;exit if so
+	mov	#psprog,r1	;r1 -> psect table
+
+50$:
+	movb	(r0),(r1)	;out one byte
+	add	#pssize,r1	;step to the next psect
+	cmp	r1,#pstabe	;at/past end?
+	blo	50$		;not yet
+	sub	#pstabe-psprog-1,r1 ;r1 -> new byte to do
+	inc	r0		;look at the next byte
+	cmp	r1,#psprog+3	;done 'em all?
+	blo	50$		;do more.
+
+60$:	mov	#psqual,r1	;Ready to output the qualifier table	;16+
+	.br	udir2		;Continue main sequence
+;
+; Common exit from psect/dsect.  r1 -> qualifier table.
+; r5 -> Deliminator after psect name.
+;
+udir2:
+	clrb	(r1)		;Assume no qualifier
+	tstb	(r5)+		;Well?
+	beq	20$		;Exit if none.
+	movb	#011,(r1)+	;Qualifier is present, move
+10$:	movb	(r5)+,(r1)+	;the text
+	bne	10$		;out.
+20$:	callr	odir		;done, get into new C$DATA	;12-/16-
+
+;								;18+
+; VDIR - Process "ident" directive.
+;
+; Input syntax: "V XXXXXX"
+;
+; Output syntax: <tab>.ident<tab>"XXXXXX"<nl>
+;
+; NOTE:	Does not test for RAD50 validity, and chops
+;	the ident string to 6 characters (pass 1 limits
+;	it to 6 but this seemed safe).
+;
+VDIR:
+	call	getid		; Get the ident string
+	mov	#str32,r0	; R0 --> "<tab>.ident<tab><null>"
+	call	codstr		; Emit the .ident directive
+	mov	#42,R0		; R0 = "
+	call	codc		; Emit the leading "
+	mov	#id,r1		; R1 --> identifier
+	mov	#6,r2		; R2 = Max identifier length
+10$:	movb	(r1)+,r0	; R0 = current identifier character
+	beq	20$		; (null, end of identifier)
+	call	codc		; Emit identifier character
+	dec	r2		; Simpleton SOB
+	bne	10$		; Emit up to 6 identifier characters
+20$:	mov	#42,r0		; R0 = "
+	call	codc		; Emit the trailing "
+	callr	codnl		; Finish up with a newline		;18-
+
+WDIR:
+	CALLR	SWITCH		;DO SWITCH STUFF
+
+XDIR:	MOV	#STR10,R0	;JMP CRET$
+	TSTB	INAST		;AST FUNCTION?
+	BEQ	10$		;NO.
+	MOV	#STR35,R0	;YES. CHANGE TO JUMP ACRET$
+10$:	CALLR	CODSTR		;
+
+YDIR:	MOV	#STR13,R0	;.WORD
+	CALL	CODSTR		;
+	CALL	GETNUM		;GET THE INITIALISER
+	CALL	CODNUM		;
+	CALLR	CODNL		;
+
+;+
+; ** GET - GET INPUT RECORD
+;
+; READ A RECORD FROM THE INPUT FILE. PACK IT (IN ASCIZ) INTO BUF. ON
+; EOF RETURN WITH THE C BIT SET.
+;
+; USES:
+;	R0 (NATCH)
+;-
+
+GET:								;01+
+	MOV	#80.,-(SP)	;PUSH MAX SIZE
+	MOV	#BUF,-(SP)	;AND BUFFER
+	MOV	#P2IN,R0	;READ FROM P2IN
+	CALL	RDLINE		;DO IT
+	BIT	(SP)+,(SP)+	;EMPTY STACK			;01-
+	BCS	10$		;BR ON ERROR (ASSUME EOF)
+	CLRB	BUF(R0)		;MAKE IT ASCIZ			;01
+;;
+;; Enable the following code to dump each "pass 2" line as it is read
+;;
+;;	mov #buf,r0
+;;	call warn
+
+10$:
+	RETURN			;
+
+;+
+; ** SWITCH - SWITCH BLOCK PROCESSING
+;-
+
+SWITCH:	CALL	PFLUSH		;J.I.C.
+
+	CALL	GETNUM		;DEFAULT LABEL
+	MOV	R0,DEFLAB	;
+
+;
+; READ IN THE SWITCH DATA.
+; IT LIVES IN 'W' RECORDS (W VALUE LABEL).
+; THE END IS MARKED BY A 'V'.
+; EOF WILL ALSO STOP IT.
+;
+
+	MOV	#SWTAB,R4	;POINT AT START OF SWITCH BUFFER
+10$:	CALL	GET		;READ IN SWITCH ITEMS
+	BCS	60$		;EOF
+	MOV	#BUF,R5		;POINT AT BUFFER
+	MOVB	(R5)+,R0	;GET RECORD TYPE
+	CALL	MAPUP		;
+	CMPB	R0,#'V		;'V'	END OF SWITCH TABLE
+	BEQ	60$		;YES
+	CMPB	R0,#'W		;'W'	SWITCH ITEM
+	BEQ	20$		;YES
+	CALL	NASTY		;IT'S A NASTY RECORD
+	BR	10$		;SO SKIP IT
+
+20$:	CMP	R4,#SWTAB+<4*MSWIT> ;CHECK FOR OVERFLOW
+	BLO	30$		;IT WILL FIT
+	CALL	NASTY		;ITS NASTY
+	BR	10$		;
+
+30$:	CALL	GETNUM		;VALUE
+	MOV	R0,(R4)+	;TO THE SWITCH DATA BUFFER
+	CALL	GETNUM		;LABEL
+	MOV	R0,(R4)+	;TO THE SWITCH DATA BUFFER
+	BR	10$		;AND GO GET ANOTHER RECORD
+
+;
+; NO CASES.
+; BR TO DEFAULT LABEL.
+;
+
+60$:	CMP	R4,#SWTAB	;ANY ENTRIES
+	BHI	70$		;YES
+	MOV	DEFLAB,R0	;BR TO DEFLAB
+	CALL	BRANCH		;
+	BR	90$		;
+
+;
+; DECIDE ON SWITCH TYPE.
+; IF RANGE>0 AND RANGE<=3*NCASES, USE A
+; JUMP TABLE SWITCH.
+; OTHERWISE USE A SIMPLE LOOK UP SWITCH.
+;
+
+70$:	CALL	SORT		;SORT THE CASES
+	BCS	90$		;ERROR
+
+	MOV	-4(R4),R3	;COMPUTE RANGE
+	SUB	SWTAB,R3	;
+	BLO	80$		;-VE, TABLE SWITCH			;06
+	MOV	R4,R0		;GET 3*NCASES
+	SUB	#SWTAB,R0	;
+	MOV	R0,R1		;
+	ASR	R1		;
+	ASR	R1		;
+	SUB	R1,R0		;
+	CMP	R3,R0		;RANGE <= 3*NCASES
+	BHI	80$		;NO					;06
+	CALL	JTSWIT		;DO JUMP TABLE SWITCH
+	BR	90$		;
+
+80$:	CALL	TLSWIT		;DO TABLE LOOK UP SWITCH
+
+90$:	RETURN			;
+
+;+
+; ** SORT -- SORT CASES
+;
+; ALSO CHECKS FOR DUPLICATED ENTRIES.
+; NOTE THAT THE TABLE IS SORTED "UNSIGNED"
+;
+; INPUTS:
+;	R4=POINTER JUST PAST LAST SWITCH.
+;	-2(R4) => LAST VALUE
+;
+; USES:
+;	R0, R1, R2, R3
+;-
+
+SORT:	MOV	R4,R1		;GET WORKING LAST POINTER
+
+10$:	SUB	#4,R1		;BACK UP
+	CMP	#SWTAB,R1	;BREAK IF DONE
+	BHIS	60$		;
+	CLR	R2		;INTERCHANGE FLAG
+	MOV	#SWTAB,R3	;START
+
+20$:	CMP	R3,R1		;AT THE END YET
+	BHIS	50$		;YES
+
+	CMP	(R3),4(R3)	;TEST IF DUPLICATED CONSTANT
+	BNE	30$		;NO
+	MOV	#ERR04,R0	;BITCH
+	CALL	ERROR		;
+	SEC			;RETURN ERROR CODE
+	RETURN			;
+
+30$:	BLO	40$		;BR IF NO INTERCHANGE			;06
+	INC	R2		;FLAG
+	MOV	(R3),R0		;SWAP ENTRIES
+	MOV	4(R3),(R3)	;
+	MOV	R0,4(R3)	;
+	MOV	2(R3),R0	;
+	MOV	6(R3),2(R3)	;
+	MOV	R0,6(R3)	;
+
+40$:	ADD	#4,R3		;GO ON
+	BR	20$		;
+
+50$:	TST	R2		;ANY INTERCHANGES?
+	BNE	10$		;YES, AGAIN
+60$:	CLC			;GOOD RETURN
+	RETURN			;
+
+;+
+; ** JTSWIT -- GENERATE JUMP TABLE SWITCH
+;
+; INPUTS:
+;	R3=RANGE
+;	R4=POINTER JUST BEYOND SWITCH TABLE
+;
+; GENERATES
+;	DEC	R0		(IF LOW VALUE = 1)
+;  OR	SUB	#LOW,R0		(IF LOW VALUE < 0 OR LOW VALUE > 1)
+;	BLT	DEFAULT		(IF LOW VALUE < 0)
+;	CMP	R0,#HIGH
+;	BHI	DEFLAB
+;	ASL	R0
+;	JMP	@LAB(R0)
+; LAB:	.WORD	CASE0
+;	.WORD	CASE1
+;	...
+;-
+
+JTSWIT:								;03+
+	MOV	SWTAB,R0	;GET LOW VALUE
+	BEQ	20$		;ALL SET UP IF IT'S ZERO
+	DEC	R0		;NOT ZERO, MAYBE IT'S 1
+	BNE	10$		;NOPE, DO IT THE HARD WAY
+	MOV	#STR28,R0	;YEP, GENERATE DEC R0
+	CALL	CODSTR		;DO IT
+	BR	20$		;NOW IT'S WHERE WE WANT IT	;03-
+;
+10$:	MOV	#STR07,R0	;SUB $LOW,R0
+	CALL	CODSTR		;
+	MOV	SWTAB,R0	;
+	CALL	CODNUM		;
+	MOV	#STR23,R0	;
+	CALL	CODSTR		;
+
+	TST	SWTAB		;IF LOW VALUE < 0, WE MUST	;03+
+	BGT	20$		;DO A BIG CHECK FOR TOO SMALL
+	MOV	#STR31,R0	;<NL>BLT DEFLAB
+	CALL	CODSTR		;
+	MOV	DEFLAB,R0	;
+	CALL	CODLAB		;
+
+20$:	MOV	#STR24,R0	;<NL>CMP R0,$RANGE		;03-
+	CALL	CODSTR		;
+	MOV	R3,R0		;
+	CALL	CODNUM		;
+
+	MOV	#STR25,R0	;<NL>BHI DEFLAB
+	CALL	CODSTR		;
+	MOV	DEFLAB,R0	;
+	CALL	CODLAB		;
+
+	MOV	#STR26,R0	;<NL>ASL R0<NL>JMP *LAB(R0)
+	CALL	CODSTR		;
+	CALL	GENLAB		;
+	MOV	R0,-(SP)	;
+	CALL	CODLAB		;
+	MOV	#STR27,R0	;(R0)<12>
+	CALL	CODSTR		;
+	MOV	#PSMWCN,R0	;SWITCH TO MWCN (READ/ONLY)	;12
+	CALL	CODPS		;OUTPUT IT			;12
+	BISB	#1,SAWMWC	;SET THE "SEEN" FLAG		;19
+;
+; THE JUMP TABLE.
+;
+
+	MOV	(SP)+,R0	;LABEL
+	CALL	LABEL		;
+
+	MOV	#SWTAB,R1	;ENTRY POINTER
+	MOV	(R1),R2		;VALUE
+
+30$:	CMP	R1,R4		;DONE YET
+	BHIS	50$		;YES
+	MOV	#STR13,R0	;.WORD
+	CALL	CODSTR		;
+	MOV	DEFLAB,R0	;DEFAULT LABEL
+	CMP	R2,(R1)		;IS THERE A CASE?
+	BNE	40$		;NO
+	TST	(R1)+		;YES, GRAB ITS LABEL
+	MOV	(R1)+,R0	;
+
+40$:	CALL	CODLAB		;ENTRY
+	CALL	CODNL		;
+	INC	R2		;ADVANCE CASE VALUE
+	BR	30$		;
+
+;								;19+
+; NOTE:	We don't need to set the "C$CODE SEEN" flag here, since
+; 	we're already generating a case statement.
+;								;19-
+50$:	MOV	#PSPROG,R0	;.PSECT $CODE			;03/12
+	CALLR	CODPS		;				;03/12
+
+;+
+; ** TLSWIT -- TABLE LOOK UP SWITCH				;06+
+;
+;
+;	MOV	#L2,R1
+; L1:	CMP	R0,(R1)+
+;	BHI	L1
+;	BNE	DEFAULTLAB
+;	JMP	@L3-L2-2(R1)
+;	.PSECT	$MWCN
+;	.EVEN
+; L2:	.WORD	VAL1
+;	.WORD	VAL2
+;	...
+;	.WORD	-1			;NOTE -- ALWAYS PRESENT
+; L3:	.WORD
+;	.WORD	CASE1
+;	.WORD	CASE2
+;	...
+;	.WORD	DEFAULTLAB		;MAY BE INSERTED "BY HAND"
+;	.PSECT	$CODE
+;
+; INPUTS:
+;	R4=POINTER JUST PAST CASE TABLE
+;-
+
+TLSWIT:
+	CALL	GENLAB		;L1	LOOP
+	MOV	R0,-(SP)	;
+	CALL	GENLAB		;L2	VALUE TABLE START
+	MOV	R0,-(SP)	;
+	CALL	GENLAB		;L3	JUMP TABLE START
+	MOV	R0,-(SP)	;
+;
+; NOTE:
+;   0(SP)	LOOP
+;   2(SP)	JUMP TABLE
+;   4(SP)	LABEL LOOP
+;
+	MOV	#TSW01,R0	;MOV	$VALUE_TABLE, R1
+	CALL	CODSTR
+	MOV	2(SP),R0
+	CALL	CODLAB
+	MOV	#TSW02,R0
+	CALL	CODSTR
+;
+	MOV	(SP),R0		;L1:	CMP R0,(R1)+
+	CALL	LABEL		;	BHI L1
+	MOV	#TSW03,R0
+	CALL	CODSTR
+	MOV	(SP)+,R0
+	CALL	CODLAB
+	CALL	CODNL
+;
+; NOW,
+;   0(SP)	VALUE TABLE
+;   2(SP)	JUMP TABLE
+;
+	MOV	#TSW04,R0	;	BNE DEFLAB
+	CALL	CODSTR
+	MOV	DEFLAB,R0
+	CALL	CODLAB
+	CALL	CODNL
+;
+	MOV	#TSW05,R0	;	JMP *L3-L2-2(R1)
+	CALL	CODSTR
+	MOV	2(SP),R0
+	CALL	CODLAB
+	MOV	#'-,R0
+	CALL	CODC
+	MOV	(SP),R0
+	CALL	CODLAB
+	MOV	#TSW06,R0
+	CALL	CODSTR
+	MOV	#PSMWCN,R0	;.PSECT $MWCN			;12
+	CALL	CODPS		;
+	BISB	#1,SAWMWC	;SET THE "SEEN" FLAG		;19
+;
+; PUT OUT THE VALUES
+;
+	MOV	(SP)+,R0
+	CALL	LABEL
+	MOV	#SWTAB,R3
+10$:
+	MOV	#STR13,R0		;.WORD	VALUE
+	CALL	CODSTR
+	MOV	(R3)+,R0
+	CALL	CODNUM
+	CALL	CODNL
+	TST	(R3)+
+	CMP	R3,R4
+	BLO	10$
+;
+; IF THE LAST VALUE WASN'T -1, FORCE IT OUT ANYWAYS (TO TERMINATE THE LOOP)
+;
+	CMP	-4(R3),#-1		;COMPARE -1 WITH THE GREATEST CASE
+	BEQ	20$			;NO NEED FOR US TO DO IT
+	MOV	#TSW07,R0		;.WORD -1
+	CALL	CODSTR
+;
+; NOW, PUT OUT THE LABELS
+;
+20$:
+	MOV	(SP)+,R0		;LABEL TABLE LABEL
+	CALL	LABEL
+	MOV	#SWTAB,R3
+30$:
+	MOV	#STR13,R0		;.WORD LABEL
+	CALL	CODSTR
+	MOV	2(R3),R0
+	CALL	CODLAB
+	CALL	CODNL
+	ADD	#4,R3
+	CMP	R3,R4
+	BLO	30$
+;
+; IF WE PUT OUT A -1, PUT OUT A DEFAULT LABEL TO MATCH IT
+;
+	CMP	-4(R3),#-1		;NO NEED IF IT'S THERE
+	BEQ	40$
+	MOV	#STR13,R0
+	CALL	CODSTR
+	MOV	DEFLAB,R0
+	CALL	CODLAB
+	CALL	CODNL
+40$:
+;								;19+
+; NOTE:	We don't need to set the "C$CODE SEEN" flag here, since
+; 	we're already generating a case statement.
+;								;19-
+	MOV	#PSPROG,R0	;BACK TO .PSECT $CODE		;12
+	CALLR	CODPS						;06-/12
+
+;+
+; ** GETNUM - GET OCTAL NUMBER FROM THE INPUT
+;
+; THIS ROUTINE SKIPS OVER BLANKS, THEN COLLECTS UP AN OCTAL NUMBER.
+; IF THE LINE RUNS OUT BEFORE A NUMBER IS FOUND IT COMPLAINS.
+;
+; OUTPUTS:
+;	R0=THE NUMBER
+;-
+
+GETNUM:	MOV	R1,-(SP)	;SAVE
+
+10$:	MOVB	(R5)+,R1	;SKIP OVER BLANKS
+	BEQ	30$		;SHOULDN'T HIT THE END
+	CMPB	R1,#BLANK	;
+	BEQ	10$		;
+
+	CLR	R0		;INITIALIZE THE NUMBER
+20$:	SUB	#'0,R1		;CHECK FOR LEGAL OCTAL
+	CMP	R1,#7		;
+	BHI	40$		;
+	ASL	R0		;OLD = OLD<<3 + NEW - '0'
+	ASL	R0		;
+	ASL	R0		;
+	ADD	R1,R0		;ADD IN THE NEW DIGIT
+	MOVB	(R5)+,R1	;GET NEXT DIGIT
+	BR	20$		;
+
+30$:	CALL	NASTY		;NASTY RECORDS
+	CLR	R0		;RETURN 0
+
+40$:	DEC	R5		;BACK UP ONTO DELIMITER
+	MOV	(SP)+,R1	;RETURN
+	RETURN			;
+
+;+
+; ** GETID - READ IN IDENTIFIER
+;
+; Read an identifier into the buffer.  Terminated by <BLANK>, <TAB>,
+; or <end of line).  The identifier is null-terminated.
+;
+; USES:
+;	R0, R1
+;-
+
+GETID:	MOV	#ID,R1		;POINT AT ID BUFFER
+
+10$:	MOVB	(R5)+,R0	;SKIP BLANKS
+	BEQ	40$		;SHOULDN'T HIT THE END
+	CMPB	R0,#BLANK	;
+	BLOS	10$		;ASSUME ANY CTRL IS BLANK/TAB		;16
+
+20$:	CMP	R1,#ID+10	;DOES IT FIT
+	BHIS	30$		;NO
+	MOVB	R0,(R1)+	;SAVE IT
+30$:	MOVB	(R5)+,R0	;GET NEXT CHARACTER
+	BEQ	50$		;END OF RECORD IS A DELIMITER
+	CMPB	R0,#BLANK	;BLANKS ARE DELIMITERS TOO
+	BHI	20$		;BR IF NOT END OF ID			;16
+	BR	50$		;DONE
+
+40$:	CALL	NASTY		;NASTY THINGS
+
+50$:	CLRB	(R1)		;MAKE ASCIZ
+	DEC	R5		;BACKUP TO DELIMITER
+	RETURN			;
+
+;+
+; ** MAPUP - MAP CHARACTER TO UPPER CASE
+;
+; INPUTS:
+;	R0=CHARACTER
+;
+; OUTPUTS:
+;	R0=MAPPED CHARACTER
+;-
+
+MAPUP:	CMPB	R0,#141		;LOWER CASE 'A'
+	BLO	10$		;
+	CMPB	R0,#172		;LOWER CASE 'Z'
+	BHI	10$		;
+	BICB	#40,R0		;CONVERT TO UPPER CASE
+10$:	RETURN			;
+
+;+
+; ** NASTY - COMPLAIN ABOUT BAD RECORDS
+;
+; USES:
+;	R0
+;-
+
+NASTY:	MOV	#ERR01,R0	;NASTY MESSAGE
+	CALL	CCERR		;
+	CALL	CCTTY		;
+	MOV	#BUF,R0		;THEN THE BAD RECORD
+	CALL	CCERR		;
+	CALLR	CCTTY		;
+
+;+
+; ** TREEIN - READ IN TREE
+;
+; READ IN A TREE (IN 'Z' RECORDS). RETURN A POINTER TO THE  TREE  THAT
+; WAS READ IN.
+; ALL CONSTANTS GET 4 WORD TREE NODES. FOR INTEGERS THE LAST 3 ARE NOT
+; USED; FOR LONGS THE LAST 2 ARE NOT USED.
+;
+; OUTPUTS:
+;	R5=POINTER TO TREE
+;-
+
+TREEIN:	MOV	R0,-(SP)	;SAVE REGISTERS
+	MOV	R1,-(SP)	;
+	MOV	R2,-(SP)	;
+	MOV	R3,-(SP)	;
+	MOV	R4,-(SP)	;
+
+	CALL	GET		;READ AN INPUT RECORD
+	BCC	10$		;GOT ONE
+	MOV	#ERR03,R0	;UNEXPECTED
+	CALL	CCERR		;EOF
+	CALL	CCTTY		;
+	BR	20$		;RETURN NULL POINTER
+
+10$:	MOV	#BUF,R5		;SET UP SCAN POINTER
+	MOVB	(R5)+,R0	;GET THE OPCODE
+	CALL	MAPUP		;ACCEPT 'Z' IN BOTH CASES
+	CMPB	R0,#'Z		;TREE RECORDS HAVE OPCODE 'Z'
+	BEQ	30$		;BR ON TREE RECORD
+	CALL	NASTY		;NASTY RECORD IN THE TREE
+20$:	BR	100$		;RETURN NULL POINTER
+
+30$:	CALL	GETNUM		;OP
+	CMP	R0,#OP.EOF	;ENCODING OF NULL POINTER?
+	BEQ	100$		;BR IF YES
+	MOV	R0,R1		;SAVE OP
+	CALL	GETNUM		;GET TYPE
+	MOV	R0,R2		;SAVE TYPE
+	CMP	R1,#OP.CON	;CONSTANT?
+	BNE	40$		;NO
+	MOV	#ES.CON,R4	;YES, GET TREE NODE
+	CALL	TREESP		;
+	CALL	GETNUM		;PUT VALUE IN IT
+	MOV	R0,E.VAL(R4)	;
+	CALL	GETNUM		;
+	MOV	R0,E.VAL+2(R4)	;
+	CALL	GETNUM		;
+	MOV	R0,E.VAL+4(R4)	;
+	CALL	GETNUM		;
+	MOV	R0,E.VAL+6(R4)	;
+	BR	90$		;
+
+40$:	CMP	R1,#OP.REG	;OP.REG TYPE REG
+	BNE	50$		;
+	MOV	#ES.REG,R4	;GET TREE NODE
+	CALL	TREESP		;
+	CALL	GETNUM		;GET REGISTER NUMBER
+	MOV	R0,E.REG(R4)	;
+	CLR	E.OFFS(R4)	;0 OFFSET
+	BR	90$		;
+
+50$:	CMP	R1,#OP.INX	;OP.INX TYPE REG OFFSET
+	BNE	60$		;
+	MOV	#ES.REG,R4	;GET TREE NODE
+	CALL	TREESP		;
+	CALL	GETNUM		;GET REGISTER NUMBER
+	MOV	R0,E.REG(R4)	;
+	CALL	GETNUM		;GET OFFSET
+	MOV	R0,E.OFFS(R4)	;
+	BR	90$		;
+
+60$:	CMP	R1,#OP.ID	;OP.ID TYPE NAME
+	BNE	75$		;
+	MOV	#ES.ID,R4	;GET TREE NODE
+	CALL	TREESP		;
+	MOV	R1,-(SP)	;SAVE OP AND TYPE
+	MOV	R2,-(SP)	;
+	CALL	GETID		;GET THE IDENTIFIER AND
+	MOV	R4,R3		;PACK IT INTO THE TREE NODE
+	ADD	#E.NAME,R3	;
+	MOV	#ID,R2		;
+70$:	MOVB	(R2)+,(R3)+	;MLR
+	BNE	70$		;
+	MOV	(SP)+,R2	;RECOVER OP AND TYPE
+	MOV	(SP)+,R1	;
+	CLR	E.OFFS(R4)	;0 OFFSET
+	BR	90$		;
+
+75$:	CMP	R1,#OP.LID	;LOCAL ID
+	BNE	80$		;
+	MOV	#ES.LID,R4	;GET TREE NODE
+	CALL	TREESP		;
+	CALL	GETNUM		;
+	MOV	R0,E.LAB(R4)	;LOCAL LABEL
+	CLR	E.OFFS(R4)	;
+	BR	90$		;
+
+80$:	MOV	#ES.OP,R4	;MUST BE OPERATOR NODE
+	CALL	TREESP		;
+	CALL	TREEIN		;
+	MOV	R5,E.LOP(R4)	;LEFT SUBTREE
+	CALL	TREEIN		;
+	MOV	R5,E.ROP(R4)	;
+
+90$:	MOV	R4,R5		;MOVE RETURN POINTER
+	MOV	R1,E.OP(R5)	;
+	MOVB	R2,E.TYPE(R5)	;
+	CLR	E.HGPR(R5)	;
+	CLR	E.HFPR(R5)	;
+	BR	110$		;
+
+100$:	CLR	R5		;RETURN NULL POINTER
+
+110$:	MOV	(SP)+,R4	;RETURN
+	MOV	(SP)+,R3	;
+	MOV	(SP)+,R2	;
+	MOV	(SP)+,R1	;
+	MOV	(SP)+,R0	;
+	RETURN			;
+
+;+
+; ** CLRTRE - CLEAR TREE SPACE
+;
+; CLEAR THE TREE SPACE. THIS IS EASY BECAUSE THE TREE SPACE IS JUST A
+; LINEAR BLOCK.
+; ON THE FIRST CALL, ASK RSX HOW BIG THE TREE SPACE IS.
+;
+; USES:
+;	R0
+;-
+
+CLRTRE:	MOV	BMEM,TTREE	;WIND BACK TOP OF TREE POINTER
+	BNE	10$		;AOK
+
+	MOV	FREMEM,BMEM	;SET UP BASE OF MEMORY		;01
+	MOV	BMEM,TTREE	;SET UP TOP OF THE TREE
+.IF NE	RSX							;01
+	GPRT$S	,#PPBUF		;HOW LARGE?
+	MOV	PPBUF+G.PRPS,R0	;SIZE IN CLICKS
+	ASL	R0		;CONVERT TO BYTES THE HARD WAY
+	ASL	R0		;
+	ASL	R0		;
+	ASL	R0		;
+	ASL	R0		;
+	ASL	R0		;
+	ADD	$DSW,R0		;R0=HIGHEST ADDRESS+1
+.IFF								;01+
+	MOV	FRETOP,R0	;GET TOP OF FREE MEMORY
+	INC	R0		;R0 := HIGHEST ADDRESS + 1
+.ENDC								;01-
+	MOV	R0,TMEM		;SAVE TOP OF MEMORY ADDRESS
+
+10$:	RETURN			;
+
+;+
+; ** TREESP - ALLOCATE SPACE FROM THE TREE BUFFER
+;
+; ALLOCATE SOME SPACE FROM THE TREE AREA. IF THERE IS NO ROOM, TRY TO
+; GROW CORE BY 32 WORDS. IF THAT FAILS, BLOW UP.
+;
+; INPUTS:
+;	R4=SIZE OF DESIRED BLOCK (BYTES)
+;
+; OUTPUTS:
+;	R4=POINTER TO BLOCK
+;-
+
+TREESP:	MOV	R5,-(SP)	;SAVE REGISTERS
+
+	MOV	R4,R5		;GET A COPY OF THE SIZE
+	INC	R5		;ROUND UP JUST IN CASE
+	BIC	#1,R5		;YOU WERE PASSED AN ODD SIZE
+
+10$:	MOV	TTREE,R4	;SEE IF WE FIT
+	ADD	R5,R4		;
+	CMP	R4,TMEM		;
+	BLOS	20$		;OK
+
+	MOV	#ERR02,R0	;WHAT ELSE CAN ONE DO?
+	JMP	ABORT2		;				;05
+
+20$:	MOV	TTREE,R4	;POINTER TO NEW SPACE
+	ADD	R5,TTREE	;UPDATE TOP OF TREE POINTER
+	MOV	(SP)+,R5	;RESTORE REGISTERS AND
+	RETURN			;RETURN
+
+
+
+;+
+; ** ABTREE	- ABORT (TREE IN R5)
+; ** ABORT2	- FATAL PASS 2 ERROR (DOES NOT RETURN)
+; ** ERROR	- ISSUE FATAL DIAGNOSTIC
+; ** WARN	- ISSUE NON FATAL DIAGNOSTIC
+;
+; THESE ROUTINE ARE USED TO ISSUE DIAGNOSTICS.  THE FORMAT THE MESSAGE
+; (ADDING THE LINE NUMBER AND PERHAPS  THE FILE NAME)  AND PUT IT ONTO
+; THER ERROR STREAM VIA CCERR.
+;
+; ABORT2 IS THE FATAL EXIT FROM PASS 2 (CALL BY JMP ABORT2).
+;
+; INPUTS:
+;	R0=POINTER TO ASCIZ MESSAGE
+;	R5=POINTER TO TREE (ABTREE ONLY)
+;-
+
+ABTREE:				;ABORT WITH TREE DUMP			;10+
+	MOV	R0,-(SP)	;REMEMBER ERROR MESSAGE
+	CALL	CODNL		;FORCE NEWLINE
+	MOV	(SP),R0		;GET MESSAGE
+	CALL	CODSTR		;TO .S FILE
+	CALL	CODNL		;NEWLINE
+	CALL	TDUMPX		;FORCED DUMP
+	MOV	(SP)+,R0	;RECOVER MESSAGE			;01-
+
+ABORT2:	MOV	#CCFAIL,-(SP)	;ERROR RETURNS TO ABORT HANDLER		;05/22
+
+ERROR:	INC	NERRS		;FIX ERROR COUNT
+
+WARN:	MOV	R1,-(SP)	;SAVE REGISTERS
+	MOV	R0,-(SP)	;
+	MOV	#MBUF,R1	;POINT AT MESSAGE BUFFER
+	MOV	LINENO,R0	;LINE NUMBER
+	CALL	$ITOC		;
+	MOVB	#':,(R1)+	;LOOKS
+	MOVB	#' ,(R1)+	;
+
+	MOV	#FILE,R0	;POINT AT FILE NAME
+	TSTB	(R0)		;IS THERE ONE
+	BEQ	20$		;NO
+10$:	MOVB	(R0)+,(R1)+	;COPY FILE NAME
+	BNE	10$		;
+	DEC	R1		;LOOKS
+	MOVB	#':,(R1)+	;
+	MOVB	#' ,(R1)+	;
+
+20$:	MOV	(SP),R0		;MESSAGE
+30$:	MOVB	(R0)+,(R1)+	;COPY INTO BUFFER
+	BNE	30$		;
+	MOV	#MBUF,R0	;OUTPUT MESSAGE
+	CALL	CCERR		;
+
+	MOV	(SP)+,R0	;RETURN
+	MOV	(SP)+,R1	;
+	RETURN			;
+
+	.END

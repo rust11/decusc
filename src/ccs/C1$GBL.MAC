@@ -1,0 +1,85 @@
+.IIF	NDF	RSX	RSX	=	1	;Assume RSX
+	.TITLE	CC1GBL	Compiler Global data
+	.ident	/X01.04/
+	.ENABL	LC, GBL
+	.LIST	MEB, CND
+	.NLIST	BEX
+;
+; C Compiler
+;
+; Global data base for Pass 1
+;
+; Version X01
+;
+; Martin Minow	3-Aug-79
+;
+; The RT11 linker apparently gets hung up about global data
+; being in overlay segments.  This module forces the pass 1
+; data base into the root.  Passes zero and two apparently do
+; not have global data???
+;
+; Hmm, the problem might be reference to a pass 1 symbol from pass 2.
+;
+; Edit history
+;
+; u1 28-Sep-81 CCG	Added code to distinguish members in different structs
+; 02 09-Feb-82 MM	Merged Unimation sources, no substantive changes
+; 03 21-Mar-82 MM	Symbol table is local now
+; 04 20-Apr-82 MM	Initialized values, changes everywhere
+
+	.PSECT	G1DATA
+;
+; GLOBAL DATA DEFINED IN CC100.MAC
+;
+ 
+FSYMBL::	.WORD	0		;SYMBOL NODE OF CURRENT FUNCTION
+FRETLB::	.WORD	0		;FUNCTION RETURN LABEL
+CLASS::		.WORD	0		;DECLARATION CLASS
+TYPE::		.WORD	0		;DECLARATION TYPE
+DIMP::		.WORD	0		;DECLARATION DIMP
+DOPE::		.WORD	0		;DECLARATION DOPE
+OFFSET::	.WORD	0		;DECLARATION OFFSET
+MOFSET::	.WORD	0		;DECLARATION MAX OFFSET
+NXTREG::	.WORD	0		;DECLARATION NEXT REGISTER
+PARPTR::	.WORD	0		;FORMAL PARAMETER POINTER
+PARMS::		.REPT	20.		;FORMAL PARAMETER BUFFER
+		.WORD	0
+		.ENDR
+PARMSE::	.BLKW	0		;END MARK
+MSTRUC::	.WORD	0		;MAX STRUCTURE ID SO FAR	;u1+
+LSTRUC::	.WORD	0		;LAST STRUCTURE ID SEEN BY 'EXPR'
+CSTRUC::	.WORD	0		;CURRENT STRUCTURE ID		;u1-
+
+;
+; GLOBAL DATA DEFINED IN CC101.MAC
+;
+ 
+INMOSF::	.WORD	0		;IN MOS FLAG
+LEX0::		.WORD	0		;LEXICAL TYPE[0]
+VAL0::		.WORD	0,0,0,0		;LEXICAL VALUE[0]
+VAL02	==	VAL0+2			;NEEDED FOR THE RT11 LINKER
+VAL04	==	VAL0+4			;
+VAL06	==	VAL0+6			;
+LEX1::		.WORD	0		;LEXICAL TYPE[1]
+VAL1::		.WORD	0,0,0,0		;LEXICAL VALUE[1]
+LINENO::	.WORD	1		;SOURCE LINE NUMBER
+
+FILE::		.BYTE	0		;FILE NAME (FROM '#' RECORDS)
+		.BLKB	39.		;INITIALLY NULL
+	.EVEN
+.MACRO	FORCE	MODULE
+	.PSECT	LD'MODULE,GBL,OVR
+	.WORD	0
+.ENDM
+
+;
+; FORCE PASS 1 LOCAL DATA INTO THE ROOT
+;
+	FORCE	100
+	FORCE	101
+	FORCE	102
+	FORCE	103
+	FORCE	104
+	FORCE	105
+
+	.END

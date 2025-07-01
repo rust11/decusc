@@ -1,0 +1,81 @@
+	.TITLE	RSX	RSX HEADER FILE
+;
+; Created by MMAKLB.CMD on 04-FEB-02 at 11:46:28
+;
+RSX	=	1		;Assemble for RSX
+C$$FLT	=	0		;Double precision default
+RMSIO	=	0		;Assemble for FCS!
+N$$FIL	=	4.		;Default number of block buffers
+VMS3.0	=	0		;Forget VMS release-specific code
+C$PMTR	=	4		;Locally define C$PMTR and C$AUTO
+C$AUTO	=	-10		;To minimize global symbol references
+.IIF	NDF	L$$IST	.NLIST
+.IIF	NDF	L$$IST	.DSABL	CRF
+.IIF	NDF	C$$SXT	C$$SXT	=	1	; SXT default
+.IIF	NDF	C$$EIS	C$$EIS	=	1	; EIS default
+.IIF	NDF	XASCII	XASCII	=	1	; Allow extended Ascii
+.MACRO	CALL	ARG1,ARG2
+.IF	B	ARG2
+	  JSR	PC,ARG1
+.IFF
+	  JSR	ARG1,ARG2
+.ENDC
+.ENDM	CALL
+.MACRO	CALLR	ARG1
+	  JMP	ARG1
+.ENDM	CALLR
+.MACRO	RETURN	ARG1
+.IF B	ARG1
+	  RTS	PC
+.IFF
+	  RTS	ARG1
+.ENDC
+.ENDM	RETURN
+;
+; The null branch macro
+;
+.macro	.br	label
+.iif	ndf	label	.error	label argument needed
+.iif	ne	.-label	.error	label must be the next location
+.endm	.br
+;
+; The .sob macro is like an sob but does not set condition codes correctly
+; since it is a dec/bne when sob isn'T available.
+;
+.IF EQ	C$$SXT
+.MACRO	.SOB	ARG1,ARG2
+	  DEC	ARG1
+	  BNE	ARG2
+.ENDM	.SOB
+.IFF
+.MACRO	.SOB	ARG1,ARG2
+	  SOB	ARG1,ARG2
+.ENDM	.SOB
+.ENDC
+;
+; This macro defines the crash instruction
+;
+.MACRO	CRASH
+.LIST
+	  BPT
+.NLIST
+.ENDM	CRASH
+;
+; Check an assumption.  Use this macro as follows:
+;
+;	ASSUME	ARG1 COND ARG2
+;
+; An error will be signalled unless the condition is satisfied.
+; COND may be one of:  EQ,NE,GT,GE,LT,LE,DF,NDF,B,NB,Z,NZ,G,L,
+; but it may not be IDN or DIF.
+;
+.MACRO	ASSUME	ARG1,COND,ARG2
+	.IF	COND	<ARG1>-<ARG2>
+	.IFF
+		.ERROR	;Invalid assumption (ARG1) COND (ARG2)
+	.ENDC
+.ENDM
+	.ENABL	LC, GBL
+	.NLIST	CND, BEX
+.IIF	NDF	L$$IST	.ENABL	CRF
+.IIF	NDF	L$$IST	.LIST

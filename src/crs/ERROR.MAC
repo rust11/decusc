@@ -1,0 +1,50 @@
+	.title	error	Error exit from C programs
+	.ident	/000006/
+;
+;+
+;
+; Index		Error exit from C programs
+;
+; Usage
+;
+;	error(format, arglist);	/* Fatal error exit	*/
+;
+; Description
+;
+;	An error message is written to stderr and the program exits.
+;	If profiling was enabled, a subroutine call trace will be
+;	written to stderr.
+;
+;	The exit status, $$exst, will be set to "error".
+;
+; Diagnostics
+;
+; Bugs
+;
+;-
+;
+; Edit history:
+; 01 22-May-80 MM	Written from scratch
+; 02 30-Jun-80 MM	Added calltrace() linkage
+; 03 22-Jul-80 MM	Set exit status
+; 04 01-Jul-82 MM	For the newer library
+; 05 19-Jan-87 JMC      Change .psect for I/D space.
+; 06 15-Jan-02 BQT	Changed for I/D space
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+	.psect	c$data,d,rw						;02+/05
+
+$$errx::
+	.enabl	lsb
+	.word	10$
+
+	.psect	c$code,i,ro
+10$:	rts	pc						;02-
+	.dsabl	lsb
+error::
+	mov	stderr,(sp)	;Save ioptr over return address
+	call	fprintf		;Put out message
+	call	@$$errx		;Do trace if needed		;02
+	mov	#E$$XER,$$exst	;Error exit status		;04
+	jmp	$$exit
+	.end

@@ -1,0 +1,72 @@
+	.TITLE	PUTBIN
+	.ident	/000001/	;25-Jul-79	Original
+	.ENABL	LC
+	.LIST	BEX,MEB
+;
+; PUTBIN	output a line of text.
+;
+; Calling sequence:
+;
+;	MOV	#COUNT,-(SP)		;Number of bytes to output
+;	MOV	#BUFFER,-(SP)		;Buffer to output
+;	MOV	#FDB,R0			;File data block
+;	CALL	PUTBIN			;Do the routine
+;	BIT	(SP)+,(SP)+		;Clear the stack
+;	BCS	ERROR			;Error sets C-bit
+;
+; Return: all registers preserved.
+;
+;
+; Edit history:
+; 000001 25-Jul-79 MM	Original edit
+;
+BUFFER	=	20		;Buffer location on stack
+COUNT	=	22		;Byte count location on stack
+;
+; Note that this routine assembles differently if RSX is set to 1
+;
+.IIF	NDF	RSX	RSX	=	0	;Presuppose RT11
+;
+.IF	NE	RSX
+	.MCALL	PUT$S
+;
+.IFF
+	.GLOBL	SAVREG
+.IFTF
+PUTBIN::
+.IFT
+	PUT$S	R0,2(SP),4(SP)	;I/O request
+	RTS	PC		;And exit
+.IFF
+	.GLOBL	PUTC0,SAVREG
+	JSR	R5,SAVREG	;Save registers R1-R5
+	MOV	SP,R5		;Establish Stack marker for error exit
+	MOV	R0,R1		;R1 -> FDB
+	MOV	BUFFER(SP),R2	;R2 -> Buffer
+	MOV	COUNT(SP),R3	;R3 := Byte count
+	MOV	#1,R0		;Start with the header
+	MOV	R0,R4		;Initialize checksum
+	JSR	PC,PUTC0	;Out the first header byte
+	CLR	R0		;The header is 1,0
+	JSR	PC,PUTC0	;Do it
+	MOV	R3,R0		;Get the count
+	ADD	#4,R0		;The count must include the header
+	ADD	R0,R4		;First count byte to the checksum
+	JSR	PC,PUTC0	;Out the first byte
+	SWAB	R0		;Get the high byte
+	ADD	R0,R4		;Count it
+	JSR	PC,PUTC0	;and output it
+;
+10$:	DEC	R3		;Step the output count
+	BLT	20$		;Done when we've had enough
+	MOVB	(R2)+,R0	;Get a byte
+	ADD	R0,R4		;Checksum it
+	JSR	PC,PUTC0	;and output it
+	BR	10$		;Again and again.
+;
+20$:	MOVB	R4,R0		;Finish up with a checksum
+	NEG	R0		;Negated so sum is to zero
+	JSR	PC,PUTC0	;Do it
+	RTS	PC		;and exit
+.ENDC
+	.END

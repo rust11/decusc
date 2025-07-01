@@ -1,0 +1,36 @@
+DECUS-C notes:
+IJH
+
+Hanging conditionals:
+C22REG	LST$C=1	
+
+V7 C
+Basically V7 Ritchie C
+Structure tag names are local to structure (Ritchie/Whitesmith not)
+No K&R standard libraries header files (some exceptions)
+No function prototypes
+Long and floating-point initializors must be constants
+No unsigned char or unsigned long
+No enum
+Character literals limited to two characters
+Function parameters:
+Pointers to functions must be explicit
+
+DECUSC additions:
+void type
+IJH:
+
+$$MUTE
+
+RUST:
+Recompiled without the preprocessor to save space.
+(by excluding its data from the data section)
+
+More space can be saved by locating data within overlays.
+
+For the use of function pointers as arguments see:
+
+EXS:EXPAT.R
+RLS:DCMOD.R
+
+

@@ -1,0 +1,70 @@
+	.title	caller	Return name of profiled caller
+	.ident	/000003/
+;+
+;
+; Index		Return name of profiled caller
+;
+; Usage
+;
+;	char	*
+;	caller();
+;
+; Description
+;
+;	If the routine which called the current function was compiled
+;	using the profile option, caller() returns a pointer to the
+;	name of the calling function.  If the calling function was
+;	not compiled with profiling enabled, a pointer to the null
+;	string is returned.
+;
+;	Example:
+;
+;		foo()
+;		{
+;			foobar();
+;		}
+;
+;		foobar()
+;		{
+;			extern char *caller();
+;
+;			printf("foobar was called by %s\n",
+;					caller());
+;		}
+;
+;
+; Internal
+;
+;	Warning -- this routine is sensitive to the format of
+;	the environment frame and profile information layout.  If
+;	csv$, pcsv$, or $$prof change, this may have to be modified.
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 17-Jun-80 MM	Initial edit
+; 000002 19-Jan-87 JMC  Change .psect for I/D space.
+; 000003 14-Jan-02 BQT	Changed code for I/D space, and new stack format.
+;
+	.enabl	gbl,lc
+	.psect	c$stcn,d,ro						;02
+nopro:	.asciz	//		;Null string if needed
+
+	.psect	c$code,i,ro
+caller::
+;
+; On entrance, r5 -> caller's caller's r5
+;
+	mov	(r5),r1		;r1 -> caller's caller's stack.
+	beq	10$		;Too early...
+	mov	-10(r1),r0	;r0 -> caller's caller's profile
+	beq	10$		;Not compiled with profiling...
+	tst	(r0)+		;text begins at 2nd word
+	return			;gotcha
+
+10$:
+	mov	#nopro,r0
+	return
+	.end
+

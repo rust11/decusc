@@ -1,0 +1,56 @@
+	.title	sprintf	Formatted Numeric Conversion
+	.ident	/000003/
+;
+;+
+;
+; Index		Formatted Conversion
+;
+; Usage
+;
+;	char *
+;	sprintf(buffer, format, arg1, ...);
+;	char		*buffer;
+;	char		*format;
+;
+; Description
+;
+;	sprintf() converts and formats its arguments, writing the
+;	result to the indicated string buffer.
+;
+;	For information on formatting, please refer to the description
+;	of printf.
+;
+;	sprintf() returns a pointer to the EOS byte at the end
+;	of the output buffer.  Note, however, that this feature
+;	is not transportable to other C implementations.
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 02-Jul-82 MM	Split out from printf
+; 000002 03-Aug-82 MM	.doprnt -> $$prnt
+; 000003 19-Jan-02 BQT	Changed for I/D space.
+;
+	.psect	c$code,i,ro
+
+sprintf::
+	jsr	r5,csv$			; Link environments
+;
+; Build a dummy IOV on the stack
+;
+	mov	#VF$STRG!VF$WRT,-(sp)	; _flag
+	clr	-(sp)			; _base
+	mov	C$PMTR+0(r5),-(sp)	; _bptr
+	mov	#32767.,-(sp)		; _bcnt
+	mov	sp,r4			; r4 -> iov
+	mov	r4,-(sp)		; _doprnt arg block, fildes
+	mov	#C$PMTR+4,-(sp)		; offset to first arg
+	add	r5,(sp)			; -> first arg
+	mov	C$PMTR+2(r5),-(sp)	; format
+	call	$$prnt			; $$prnt(format, args, fildes)	;02
+	mov	V$BPTR(r4),r0		; r0 -> free byte in buffer
+	clrb	(r0)			; Terminate the buffer
+	jmp	cret$			; exit
+	.end

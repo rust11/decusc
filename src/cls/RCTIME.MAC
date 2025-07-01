@@ -1,0 +1,225 @@
+	.title	$$ctim	Convert $$rtim Buffer to Ascii
+	.ident	/000007/
+;
+;+
+;
+; Index		Convert $$rtim buffer to Ascii
+; Index		Compute day of week
+;
+; Usage
+;
+;	char *
+;	$$ctim(buffer);
+;	struct TIME {
+;		int	year;	/* G.TIYR  year - 1900	*/
+;		int	month;	/* G.TIMO  Jan. = 1	*/
+;		int	day;	/* G.TIDA		*/
+;		int	hour;	/* G.TIHR  00 .. 23	*/
+;		int	minute;	/* G.TIMI  00 .. 59	*/
+;		int	second;	/* G.TISC  00 .. 59	*/
+;		int	tick;	/* G.TICT  00 .. tsec-1	*/
+;		int	tsec;	/* G.TICP  tick/second	*/
+;	} buffer;
+;
+;	dayofweek(buffer);
+;	struct TIME buffer;
+;
+; Description
+;
+;	$$ctim() converts the time information in buffer such as returned by
+;	$$rtim() to a character string in the format:
+;
+;		Sun Sep 16 01:03:52 1973\0\0
+;
+;	All the fields have constant width.  Note that there are two
+;	trailing <null>'s for the benefit of programs converted from
+;	Unix (where the year is followed by a <newline>).
+;
+;	$$ctim(0) returns the current time of day, calling $$rtim() internally.
+;
+;	The format of the returned information is identical to 
+;	the Unix function of the same name except that the Unix function
+;	has a trailing newline which is omitted here.
+;
+;	dayofweek() returns the day of the week (Sunday = 0) for the
+;	date information in the argument buffer.
+;
+; Bugs
+;
+;	There is no range checking on the information passed.
+;
+;-
+;
+; Edit history
+; 000001 08-Jul-80 MM	From scratch
+; 000002 21-Jul-80 MM	Dropped the newline
+; 000003 23-Jul-80 MM	ctime(0) gets time of day, doesn't call sprintf
+; 000004 05-Sep-80 MM	Added another Null
+; 000005 16-Feb-82 MM	changed to $$ctim -- I can hear them scream already
+; 000006 19-Jan-87 JMC  Change .psect for I/D space.
+; 000007 14-Jan-02 BQT	Changed for I/D space
+;
+
+;
+; Written by C. Ralston, Modified by C. Guldenschuh
+;
+
+;
+; Define offsets into the time buffer, note that this matches RSX11-M
+;
+G.TIYR	=	0		; Year
+G.TIMO	=	2		; Month
+G.TIDA	=	4		; Date
+G.TIHR	=	6		; Hour
+G.TIMI	=	10		; Minute
+G.TISC	=	12		; Second
+G.TICT	=	14		; Ticks
+G.TICP	=	16		; Ticks per second
+
+	.psect	c$mwcn,d,ro						;07
+montab:	.word	0-1+6		; Thirty days hath September
+	.word	31.-1+6		; All the rest I don't remember
+	.word	59.-1+6
+	.word	90.-1+6
+	.word	120.-1+6
+	.word	151.-1+6
+	.word	181.-1+6
+	.word	212.-1+6
+	.word	243.-1+6
+	.word	273.-1+6
+	.word	304.-1+6
+	.word	334.-1+6
+
+	.psect	c$stcn,d,ro
+month:	.ascii	/JanFebMarAprMayJunJulAugSepOctNovDec/
+
+wkday:	.ascii	/SunMonTueWedThuFriSat/
+
+	.psect	c$strn,d,rw
+tbuf:	.asciz	/Sun Sep 16 01:03:52 1973/
+
+	.psect	c$code,i,ro
+
+dayofw::
+	jsr	r5,csv$			; Link environments
+	mov	C$PMTR+0(r5),r4		; R4 -> time buffer
+	mov	G.TIDA(r4),r0		; R0 := day
+	mov	G.TIMO(r4),r1		; R1 := month
+	dec	r1			; Month range from 0 .. 11
+	asl	r1			; Need month as a word index
+	mov	G.TIYR(r4),r2		; Get year
+	sub	#72.,r2			; into RT11 format (needed?)
+	mov	r2,-(sp)		; save year
+	dec	r2			; divide year-1
+	asr	r2			; by
+	asr	r2			; 4
+	add	(sp),r2			; Magic begins, ...
+	inc	r2			;
+	add	r2,r0			; Enhanced day
+	bit	#3,(sp)+		; Test for leap year
+	bne	10$			; Br if no leap
+	cmp	#2*1,r1			; Magic continues, ...
+	adc	r0			;
+10$:
+	add	montab(r1),r0
+20$:
+	sub	#7,r0			; Slow divide by
+	bpl	20$			; 7 to get day of week
+	add	#7,r0			; Get into range 0 .. 6
+	jmp	cret$			; and off we go
+
+$$ctim::								;05
+	jsr	r5,csv$			; Link environments
+	mov	C$PMTR+0(r5),r4		; R4 -> time buffer
+	bne	10$			; Br if user supplied one	;03+
+	sub	#8.*2,sp		; Null arg. make a time buffer
+	mov	sp,r4			; r4 -> time buffer
+	mov	r4,-(sp)		; and
+	call	$$rtim			; get the			;05
+	tst	(sp)+			; time right now
+10$:
+	mov	r4,-(sp)		; Get day of week
+	call	dayofw			;
+	mov	r0,(sp)			; Multiply
+	asl	r0			; by
+	add	(sp)+,r0		; three
+	add	#wkday,r0		; point to table
+	mov	#tbuf,r3		; R3 -> output buffer
+	movb	(r0)+,(r3)+		; move
+	movb	(r0)+,(r3)+		; 'em
+	movb	(r0)+,(r3)+		; out.
+	inc	r3			; skip blank
+	mov	G.TIMO(r4),r0		; Month
+	asl	r0			; times
+	add	G.TIMO(r4),r0		; three
+	add	#month-3,r0		; point to table
+	movb	(r0)+,(r3)+		; move
+	movb	(r0)+,(r3)+		; 'em
+	movb	(r0)+,(r3)+		; out.
+	inc	r3			; skip it
+;
+; Note, the following code requires day/hour/minute/second ordering
+;
+	mov	r4,r2			; r2 -> buffer
+	add	#G.TIDA,r2		; at the right place
+	call	conv			; Day
+	call	conv			; Hour
+	call	conv			; Minute
+	call	conv			; Second
+	clr	r0			; High-order year
+	mov	G.TIYR(r4),r1		; Year - 1900
+	add	#1900.,r1		; Year
+	mov	#100.,r2		; Get year mod 100
+	call	$$div2			; simple
+	mov	r2,-(sp)		; Save last two digits
+	mov	r1,r0			; Get first two digits
+	call	conv2			; Stuff them
+	mov	(sp)+,r0		; and the
+	call	conv2			; Last two, too
+	mov	#tbuf,r0		; Return tbuf
+	jmp	cret$			; to the user			;03-
+;
+;
+; Convert an offset from the time buffer to a two digit number
+;
+; Calling sequence:
+;
+;	mov	entry_pointer,r2
+;	mov	text_pointer,r3
+;	call	conv
+;
+; Return:
+;	r0,r1 destroyed,
+;	r2 updated
+;	r3 updated (by three)
+;
+conv:
+	mov	(r2)+,r0		; Get the value, update r2
+	call	conv2			; Convert two digits
+	inc	r3			; Skip one
+	rts	pc			; That's all
+;
+;
+; Convert a small integer to two ascii digits
+;
+; Calling sequence
+;
+;	mov	value,r0
+;	mov	text_pointer,r3
+;	call	conv2
+;
+; Return
+;	r0,r1 destroyed
+;	r3 Updated by 2
+;
+conv2:
+	mov	#'0-1,r1		; Initialize quotient
+10$:	
+	inc	r1			; Up the quotient
+	sub	#10.,r0			; Divide by
+	bge	10$			; ten
+	add	#10.+'0,r0		; Fix up remainder
+	movb	r1,(r3)+		; Write it
+	movb	r0,(r3)+		; out.
+	rts	pc			; and exit
+	.end

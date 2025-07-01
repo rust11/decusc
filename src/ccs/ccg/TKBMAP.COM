@@ -1,0 +1,17 @@
+$! Task build XCC on VMS, used for debugging only
+$ SHOW DAYTIME
+$ SET VERIFY
+$ ASSIGN [-.COMP]		SR:
+$ ASSIGN [-.COMP]		LS:
+$ ASSIGN [-]			OB:
+$ ASSIGN [-]			OU:
+$!
+$ ON ERROR THEN CONTINUE
+$ MCR TKB @SR:XCCBLD.TKB
+$ COPY CC.EXE OU:CC.TMP
+$ DELETE CC.EXE;*
+$ RENAME OU:CC.TMP OU:CC.EXE
+$! PURGE OU:CC.EXE
+$ PRINT XCC.MAP
+$SET NOVERIFY
+$ show daytime

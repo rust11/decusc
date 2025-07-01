@@ -1,0 +1,51 @@
+	.title	strcmp	String Compare
+	.ident	/000002/
+;+
+;
+; Index		Compare strings
+;
+; Usage
+;
+;	int
+;	strcmp(s1, s2);
+;	char		*s1;
+;	char		*s2;
+;
+; Description
+;
+;	Compare two strings, returning
+;		-1 if s1  < s2
+;		 0 if s1 == s2
+;		+1 if s1  > s2
+;
+; Bugs
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 15-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+strcmp::
+	mov	2(sp),r0	;Pick up 'a'
+	mov	4(sp),r1	;And 'b'
+
+10$:
+	cmpb	(r0)+,(r1)	;Are they the same
+	bne	20$		;No
+	tstb	(r1)+		;At the end of the string
+	bne	10$		;No
+	clr	r0		;Equal return
+	return
+
+20$:
+	blo	30$		;Br if a<b
+	mov	#1,r0		;A>b return
+	return
+
+30$:
+	mov	#-1,r0		;A<b return
+	return			;
+	.end

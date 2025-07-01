@@ -1,0 +1,222 @@
+	.title	$$gcmd	Parse command line
+	.ident	/000007/
+;
+; IH> Passing comment:
+;
+;	There are two bugs in this module.
+;
+;	1. The task (image) vector must always be present.
+;	2. The test for broken quotes should come one step earlier.
+; IH>
+;
+;+
+;
+; Index		Parse command line
+;
+; Internal
+;
+; Usage
+;
+;	argc = $$gcmd(text, in, out, avp, task)
+;	char		*text;	/* Command line	*/
+;	char		**in;	/* stdin filename	*/
+;	char		**out;	/* For stdout filename	*/
+;	char		***avp;	/* Gets argv[] location	*/
+;	char		*task;	/* Task name if nonnull	*/
+;
+; Description:
+;
+;	Parse the command line, building the argv[] table.
+;	If I/O redirection is encountered, in and out
+;	are modified accordingly.
+;
+;	NOTE: $$gcmd will modify text.  argv[] entries will point
+;	to bytes in text.  If not NULL, the task name will become
+;	argv[0].  Unquoted arguments will be forced to lowercase,
+;	duplicating the action of Vax-11 C.
+;
+;	$$gcmd() returns the number of arguments encountered.
+;
+;	$$gcmd() is called in the following fashion:
+;
+;		/*
+;		 * Default input is on tty
+;		 */
+;		char	**infile = &def_in;
+;		char	*def_in = "tt:";
+;		/*
+;		 * Default output is on tty
+;		 */
+;		char	**outfile = &def_out;
+;		char	*def_out = "tt:";
+;		/*
+;		 * Define argv[] pointer and dummy command
+;		 * line.
+;		 */
+;		char	**argvp;
+;		char	*dummy = "main";
+;		int	argc;
+;
+;		...
+;
+;		argc = $$gcmd((strlen(cmdlin) == 0) ?
+;					dummy : cmdlin,
+;			&infile, &outfile, &argvp, $$task);
+;
+;		if (argc < 0)
+;			error("Bad command line");
+;		stdin = fopen(infile, "r");
+;		if (**outfile == ">")
+;			stdout = fopen(*outfile + 1, "a");
+;		else	stdout = fopen(*outfile, "w");
+;
+; Bugs
+;
+;	In order to compensate for a problem with native RT11, the
+;	"parity" bit is erased from the argument text.  This will
+;	need modification to handle the Dec Internation character set.
+;
+;-
+;
+; Edit history
+; 000001 20-Mar-80 MM	Initial invention
+; 000002 27-Jun-80 MM	Out of room == error return
+; 000003 10-Dec-80 MM	Added task name hack
+; 000004 12-May-81 MM	Erase parity bit so native RT11 $$narg=1 works
+; 000005 12-Aug-81 SDR	Make fix 3 dependent on call type
+;			NOTE: this may be a "suspender and belt" fix.
+;			Actually, it doesn't seem to work on vax/rsx
+; 000005 29-Jun-82 MM	Newer library -- mung to lowercase.
+; 000006 18-Jan-02 BQT	Changed for I/D space.
+;		   MM	RSX compatibility may loose lowercase.
+;
+
+	.psect	c$code,i,ro
+
+LF	=	12
+CR	=	15
+ESC	=	33
+SPACE	=	40
+
+$$gcmd::
+	jsr	r5,csv$		; Link environments
+	mov	C$PMTR+0(r5),r2	; r2 -> command line
+	mov	r2,r0		; Get another copy
+10$:	movb	(r0)+,r1	; Scan each byte to find
+.if ne RSX
+	bic	#177400,r1
+.iff
+	bic	#177600,r1	;  (erase parity bit) ** WARNING **	;04
+.endc
+	beq	20$		; terminating null
+	cmpb	r1,#CR		; or <cr>
+	beq	20$		;
+	cmpb	r1,#LF		; or <lf>
+	beq	20$		;
+	cmpb	r1,#ESC		; or <escape>
+	bne	10$		; Nope, keep on trying
+;
+20$:	clrb	-(r0)		; Always make a null terminator
+	mov	sp,r4		; Stack will get argv temporarily
+;;	tstb	(r2)		; Real command line given?		;05+
+;;	bne	next		; If so, forget the task name
+;;				; If not, stuff task name from caller	;05-
+	mov	C$PMTR+8.(r5),-(sp) ; Push task name first argument	;03+
+	bne	next		; There is one, continue
+	tst	(sp)+		; NULL argument, ignore it.		;03-
+;
+; Look for the start of the next argument
+;
+next:
+	clr	r3		; Clear quote flag
+10$:
+	movb	(r2)+,r0	; Scan bytes
+	beq	savarg		; (exit at null terminator)
+	cmpb	r0,#SPACE	; Skipping over
+	blos	10$		; whitespace
+	cmpb	r0,#''		; Nope, (single) quoted argument?
+	beq	20$		; Br if so,
+	cmpb	r0,#'"		; Not single, is it double?
+	bne	30$		; Br if not
+20$:	mov	r0,r3		; Save quote flag
+	br	60$		; And remember this argument
+;
+; Not a quoted argument, check for i/o redirection
+;
+30$:	cmpb	r0,#'<		; Input redirection?
+	bne	40$		; Br if not
+	mov	r2,@C$PMTR+2(r5) ; Yes, give it to the caller
+	br	gotarg		; And scan for end
+;
+40$:	cmpb	r0,#'>		; Output redirection?
+	bne	50$		; Br if not
+	mov	r2,@C$PMTR+4(r5) ; Yes, give it to the caller
+	br	gotarg		; And scan for end
+;
+; Perfectly normal, remember the argument start
+;
+50$:	dec	r2		; Unquoted, find start
+60$:
+	mov	r2,-(sp)	; Save the giblets
+;
+; We have an argument, scan to the end
+;
+gotarg:	
+10$:	movb	(r2)+,r0	; Look at next byte
+	beq	30$		; Exit on null
+	tst	r3		; Not null, quoted string
+	bne	20$		; Yes, special end test
+	cmpb	r0,#SPACE	; No, at white space?
+	blos	30$		; Br if so
+	cmp	r0,#'A		; No, can it be uppercase?		;06+
+	blo	10$		; Nope
+	cmp	r0,#'Z		; Maybe, look at the other end
+	bhi	10$		; nope
+	bisb	#040,-1(r2)	; Yep, make it lowercase		;06-
+	br	10$		; Keep scanning
+;
+20$:	cmpb	r0,r3		; Right flavor quote?
+	bne	10$		; Nope
+;
+; At the end of the argument
+;
+30$:	clrb	-1(r2)		; Null-trail it
+;
+; At this point, if the argument was unquoted, we should
+; do a directory lookup to find all possible filename matches.
+;
+	tstb	r0		; Really at the end?
+	bne	next		; No, get the next argument
+	tst	r3		; Can't quit in quoted field
+	bne	fatal		; Sorry
+;
+; All the arguments are on the stack:
+;
+;	r4 ->	First arg + 2	(high memory)
+;	sp ->	Last arg	(low  memory)
+;
+savarg:	mov	r4,r0		; Get number of bytes
+	sub	sp,r0		; Stored on the stack
+	mov	r0,r2		; Save for now
+	tst	(r0)+		; Get two more for good luck
+	call	$$aloc		; Allocate memory
+	mov	r0,@C$PMTR+6(r5) ; Store in user-argument
+	beq	fatal		; Die if no space			;02
+
+10$:
+	cmp	r4,sp		; More args?
+	blos	20$		; Exit if not.
+	mov	-(r4),(r0)+	; Move out the argv, reversing order.
+	br	10$		; And do another.
+20$:
+	clr	(r0)		; Terminate with a null argument
+	mov	r2,r0		; Reget the number of bytes
+	asr	r0		; Get number of arguments
+	br	exit		; And return
+;
+fatal:
+	mov	#-1,r0		; Parse error exit
+
+exit:
+	jmp	cret$		; Return to user.
+	.end

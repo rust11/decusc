@@ -1,0 +1,175 @@
+	.title	perror	Print Library Error Message
+.if ne rmsio
+	.ident	"RMS009"
+.iff
+	.ident	/000009/
+.endc
+;
+;+
+;
+; Index		Print library error message
+;
+; Usage
+;
+;	perror(text)
+;	char		*text;
+;
+; Description
+;
+;	An error message is written to stderr, using the
+;	current i/o library error (stored in $$ferr).
+;	Text is prepended to the message.
+;
+; Diagnostics
+;
+; Bugs
+;
+;-
+;
+; Edit history:
+; 000001 22-Oct-81 MM	Written
+; 000002 19-Jan-82 MM	Fixed up RT11 stuff
+; 000003 19-Jan-82 MM	Really fixed it
+; 000004 26-Mar-82 MM	Typo's in .psect's
+; RMS005 17-Dec-83 RBD	Add RMS-11(V2)
+; 000006 19-Mar-84 TTC	Added IE.CLO & IE.WAC error message
+; RMS007 06-Jul-84 RBD	Added similar messages for RMS
+; 000008 19-Jan-87 JMC  Change .psect for I/D space.
+; 000009 19-Jan-02 BQT	Changed for I/D space.
+;
+.iif	ndf	rsx	rsx	=	1	;Assume RSX11M
+
+$str$	=	0
+
+	.list	meb
+	.nlist	bex
+.if ne	rsx
+.macro	m	r, t, str
+.if nb	r
+$str$	=	$str$+1
+	.irp	$,<\$str$>
+	.psect	c$mwcn,d,ro						;02+/08
+	.word	r,s'$
+	.psect	c$stcn,d,ro						;04
+s'$	=	.
+	.endr
+	.asciz	str
+.endc
+.endm	m
+.iff
+.macro	m	r, t, str
+.if nb	t							;03
+$str$	=	$str$+1
+	.irp	$,<\$str$>
+	.psect	c$mwcn,d,ro						;02+/08
+	.word	t,s'$						;03
+	.psect	c$stcn,d,ro						;04
+s'$	=	.
+	.endr
+	.asciz	str
+.endc
+.endm	m
+.endc
+
+;
+; Define the error message table
+;
+	.psect	c$mwcn,d,ro						;08
+errtable:
+.if eq rmsio
+m	,	e$$ilf,	<"Illegal file name">
+m	ie.bad,	,	<"File system error">
+m	ie.bnm,	,	<"Illegal file name">
+m	ie.dfu,	e$$nor,	<"No room for file">
+m	ie.nsf,	e$$fnf,	<"File not found">
+m	ie.bdv, e$$nod,	<"Bad device name">
+m	ie.aln,	e$$ilu,	<"I/O channel in use">
+m	ie.nln,	e$$noo,	<"I/O channel not open">
+m	ie.eof, e$$eof,	<"End of file">
+m	ie.fhe,	e$$fat,	<"Fatal system I/O error">
+m	ie.rer,	e$$err,	<"Device error">
+m	ie.fex,	e$$fnd,	<"File already present">
+m	ie.ilu,	e$$noc,	<"Too many open files">
+m	ie.lck,	,	<"File locked">
+m	ie.clo, ,	<"File not properly closed">			;06
+m	ie.wac,	,	<"File accessed for write">			;06
+m	ie.nbf,	e$$nsp,	<"No memory space available">
+m	ie.pri,	,	<"No access to file">
+m	ie.rbg,	,	<"Illegal record size">
+.iff
+;
+; Codes for RMS-11(V2) -- RSX & P/OS only
+;
+m	er$dev, ,	<"Bad device name">
+m	er$fnm,	,	<"Bad file name">
+m	er$typ,	,	<"Bad file extension">
+m	er$dir,	,	<"Bad directory name">
+m	er$ver,	,	<"Bad version number">
+m	er$acc, ,	<"File not properly closed">			;07
+m	er$ful,	,	<"No room for file">
+m	er$dnf,	,	<"Directory not found">
+m	er$fnf,	,	<"File not found">
+m	er$wlk,	,	<"Device write locked">
+m	ie.aln,	,	<"I/O channel in use">
+m	ie.nln,	,	<"I/O channel not open">
+m	er$eof, ,	<"End of file">
+m	ie.ver,	,	<"Device error">
+m	er$fex,	,	<"File already present">
+m	ie.ilu,	,	<"Too many open files">
+m	ie.nbf,	,	<"No memory space">
+m	er$prv,	,	<"No access to file">
+m	er$rtb,	,	<"Record too big">
+m	er$irc,	,	<"Illegal record size">
+m	er$env,	,	<"Feature not in selected RMS-11 environment">
+m	er$nod,	,	<"Bad node name">
+.endc
+	.psect	c$mwcn,d,ro						;04/08
+	.word	0, 0		;terminate buffer
+
+;
+; Format strings
+;
+	.psect	c$stcn,d,ro						;04
+normal:
+	.asciz	"%s: %s"<12>
+unknown:
+	.asciz	"%s: Unknown error %06o %d."<12>
+noerror:
+	.asciz	"%s: No current error"<12>
+
+	.psect	c$code,i,ro
+perror::
+	jsr	r5,csv$		;Link environments
+	mov	$$ferr,(sp)	;Get error code
+	bne	10$		;Continue if there is one
+	mov	C$PMTR+0(r5),(sp)
+	mov	#noerror,-(sp)
+	br	print
+
+10$:
+	mov	#errtable,r4	;start at the table
+20$:
+	cmp	(sp),(r4)+	;is it ours?
+	beq	30$		;yes, exit loop
+	tst	(r4)+		;no, is it the end
+	bne	20$		;continue if not.
+;
+; Unknown error
+;
+	mov	(sp),-(sp)	;duplicate $$ferr
+	mov	C$PMTR+0(r5),-(sp)
+	mov	#unknown,-(sp)
+	br	print
+;
+; Gotcha
+;
+30$:
+	mov	(r4),(sp)	;Here's the text
+	mov	C$PMTR+0(r5),-(sp) ;And the argument
+	mov	#normal,-(sp)	;And the format
+
+print:
+	mov	stderr,-(sp)	;Where to output text
+	call	fprintf		;Put out message
+	jmp	cret$		;and try for more
+	.end

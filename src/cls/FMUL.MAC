@@ -1,0 +1,171 @@
+	.title	$$fmul	Floating-point multiply/divide
+	.ident	/000002/
+;
+;+
+;
+; Internal
+;
+; Index		Floating-point multiply/divide
+;
+;
+; Usage
+;
+;	double
+;	$$fmul(a, b);		/* Floating multiply	*/
+;	double		a;
+;	double		b;
+;
+; Description
+;
+;	Called by the compiler to execute floating-point multiply.
+;
+; Bugs
+;
+;	BEWARE: untested
+;
+;-
+;
+; Edit history
+; 000001 05-Mar-80 MM	Initial edit
+; 000002 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro
+
+$$fmul::
+	jsr	r0,$$fsav
+
+	mov	F$A(sp),r0
+	asl	r0
+	rol	F$SIGN(sp)
+	clr	F$AE(sp)
+	swab	r0
+	movb	r0,F$AE(sp)
+	beq	60$
+	sec
+	ror	r0
+	clrb	r0
+	bisb	F$A+3(sp),r0
+	mov	r0,F$AF(sp)
+	clr	r0
+	bisb	F$A+2(sp),r0
+	swab	r0
+	mov	r0,F$AF+2(sp)
+
+	mov	F$B(sp),r0
+	asl	r0
+	adc	F$SIGN(sp)
+	clr	F$BE(sp)
+	swab	r0
+	movb	r0,F$BE(sp)
+	beq	60$
+	sec
+	ror	r0
+	clrb	r0
+	bisb	F$B+3(sp),r0
+	mov	r0,F$BF(sp)
+	clr	r0
+	bisb	F$B+2(sp),r0
+	swab	r0
+	mov	r0,F$BF+2(sp)
+
+;
+; Multiply.
+; Bottom 8 bits are zero.
+;
+
+	clr	r0
+	clr	r1
+	mov	F$AF(sp),r2
+	mov	F$AF+2(sp),r3
+	mov	#24.,r4
+
+10$:
+	bit	#400,r3
+	beq	20$
+	add	F$BF(sp),r0
+	add	F$BF+2(sp),r1
+	adc	r0
+
+20$:
+	clc
+	ror	r0
+	ror	r1
+	ror	r2
+	ror	r3
+
+	dec	r4
+	bne	10$
+
+;
+; Product in r0-r3 is in the range
+; 0.25 <= p < 1.0
+; Compute exponant and normalise.
+;
+
+	mov	F$AE(sp),r4
+	add	F$BE(sp),r4
+
+	rol	r1
+	rol	r0
+	bcs	30$
+
+	rol	r1
+	rol	r0
+	dec	r4
+
+30$:
+	sub	#200,r4
+	ble	50$
+	cmp	r4,#377
+	bgt	40$
+
+;
+; Reassemble the number from
+; the fraction (less the hidden
+; bit) in r0-r1 and the exponant
+; in r4.
+;
+
+	clrb	r1
+	bisb	r0,r1
+	swab	r1
+
+	clrb	r0
+	bisb	r4,r0
+	swab	r0
+
+	ror	F$SIGN(sp)
+	ror	r0
+	ror	r1
+	br	70$
+
+;
+; Special cases.
+; 2: is exp. overflow.
+; 3: is exp. underflow.
+; 4: is quick duck out for 0.0
+;
+
+40$:
+	jsr	pc,$$fofl
+	br	70$
+
+50$:
+	jsr	pc,$$fufl
+	br	70$
+
+60$:
+	clr	r0
+	clr	r1
+
+;
+; Store back the result.
+; Return.
+;
+
+70$:
+	mov	r0,F$A(sp)
+	mov	r1,F$A+2(sp)
+
+	jmp	$$frta
+	.end

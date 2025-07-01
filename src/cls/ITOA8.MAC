@@ -1,0 +1,73 @@
+	.title	itoa8	Convert integer to octal Ascii
+	.ident	/000003/
+;
+;+
+;
+; Index		Convert integer to octal Ascii
+;
+; Usage
+;
+;	char *
+;	itoa8(value, buffer);
+;	int		value;
+;	char		*buffer;
+;
+; Description:
+;
+;	The value is converted to octal and stored in the buffer.
+;	A pointer to the trailing null is returned.
+;
+;	Note that the result can be computed (more flexibly)
+;	by executing sprintf(buffer, "%o", value);
+;
+; Bugs:
+;
+;	This routine does not generate leading zeros.  If they are
+;	needed, use:
+;
+;		sprintf(buffer, "%06o", value);
+;
+;- 
+; Edit history
+; 000001 08-Mar-80 MM	Initial Edit
+; 000002 22-Aug-80 MM	Return Null pointer in r0
+; 000003 14-Jan-02 BQT	Changed for I/D space
+;
+	.psect	c$code,i,ro						;02 
+itoa8::
+	jsr	r5,csv$		; Link environments
+	mov	c$pmtr+0(r5),r1	; Get number
+	mov	c$pmtr+2(r5),r0	; and buffer 
+	mov	#4,r2
+	asl	r1
+	bcc	120$
+	movb	#'1,(r0)+
+	br	130$
+ 
+120$:
+	call	150$
+	cmp	r3,#'0
+	bne	140$
+	dec	r2
+	bne	120$
+ 
+130$:
+	call	150$
+ 
+140$:
+	movb	r3,(r0)+
+	dec	r2
+	bge	130$
+	clrb	(r0)			; Null trail the string 
+	jmp	cret$
+ 
+150$:
+	mov	#6,r3
+	asl	r1
+	rol	r3
+	asl	r1
+	rol	r3
+	asl	r1
+	rol	r3
+	return
+	.end
