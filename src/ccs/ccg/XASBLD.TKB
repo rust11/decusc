@@ -1,8 +1,0 @@
-;
-; Task build command file for AS assembler
-;
-AS,XAS/-SP/-SH/-WI=SR:XASBLD/MP
-STACK=1000
-ASG=TI:1,SY:2:3:4
-UNITS=4
-TASK=....AS
