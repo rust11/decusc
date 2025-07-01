@@ -6,8 +6,9 @@ A quick and tentative summary the state of the RT-11 compiler and runtime along 
 ## FILES
 
 ```
-DCC.DSK	The RT-11 DECUSC runtime
-*.TXT	Original DECUSC documentation	
+/SRC	 Compiler, assembler, library sources
+DCC.DSK	 The RT-11 DECUSC runtime
+*.TXT	 Original DECUSC documentation	
 ```
 
 ## LINK COMMAND
