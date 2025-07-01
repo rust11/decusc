@@ -1,15 +1,16 @@
 # DECUSC
 DECUSC is a PDP-11 C compiler.
 
-This file summarizes the state of the RT-11 compiler and runtime along with additions.
+A tentative summary the state of the RT-11 compiler and runtime along with additions follows.
 
+## FILES
 
-**COMPILER SPACE**
+```
+DCC.DSK	The RT-11 DECUSC runtime
+*.TXT	Original DECUSC documentation	
+```
 
-One main limitation of DECUSC has always been the limited amount of space available for the parser. In fact, the parser overlay is about 6kb shorter than the code generator, so I have made the 6kb available to the parser.
-
-
-**LINK COMMAND**
+## LINK COMMAND
 
 The LINK command no longer needs SUPORT.OBJ to be specified.  
 
@@ -20,7 +21,7 @@ Use FLIB if a program uses floating point.
 	 LINK/BOT:2000 prog,objects,C:FLIB
 
 
-**EIS SUPPORT**
+## EIS SUPPORT
 The compiler and runtime are currently linked for EIS hardware. For machines lacking EIS support you can use the EIS emulator EI.SYS.
 
 	.copy dcc:ei.sys sy:/sys
@@ -32,7 +33,7 @@ The RT-11 bootstrap will automatically install EI.SYS if EIS hardware is missing
 EI.SYS is a driver I wrote back in the 1980s.
 
 
-**FPU SUPPORT**
+## FPU SUPPORT
 The DECUSC compiler does not include NOHARDWARE support for floating point. The FP.SYS driver provides an emulation.
 
 	.copy dcc:fp.sys sy:/sys
@@ -40,7 +41,6 @@ The DECUSC compiler does not include NOHARDWARE support for floating point. The 
 	.load ei
 
 FP.SYS is a DECUS driver written by Paul Lustgraaf.
-
 
 **DECUSC LIMITATIONS** 
 
@@ -57,7 +57,7 @@ o Autos can't be initialized in-line with declaration
 o Pointers to functions must be explicit during application  
 ```
 
-**ADDITIONS**
+## ADDITIONS
 This list summarizes the more recent additions by 
 
 ```
@@ -75,7 +75,11 @@ main	Applications do not prompt for arguments if main has no parameters.
 Y2K	Y2K support for listings etc.
 ```
 
-**CHANGE REPORT**
+## COMPILER SPACE
+
+One main limitation of DECUSC has always been the limited amount of space available for the parser. In fact, the parser overlay is about 6kb shorter than the code generator, so I have made the 6kb available to the parser.
+
+## CHANGE REPORT
 A more detailed list of the changes I've made to DECUS-C.
 
 ```
