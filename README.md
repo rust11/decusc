@@ -1,6 +1,8 @@
 # DECUS-C
 DECUS-C is a PDP-11 C compiler and an early example of open-source software.
 
+NOTE: This page is under construction
+
 I have been fixing bugs and adding minor functionality to the compiler since around 2004.
 
 A quick and tentative summary the state of the RT-11 compiler and runtime along with additions follows.
