@@ -1,0 +1,425 @@
+.iif	ndf	rsx	rsx	=	1	;assume rsx
+	.title	asisd	;as3h
+	.ident	/x01.03/
+
+	.nlist	bex
+	.enabl	lc,gbl
+	.list	meb,cnd
+
+;
+; AS
+; Internal symbol table emission
+;
+; VERSION X01
+;
+; Nick Emery		29-Jul-82
+;
+; Edit history
+; 01 31-Jul-82 MM	C-generated globals are now marked with leading '.'
+; 02 07-Aug-82 MM	Track symbol table changes.  Many changes, unmarked.
+;			No algorithmic changes.
+; 03 14-Jun-84 MM	sob -> .sob
+;
+
+	.globl	isd
+
+.if ne	rsx
+	.mcall	call
+	.mcall	callr
+	.mcall	return
+.endc
+
+; equivalences
+; object file record types
+
+tygsd	=	1		;global symbol directory
+tyendg	=	2		;global symbol directory end
+tytxt	=	3		;text
+tyrld	=	4		;relocation
+tyisd	=	5		;internal symbol directory
+tyendm	=	6		;end module
+
+; ISD record types
+
+isdtkb	=	1		; TKB symbol tbale record
+isdrel	=	2		; relocatable symbol table record
+isdrtk	=	3		; relocated symbol table record
+isdmac	=	128.		; Macro symbol table record
+
+isdmod	=	1		; Module name symbol table entry
+isdpse	=	3		; Psect symbol table entry
+isdgbl	=	2		; Global symbol entry
+isdint	=	5		; Internal symbol entry
+isdlit	=	7		; Equated symbol entry
+isdeom	=	5		; End of module entry
+
+; data
+; buffers
+; assorted constants and records
+; diagnostics
+
+isdmb:				; Start of module ISD record
+	.word	isdmod
+	.word	isdmac
+	.blkw	10.
+
+isdemb:				; End of module ISD record
+	.byte	isdeom
+	.byte	2
+
+isdps:				; Psect ISD record
+	.word	isdpse
+	.blkw	2
+	.blkw	4
+	.blkw	1
+	.blkw	10.
+
+isdgb:				; Global symbol record
+	.word	isdgbl
+	.blkw	2
+	.blkw	3
+	.blkw	10.
+
+isdin:				; Local symbol record
+	.word	isdint
+	.byte	14.
+	.byte	14.
+	.word	1
+	.blkw	2
+	.blkw	2
+	.blkw	10.
+
+isdab:				; Literal symbol record
+	.word	isdlit
+	.blkw	1
+	.blkw	10.
+
+isdbuf:				; ISD transmission buffer
+	.word	tyisd
+	.BLKW	20.
+
+;+
+; ** ISD - emit iternal symbol table records for DEBUG-16
+;
+; This routine is called as part of the file wrap up procedure to emit
+; the symbol table as ISD records so that all symbols are know to DEBUG-16.
+; The algorithm used is as follows:
+;
+;	1) emit the beginning of module record (this involves translating
+;	the file name from rad50 to ASCII).
+;
+;	2) Scanning the Psect symbol table, and emitting a psect definition
+;	record.
+;
+;	3) for each Psect, scanning the UST for labels that are base on the
+;	current psect, and emitting internal symbol entries for these. This
+;	is done as a sub loop, to save having to re-calculate the psect name
+;	for each symbol.
+;
+;	4) making a once only pass of the UST to emit literal symbol table
+;	entries.
+;
+;	5) emitting the end of module record.
+;
+; USES:
+;	NONE
+;-
+
+isd:
+	tstb	nflag		; If the -n flag is applied, do nothing
+	beq	100$
+
+	tstb	sflag		; Does the user want a symbol table?
+	beq	100$
+	jsr	r5,savreg	; Save all registers
+
+; emit the module identifier record
+; first convert the file name (all nine characters) to ascii.
+
+	mov	#isdmb+5,r1	; where ASCII will appear
+	mov	title,r0	; first word of rad50
+	call	$c5ta		; convert first three characters
+	mov	title+2,r0	; second word of rad50
+	call	$c5ta		; convert second three characters
+	mov	title+4,r0	; third word of rad50
+	call	$c5ta		; and the last three characters
+5$:				; ignore trailing spaces
+	cmpb	-(r1),#40	; is this character a space?
+	beq	5$		; yes, skip to check next character
+	sub	#isdmb+5-1,r1	; calculate the significant length of the title
+	movb	r1,isdmb+4	; save it in the module name entry
+	add	#5,r1		; calculate the record length
+	inc	r1		; and even it
+	bic	#1,r1
+	movb	r1,isdmb+1	; and store it in the record length entry
+	mov	#isdmb, r0	; Now, emit the ISD record
+	mov	#isdrel, r1	; Type of ISD record is relocatable
+	call	putisd
+
+; Now scan down the Psect table emitting psect definition entries
+
+	mov	#psect2, r3	; Point at psect table
+10$:
+	cmp	r3, psect	; Loop until done
+	bhis	50$
+
+	mov	r3, r0		; Get the name
+	add	#p.n, r0	; Add in the offset (oh for movab)
+	mov	r0, r4		; Save for later use
+	call	cat5b		; Convert to rad50
+	mov	r1, isdps+2	; Save for word of rad50
+	mov	r1, isdin+6	; Save for any local symbols
+	call	cat5b		; Convert next word
+	mov	r1, isdps+4	; And next word
+	mov	r1, isdin+10	; And the next word
+	mov	p.l(r5), isdps+12	; Save the length of the psect
+	mov	p.f(r5), isdps+16	; And the psect flags word
+	mov	r4, r0		; Get source address
+	mov	#isdps+21,r2	; Get address for ASCII name
+	mov	#8.,r1		; Count characters transferred
+	call	cpystr		; Copy over the string
+	movb	r0, #isdps+20	; Save the count
+	add	#21+1, r0	; Concoct the total record size
+	bic	#1, r0		; Make it even
+	movb	r0,isdps+1	; And save it for transmission
+	mov	#isdps, r0	; Get the buffer to transmit
+	mov	#isdrel, r1	; Load up the type
+	call	putisd		; transmit the psect isd
+
+; Now loop down the UST emitting ISD records for all of the
+; symbols defined in this psect
+
+	clr	r0		; High order dividend
+	mov	r3, r1		; Compute the type a symbol will have
+	sub	#psect2, r1	; if it is in this psect
+	bpl	15$		; Continue if pos
+	com	r0		; sign extend
+15$:
+	mov	#p.n+8., -(sp)
+	call	$divr0
+	tst	(sp)+
+	mov	r0, r2		; save it
+	add	#st.rel, r2
+	mov	#emtsym,r5	; Walk the table, calling emtsym
+	call	sywalk		; at each node.
+
+	add	#p.size, r3	; Move to next psect
+	br	10$
+
+; Now scan the UST and emit absolute definitions
+
+50$:
+	mov	#emtabs,r5	; Emit the symbols
+	call	sywalk		;
+
+; Now emit the end of module record
+
+	mov	#isdemb, r0	; Get the EOM record
+	mov	#isdmac, r1	; Type of ISD record is MACRO
+	call	putisd
+
+100$:	return			; Savreg cleans the stack
+
+; emit s symbol table node. R5 = UST node, R2 is symbol type, r3 psect entry
+emtsym:
+	cmp	r5, #dot	; Never emit '.'
+	beq	70$
+
+	cmp	s.t(r5), r2	; Check for correct psect
+	bne	70$
+
+	bit	#sf.gbl, s.f(r5)	; Is it global?
+	beq	30$		; local
+
+; emit a global entry
+
+	mov	s.n(r5), r0	; Get symbol table entry
+	call	cinchk		; Check for C internal symbol
+	bcc	70$		; If carry clear, then its a C one
+	mov	r0, -(sp)	; Save for later use
+	cmpb	(r0)+,#'_	; Is it a marked global?		;01+/02
+	beq	5$		; Branch if so
+	dec	r0		; Get symbol back if not
+5$:				; Continue				;01-
+	call	cat5b		; Convert to rad50
+	mov	r1, isdgb+2	; Save for word of rad50
+	call	cat5b		; Convert next word
+	mov	r1, isdgb+4	; And next word
+	mov	(sp)+, r0	; Recover name
+	mov	r2,-(sp)	; Save symbol type
+	mov	#8., r1		; Maximum length
+	mov	#isdgb+15, r2	; Where to load it
+	call	cpystr		; Copy in the ASCII
+	mov	(sp)+,r2	; Restore symbol type
+	movb	r0, isdgb+14	; Save the length
+	add	#15+1, r0	; Make the total length
+	bic	#1, r0		; and round it up
+	movb	r0, isdgb+1	; and save it
+	mov	#isdgb, r0	; Get the address
+	br	40$
+
+; Emit a local symbol entry.
+; Note that sybols of the for .X where X is only numeric are
+; ignored, as they are C internal symbols
+
+30$:
+	mov	s.n(r5), r0	; Get the name address
+	call	cinchk		; Check for C internal symbol
+	bcc	70$		; If carry clear, then its a C one
+	mov	s.v(r5), isdin+12	; Save the symbol offset
+	mov	r2,-(sp)	; Save r2
+	mov	#8., r1		; Prepare to copy the name
+	mov	#isdin+17, r2	; The destination
+	call	cpystr		; Copy the symbol name
+	mov	(sp)+,r2	; Restore r2
+	movb	r0, isdin+16	; save the length of the symbol
+	add	#17+1, r0	; Add in the rest of the length
+	bis	#1, r0		; Make it even
+	movb	r0, isdin+1	; save the length
+	mov	#isdin, r0	; Get the address
+40$:
+	mov	#isdrel, r1	; Type of ISD record to emit
+	call	putisd		; emit the record
+70$:
+	return
+
+; emit absolute symbols as literals - R5 contains the symbol node
+
+emtabs:
+	cmp	s.t(r5), #st.abs; is it absolute?
+	bne	70$		; No, skip this symbol
+	
+; Emit this absolute symvol
+
+	mov	s.v(r5), isdab+2	; Save the value
+	mov	s.n(r5), r0	; Get the address to copy
+	mov	#8., r1		; And the maximum length
+	mov	#isdab+5, r2	; And where to load it
+	call	cpystr		; Copy the symbol name
+	movb	r0, isdab+4	; Save the symbol length
+	add	#5+1, r0	; Add in the rest
+	bic	#1, r0		; make it even
+	movb	r0, isdab+1	; and save the total record length
+	mov	#isdab, r0	; Get the address of the buffer
+	mov	#isdmac, r1	; Emit a macro literal type
+	call	putisd		; and emit the record
+
+70$:
+	return
+;+
+; ** putisd - Put out an ISD item
+;
+; This routine takes the contents of the buffer pointed at by
+; r0, and the length (in 1(ro)), loads the item into the
+; transmission vector, and then writes them out to the file
+;
+; Inputs
+;	r0	the buffer to transmit
+;	r1	The type of ISD record
+;-
+putisd:
+	mov	r0, -(sp)	; Save some registers
+	mov	r1, -(sp)
+	mov	r2, -(sp)
+
+	mov	#isdbuf+2, r2	; Get address of location of buffer
+	mov	r1, (r2)+	; Store the ISD record type
+	movb	1(r0), r1	; Get count for move
+	mov	r1, -(sp)	; save the length for the IO
+	add	#4, (sp)	; and adjust it
+	asr	r1		; Get number of words to move
+5$:
+	mov	(r0)+, (R2)+	; Move the next item over
+	.sob	r1, 5$		; Keep moving stuff until end		;03
+
+	mov	#isdbuf, -(sp)	; Move the address of the record for IO
+	mov	#ofile, r0	; Get the Object file's FDB
+	call	putbin		; emit the record
+	bit	(sp)+,(sp)+	; Clear the stack
+	bcs	10$		; Skip if error
+
+	mov	(sp)+, r2	; Pop the stack back
+	mov	(sp)+, r1
+	mov	(sp)+, r0
+	return
+
+10$:
+	jmp	objio		; Report a file error
+;+
+; ** cinchk - Check for C generated symbols
+;
+; This routine checks a symbol for a C generated symbols. If one
+; is detected, then the C bit is cleared. Otherwise it is set
+;
+; INPUTS:
+;	R0	address of symbol to check
+;-
+cinchk::
+	mov	r0, -(sp)	; Save some registers
+	mov	r1, -(sp)
+	cmpb	(r0)+, #'.	; does it start with a dot?
+	bne	100$
+	mov	#7, r1		; Set up counter
+10$:
+	tstb	(r0)		; Check for end
+	beq	50$		; End, so its a C symbol
+	cmpb	(r0), #'0	; Is it a numeric?
+	blt	100$		; No, its OK
+	cmpb	(r0), #'9
+	bgt	100$		; No, its OK
+	.sob	r1, 10$		; Loop round for the count		;03
+50$:
+	clc			; Its a C symbol, clear carry
+	br	110$
+100$:
+	sec			; Not a C symbol.
+110$:
+	mov	(sp)+, r1	; Restore registers
+	mov	(sp)+, r0
+	return
+;+
+; ** cpystr - Copy some ASCII character
+;
+; Copy up to a given number of non-blank characters into the
+; specified buffer, and return the number of characters processed.
+;
+; The string is upper cased (because of DEBUG-16)
+;
+; INPUTS:
+;     R0	pointer to string to move
+;     R1	Maximum length to move
+;     R2	Where to copy it to
+;
+; OUTPUTS:
+;     R0	Length of moved string
+;     R1, R2	junked
+;-
+cpystr:
+	mov	r3, -(sp)	; Save some registers
+	mov	r4, -(sp)
+	mov	r0, r3		; Move args around
+	clr	r0
+10$:
+	movb	(r3)+, r4	; Get the byte
+	ble	20$		; If its negative or zero, then break
+	cmp	r4, #'a		; Upper casify lower case letters
+	blt	15$
+	cmp	r4, #'z
+	bgt	15$
+	sub	#'a-'A, r4	; upper case it
+15$:
+	cmpb	r4, #'.		; Is it a dot?
+	bne	17$		; No, just process it
+	movb	#'_, r4		; Change a dot into an unber bar
+17$:
+	movb	r4, (r2)+	; save the character
+
+	inc	r0		; Add this byte in
+	cmp	r0,r1		; got there yet?
+	ble	10$		; Skip back for next character
+20$:
+	mov	(sp)+, r4
+	mov	(sp)+, r3	; restore the used registers
+	return
+
+	.end

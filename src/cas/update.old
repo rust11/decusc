@@ -1,0 +1,29 @@
+!	ASS:UPDATE.COM - Build and update AS.SAV
+!
+@ops:up ass asb as.sav 'P1' 'P2'
+tem$ mac$ ass asb custom
+cus$ := macro ass:rust+ass:^1/object:asb:^1
+!
+mac$ asroo
+mac$ ascmd
+mac$ asfil
+mac$ asasm
+mac$ asexp
+mac$ aslex
+mac$ asobj
+mac$ aslst
+mac$ assym
+mac$ ashsh
+mac$ asisd
+!
+mrg$
+log$ AS.SAV
+link:
+r link
+ccb:as,ccb:as=ccb:asroo,tcomlb/n//
+ccb:ascmd,asfil,tcomlb/o:1/c
+ccb:asasm,asexp,aslex/o:1/c
+ccb:asobj,aslst,assym,ashsh,asisd,tcomlb
+//
+^C
+end$:

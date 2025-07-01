@@ -1,0 +1,288 @@
+.IIF	NDF	RSX	RSX	=	0	;Assume RT11	01 +
+	.TITLE	ASFIL	;AS2
+	.ident	/X01.05/
+	.ENABL	LC,GBL
+	.LIST	MEB,CND
+	.NLIST	BEX						;01 -
+ 
+;
+; AS
+; FILE MANIPULATION
+;
+; VERSION X01
+;
+; DAVID G. CONROY	24-MAY-78
+;
+; Edit history
+; 01 28-Aug-79 MM	Added RT11 support
+; 02 04-Mar-80 MM	Up to date for "new" compiler -- no changes
+; 03 23-Jul-80 MM	Listing to .lst (like RT11)
+; 04 08-Oct-80 MM	Create a new version of .obj and .lst
+; 05 29-jul-82 NWE	Added support for emission of ISDs for DEBUG-16
+;
+ 
+	.GLOBL	OPEN
+	.GLOBL	CLOSE
+ 
+.IF NE	RSX							;01
+	.MCALL	CALL
+	.MCALL	CALLR
+	.MCALL	RETURN
+	.MCALL	CSI$
+	.MCALL	CSI$1
+	.MCALL	CSI$2
+	.MCALL	OFNB$R
+	.MCALL	OFNB$W
+	.MCALL	CLOSE$
+	.MCALL	DELET$
+	.MCALL	NMBLK$
+ 
+	CSI$
+.IFF								;01 +
+	.MCALL	.CLOSE, .DELETE
+
+.ENDC
+;
+;
+; Note: this module does essentially nothing for RT11 compilations
+; but was retained as a separate module for simplicity.
+;
+.IF NE RSX							;01 -
+;
+; LOCAL DATA
+; FILENAME BLOCKS
+; DIAGNOSTICS
+;
+ 
+OBJ:	.RAD50	/OBJ/		;OBJECT FILE TYPE
+LST:	.RAD50	/LST/		;LISTING FILE TYPE		;03
+CSIBLK:	.BLKB	C.SIZE		;CSI WORK AREA
+DFNB:	NMBLK$	,S,,SY		;DEFAULT FILE NAME BLOCK
+ 
+MSG01:	.ASCIZ	'" - cannot create object'
+MSG02:	.ASCIZ	'" - cannot open'
+MSG03:	.ASCIZ	'" - cannot create listing'
+	.EVEN
+.IFF								;01 +
+AREA:	.BLKW	5		;RT11 WORK AREA
+MSG01:	.ASCIZ	'?AS-F-Cannot delete source file'
+	.EVEN
+.ENDC								;01 -
+.IF NE	RSX							;01
+;+
+; ** OPEN - OPEN THE NEXT SOURCE FILE
+;
+; THIS ROUTINE GETS THE NEXT SOURCE FILE, BE IT ANOTHER FILE FROM
+; THE COMMAND LINE OR THE NEXT FILE IN A WILD CARD SEQUENCE,  AND
+; OPENS IT ON 'SFILE'. THE OBJECT FILE, WHICH HAS A FILETYPE   OF
+; OBJ,  IS OPENED ON 'OFILE' AND THE LISTING FILE, WHOSE FILETYPE
+; IS LST, IS OPENED ON 'LFILE'.
+;
+; 'ARGVPT' IS LEFT POINTING AT THE ENTRY IN THE ARGV WHERE    THE
+; FILE CAME FROM; THIS IS USED BY THE ERROR ROUTINES.
+;
+; USES:
+;	ALL
+;-
+ 
+OPEN:	TSTB	WFLAG		;MIDSTREAM IN A WILDCARD?
+	BNE	50$		;YES
+ 
+	ADD	#2,ARGVPT	;GET NEXT FILE
+	MOV	@ARGVPT,R1	;
+	BNE	5$		;
+	JMP	110$		;DONE
+ 
+5$:	MOV	#CSIBLK,R0	;PARSE THE FILE NAME
+	MOV	R1,C.CMLD+2(R0)	;
+10$:	TSTB	(R1)+		;COMPUTE LENGTH
+	BNE	10$		;
+	DEC	R1		;
+	SUB	C.CMLD+2(R0),R1	;
+	MOV	R1,C.CMLD(R0)	;TO THE CSI WORK BLOCK
+	CSI$1			;CHECK SYNTAX
+	BCS	15$		;ERROR
+	CSI$2	,OUTPUT		;BUILD THE DSPT
+	BCS	15$		;ERROR
+ 
+	MOV	#SFILE,R0	;OPEN THE SOURCE FILE
+	MOV	#SFILE+F.FNB,R1	;
+	MOV	#CSIBLK+C.DSDS,R2 ;
+	MOV	#DFNB,R3	;
+	CALL	.PARSE		;
+15$:	BCS	90$		;FUNNY NAME
+ 
+;
+; WILDCARDS.
+;
+
+	BIT	#NB.SVR+NB.STP+NB.SNM,N.STAT(R1)
+	BEQ	60$
+ 
+	INCB	WFLAG		;SET IN A WILDCARD
+	BIT	#NB.VER,N.STAT(R1) ;FORCE VERSION TO ;*
+	BNE	50$		;IF NO
+	BIS	#NB.SVR,N.STAT(R1) ;EXPLICIT VERSION
+ 
+50$:	MOV	#SFILE,R0	;FIND THE NEXT FILE
+	MOV	#SFILE+F.FNB,R1	;
+	CALL	.FIND		;
+	BCC	60$		;GOT ONE
+	CLRB	WFLAG		;NO MORE, GO GET NEXT NAME
+	BR	OPEN		;
+ 
+60$:	OFNB$R			;OPEN THE SOURCE FILE
+	BCS	90$		;ERROR
+ 
+;
+; SET THE TITLE TO THE FIRST 9 CHARACTERS OF THE SOURCE NAME
+; OPEN THE OBJECT FILE
+; COPY OVER THE FILENAME BLOCK OF THE SOURCE FILE, THEN MAKE
+; THE FILE TYPE 'OBJ'
+; DON'T OPEN THE FILE IF -N
+; OPEN THE LISTING FILE IF -L
+;
+ 
+70$:	MOV	SFILE+F.FNB+N.FNAM,TITLE
+	MOV	SFILE+F.FNB+N.FNAM+2,TITLE+2
+	MOV	SFILE+F.FNB+N.FNAM+4,TITLE+4			;05
+ 
+	TSTB	NFLAG		;-N
+	BEQ	82$		;YES - NO OBJECTS		;01
+	ADD	#F.FNB,R0	;COPY FILENAME BLOCK
+	MOV	#OFILE+F.FNB,R1	;
+80$:	MOV	(R0)+,(R1)+	;COPY NAME
+	CMP	R0,#SFILE+S.FDB	;
+	BLO	80$		;
+	MOV	OBJ,OFILE+F.FNB+N.FTYP
+	BIC	#NB.VER!NB.SVR,OFILE+F.FNB+N.STAT		;04
+	CLR	OFILE+F.FNB+N.FVER				;04
+	CLR	OFILE+F.FNB+N.FID
+	CLR	OFILE+F.FNB+N.FID+2
+	CLR	OFILE+F.FNB+N.FID+4
+ 
+	OFNB$W	#OFILE		;OPEN THE FILE
+	BCC	82$		;BR IF ALL OK
+	CLOSE$	#SFILE
+	MOV	#MSG01,R5
+	BR	100$
+ 
+;
+; LISTING.
+;
+
+82$:	TSTB	LFLAG		;NEED IT?
+	BEQ	120$		;NO (C BIT CLEARED)
+
+	MOV	#SFILE+F.FNB,R0	;DUPLICATE FILENAME BLOCK
+	MOV	#LFILE+F.FNB,R1	;
+84$:	MOV	(R0)+,(R1)+	;
+	CMP	R0,#SFILE+S.FDB	;
+	BLO	84$		;
+
+	MOV	LST,LFILE+F.FNB+N.FTYP ;SET FILE TYPE TO 'LST'
+	BIC	#NB.VER!NB.SVR,LFILE+F.FNB+N.STAT		;04
+	CLR	LFILE+F.FNB+N.FVER				;04
+	CLR	LFILE+F.FNB+N.FID ;J.I.C.
+	CLR	LFILE+F.FNB+N.FID+2 ;
+	CLR	LFILE+F.FNB+N.FID+4 ;
+
+	OFNB$W	#LFILE		;OPEN THE FILE
+	BCC	120$		;OK
+
+	CLOSE$	#SFILE		;CLOSE THE SOURCE FILE
+	TSTB	NFLAG		;IS THERE OBJECT
+	BEQ	86$		;NO				;01
+	DELET$	#OFILE		;DELETE IT
+
+86$:	MOV	#MSG03,R5	;GET ERROR MESSAGE
+	BR	100$		;
+
+90$:	MOV	#MSG02,R5
+100$:	MOV	@ARGVPT,R4	;GET THE FILE NAME
+	CALL	FMSG		;WRITE THE ERROR TO THE TI:
+	JMP	OPEN		;GO GET THE NEXT FILE
+ 
+110$:	SEC			;NO MORE FILES
+120$:	RETURN
+ 
+;+
+; ** CLOSE - CLOSE SOURCE AND OBJECT FILES
+;
+; THIS ROUTINE IS CALLED BY THE DRIVER TO CLOSE THE SOURCE AND
+; THE OBJECT FILES. THIS GETS THE CLOSE ROUTINES INTO  A PLACE
+; WHERE THEY EXIST ALREADY ANYWAY (FOR ERRORS). BUFFERS ARE IN
+; THE ROOT.
+;
+; USES:
+;	R0
+;-
+ 
+CLOSE:	MOV	#SFILE,R0	;GET SOURCE FDB POINTER
+
+	TSTB	DFLAG		;-D
+	BNE	10$		;YES
+	CLOSE$			;JUST CLOSE THE FILE
+	BR	20$		;
+10$:	DELET$			;IF -D, DELETE THE FILE
+
+20$:	TSTB	NFLAG		;-N
+	BEQ	30$		;YES, THERE IS NO OBJECT FILE	;01
+	CLOSE$	#OFILE		;CLOSE OBJECT FILE
+ 
+30$:	TSTB	LFLAG		;IS THERE A LISTING
+	BEQ	40$		;NO
+	CLOSE$	#LFILE		;CLOSE IT
+
+40$:	RETURN			;ALL DONE
+ 
+.ENDC								;01 -
+.IF EQ	RSX							;01 +
+;+
+; ** OPEN - Initialize for the source file
+;
+; As noted above, this module does essentially nothing as all
+; module processing is in AS0 (should it be moved here?).
+; The title is set to the first six characters of the module name.
+;
+;-
+
+OPEN:
+	MOV	SBLK+2,TITLE		;Grab title from the
+	MOV	SBLK+4,TITLE+2		;Source file name.
+;	CLC				;No errors possible
+	RETURN
+
+;+
+; ** CLOSE - Terminate processing
+;
+; Close the source file and, if present, the list and object files.
+; if the /D switch was given, (and no errors were present), delete
+; the source file.
+;
+
+CLOSE:
+	.CLOSE	SFILE+FDB$CH		;Close the source
+
+	TSTB	NFLAG			;Is there an object file?
+	BEQ	10$			;Not if flag is zero
+	MOV	#OFILE,R0		;Yes, first
+	CALL	FLUSH			;Flush the buffer
+	.CLOSE	OFILE+FDB$CH		;Yes, close it out
+
+10$:	TSTB	LFLAG			;Is there a listing file?
+	BEQ	20$			;Not if flag is zero
+	MOV	#LFILE,R0		;Yes, but first,
+	CALL	FLUSH			;Flush the buffer
+	.CLOSE	LFILE+FDB$CH		;Then, close it out
+
+20$:	TSTB	DFLAG			;Delete source file?
+	BEQ	30$			;Not bloody likely
+	.DELET	#AREA,SFILE+FDB$CH,#SBLK ;Do it then
+	BCC	30$			;Good for you
+	MOV	MSG01,R5		;Sorry about that
+	CALL	MSG			;Say so
+
+30$:	RETURN				;That's all
+.ENDC								;01 -
+	.END
