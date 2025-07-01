@@ -1,7 +1,7 @@
 # DECUSC
 DECUSC is a PDP-11 C compiler.
 
-A tentative summary the state of the RT-11 compiler and runtime along with additions follows.
+A quick and tentative summary the state of the RT-11 compiler and runtime along with additions follows.
 
 ## FILES
 
@@ -47,7 +47,7 @@ FP.SYS is a DECUS driver written by Paul Lustgraaf.
 ```
 o Basically V7 Ritchie C  
 o Structure tag names are local to structure (Ritchie/Whitesmith not)  
-o No K&R standard libraries header files (some exceptions)  
+o Few K&R standard libraries header files  
 o No K&R function prototypes--only the result type is stored  
 o Long and floating-point initializors must be constants  
 o No unsigned char or unsigned long  
@@ -77,7 +77,7 @@ Y2K	Y2K support for listings etc.
 
 ## COMPILER SPACE
 
-One main limitation of DECUSC has always been the limited amount of space available for the parser. In fact, the parser overlay is about 6kb shorter than the code generator, so I have made the 6kb available to the parser.
+One main limitation of DECUSC has always been the limited amount of pool space available for the parser. In fact, the parser overlay is about 6kb shorter than the code generator, so I have made the 6kb available to the parser pool.
 
 ## CHANGE REPORT
 A more detailed list of the changes I've made to DECUS-C.
