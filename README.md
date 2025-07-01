@@ -1,49 +1,82 @@
-# DECUSC
-DECUSC is a PDP-11 C compiler.
+# DECUS-C
+DECUS-C is a PDP-11 C compiler and an early example of open-source software.
+
+I have been fixing bugs and adding minor functionality to the compiler since around 2004.
 
 A quick and tentative summary the state of the RT-11 compiler and runtime along with additions follows.
+
+I don't usually run the compiler under RT-11 so there may be teething problems.
+
+Let me know in [Issues] above if you have problems with the software.
+
 
 ## FILES
 
 ```
 /SRC	 Compiler, assembler, library sources
-DCC.DSK	 The RT-11 DECUSC runtime
-*.TXT	 Original DECUSC documentation	
+DCC.DSK	 The RT-11 DECUS-C runtime
+*.TXT	 Original DECUS-C documentation	
 ```
 
-## LINK COMMAND
+## INSTALLATION
+Copy the DECUS-C kit to a system disk or as a sub-disk. The instructions below assume DCC.SYS has been copied to the system disk.
 
-The LINK command no longer needs SUPORT.OBJ to be specified.  
+Unmapped system support is usually only feasible for RT-11/SB (or RT-11/SJ).
 
-	 LINK/BOT:2000 prog,objects,C:CLIB
+	.mount ld: dcc c
+	.run c:cc c:hello/a
+ 	.link hello/exe:hello,c:clib
+  	.run hello
 
-Use FLIB if a program uses floating point.  
+For mapped systems (RT-11/XM etc):
 
-	 LINK/BOT:2000 prog,objects,C:FLIB
-
+	.mount ld: dcc c
+	.vrun c:cc c:hello/a
+ 	.link hello/exe:hello,c:clib
+  	.run hello
 
 ## EIS SUPPORT
-The compiler and runtime are currently linked for EIS hardware. For machines lacking EIS support you can use the EIS emulator EI.SYS.
+The runtime is currently linked for EIS hardware. 
+
+The EI.SYS driver provides an emulation for machines lacking EIS support.
+
+Installation for unmapped RT-11 systems (RT-11/SB, RT-11/FB):
 
 	.copy dcc:ei.sys sy:/sys
 	.install ei	
 	.load ei
 
-The RT-11 bootstrap will automatically install EI.SYS if EIS hardware is missing.
+After rebooting only the LOAD command is required.
+
+The EIS emulator is only supplied for unmapped systems (RT-11/SB, RT-11/FB).
 
 EI.SYS is a driver I wrote back in the 1980s.
 
 
 ## FPU SUPPORT
-The DECUSC compiler does not include NOHARDWARE support for floating point. The FP.SYS driver provides an emulation.
+The DECUS-C compiler does not include NOHARDWARE support for floating point. 
 
-	.copy dcc:fp.sys sy:/sys
-	.install fp	
-	.load ei
+The FP.SYS driver provides an emulation for systems lacking FPU support.
+
+Installation for unmapped RT-11 systems (RT-11/SB, RT-11/FB):
+
+ 	.copy dcc:fp.sys sy:/sys
+	.set fp sysgen
+	.install fp
+ 	.load fp
+
+Installation for mapped systems (RT-11/XM, etc):
+
+ 	.copy dcc:fpx.sys sy:/sys
+	.set fp sysgen
+	.install fp
+ 	.load fp
+
+After rebooting only the LOAD command is required.
 
 FP.SYS is a DECUS driver written by Paul Lustgraaf.
 
-**DECUSC LIMITATIONS** 
+## DECUS-C LIMITATIONS
 
 ```
 o Basically V7 Ritchie C  
@@ -55,7 +88,7 @@ o No unsigned char or unsigned long
 o No enum
 o Character literals limited to two characters  
 o Autos can't be initialized in-line with declaration   
-o Pointers to functions must be explicit during application  
+o Pointers to functions must be explicit during application
 ```
 
 ## ADDITIONS
@@ -74,11 +107,12 @@ seek	Seek now allowed to files open for write.
 scanf	"%x" hex mode error fixed.
 main	Applications do not prompt for arguments if main has no parameters.
 Y2K	Y2K support for listings etc.
+LINK	The LINK command no longer needs to include SUPPORT.OBJ.
 ```
 
 ## COMPILER SPACE
+One main limitation of DECUS-C has always been the limited amount of pool space available for the parser. In fact, the parser overlay is about 6kb shorter than the code generator, so I have made the 6kb available to the parser pool.
 
-One main limitation of DECUSC has always been the limited amount of pool space available for the parser. In fact, the parser overlay is about 6kb shorter than the code generator, so I have made the 6kb available to the parser pool.
 
 ## CHANGE REPORT
 A more detailed list of the changes I've made to DECUS-C.
