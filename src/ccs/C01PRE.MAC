@@ -45,6 +45,7 @@
 ; 25 18-Mar-85 MM	Supress register dump on some fatal errors
 ; 26 29-Jan-02 BQT	Added #pragma. Passed on to pass 2.
 ; 27 17-JUN-11 IJH	Increase macro buffer size. See RUST.MAC.
+; 28 02-JUN-25 IJH	Use DCC: instead of C: if defined for includes
 ;
 ; The following definitions are pre-inserted:
 ;
@@ -102,7 +103,7 @@
 .ENDC
 .ENDM	RETURN
 
-	.MCALL	.CSISPC, .FETCH, .LOOKUP, .CLOSE
+	.MCALL	.CSISPC, .FETCH, .LOOKUP, .CLOSE, .DSTAT	;25
 .ENDC								;04 -
 ;
 ; EQUIVALENCES
@@ -205,6 +206,13 @@ BLN:	.ASCII	" "		;FOR OUTPUT OF A BLANK LINE
 
 SYSINC::			;GLOBALIZE DIRECTORY NAME	;01
 	INCDIR
+.IF NE RUST							;25+
+SYSDCC:	.ASCIZ	"DCC:"		;"DCC" INCDIR
+SYSC:	.ASCIZ	"C"		;"C" INCDIR
+	.EVEN			;
+INCDCC:	.RAD50	"DCC"		;"DCC" FOR .DSTAT
+INCSTA:	.BLKW	4		;RT-11 DSTAT AREA
+.ENDC								;25-
 
 PREDEF:	.ASCIZ	"decus 1"	;THESE ARE #DEFINED AT STARTUP	;06+/20+
 	.ASCIZ	"pdp11 1"
@@ -721,7 +729,14 @@ CONTRL:
 	MOV	#'>,DELIM	;ASSUME SYSTEM INCLUDE
 	CMP	R0,#'<		;IS IT
 	BNE	100$		;NO
+.IF NE RUST
+	MOV	#SYSDCC,R2	;ASSUME "DCC:"			;25
+	.DSTAT	#INCSTA,INCDCC	;IS "DCC" DEFINED?		;25
+	BCC	82$		;YES, USE THAT			;25
+	MOV	#SYSC,R2	;NO, USE "C:"			;25
+.IFF
 	MOV	#SYSINC,R2	;COPY IN "C:" (OR WHATEVER)	;01
+.ENDC
 82$:	MOVB	(R2)+,(R1)+	;
 	BNE	82$		;
 	DEC	R1		;BACK UP OVER THE NULL
