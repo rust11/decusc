@@ -82,7 +82,7 @@ FP.SYS is a DECUS driver written by Paul Lustgraaf.
 
 ```
 o Basically V7 Ritchie C  
-o Structure tag names are local to structure (Ritchie/Whitesmith not)  
+  However, structure tag names are local to structure (Ritchie/Whitesmith not) 
 o Few K&R standard libraries header files  
 o No K&R function prototypes--only the result type is stored  
 o Long and floating-point initializors must be constants  
@@ -94,7 +94,7 @@ o Pointers to functions must be explicit during application
 ```
 
 ## ADDITIONS
-This list summarizes the more recent additions by 
+This list summarizes the more recent additions. 
 
 ```
 void	void type supported (Johnny Bilquist)
@@ -106,8 +106,9 @@ size_t	"size_t" supported--a synonym for unsigned.
 fopen	fopen now supports "b", e.g. fopen ("myfile", "rb")
 seek	Seek now allowed to files open for write.
 
-scanf	"%x" hex mode error fixed.
-main	Applications do not prompt for arguments if main has no parameters.
+scanf	"%x" hex mode error fixed (was treated as octal).
+main	Applications do not prompt for arguments if main() has no parameters.
+	Previously required a workaround--now automatic.
 Y2K	Y2K support for listings etc.
 LINK	The LINK command no longer needs to include SUPPORT.OBJ.
 ```
