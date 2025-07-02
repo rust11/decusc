@@ -45,6 +45,7 @@ The EI.SYS driver provides an emulation for machines lacking EIS support.
 Installation for unmapped RT-11 systems (RT-11/SB, RT-11/FB):
 
 	.copy dcc:ei.sys sy:/sys
+ 	.set ei sysgen
 	.install ei	
 	.load ei
 
@@ -130,6 +131,9 @@ CCS:CC001.MAC
 CCS:CC0RT.MAC
 22  4-Feb-04 IJH	Increase parser pool space for RT-11.
 
+CCS:CC0PRE.MAC
+28 02-JUN-25 IJH	Use DCC: instead of C: if defined for #includes
+			RUST uses DCC:, RT-11 typically uses C:
 CCS:CC100.MAC
 29 04-Feb-04 IJH	"static int ();" was treated as function definition.
 			Now parsed correctly as declaration (like "extern").
