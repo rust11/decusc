@@ -108,7 +108,7 @@ seek	Seek now allowed to files open for write.
 
 scanf	"%x" hex mode error fixed (was treated as octal).
 main	Applications do not prompt for arguments if main() has no parameters.
-	Previously required a workaround--now automatic.
+	Previously required a workaround (int $$narg = 1).
 Y2K	Y2K support for listings etc.
 LINK	The LINK command no longer needs to include SUPPORT.OBJ.
 ```
@@ -144,22 +144,24 @@ CCS:CC101
 13 22-Jan-04 IJH	Disable psect/dsect/ident statements in RUST build. 
 			These symbols clash with existing applications. Use
 			"pragma psect" etc instead...
-
 14 11-Jun-09 IJH	Add // comments
 15 03-Apr-15 IJH	Add Standard C "size_t" type (synonym for "unsigned")
 			Remove redundant forced lower case in KWS: ???
 
 CCS:CC107		New two line module to return end address of parser.
 			Required because of RT-11 LINKER treatment of overlay labels.
-
 CCS:CC300
 20 04-Feb-04 IJH	Add ARB .SERR/.HERR code 
+
+CCS:C1EXT.MAC	mut$c	Auto-detect main() without arguments and suppress
+CCS:C2MAI.MAC	mut$c	"Argv" prompt. Alternative to "$$narg = 1"
+CLS:MUTE.MAC	mut$c
+CRS:INIT.MAC	mut$c
 
 CLS:CSV.MAC
 08 IJH			Fudged exit code at DIVL.MAC exit: did not match C$RET.
 			Note on dependency added at C$SAV. Comment only.
 09 IJH			Use .END to invoke $$MAIN. RUST/RT-11 only.
-
 
 CLS:RT11.EIS		C$AUTO = -10 (was -6). See CLS:CSV.MAC
 			RMSIO = 0
@@ -180,16 +182,9 @@ CRS:IOFOPT.MAC	;05	Add "b" to fopen() mode
 CRS:IOPUTC.MAC	;15	;vf$bzy - typo
 CRS:SUPORT.MAC	;14	Now in CLIB.OBJ
 
-CCS:C1EXT.MAC	mut$c	Auto-detect main() without arguments and suppress
-CCS:C2MAI.MAC	mut$c	"Argv" prompt. Alternative to "$$narg = 1"
-CLS:MUTE.MAC	mut$c
-CRS:INIT.MAC	mut$c		
-
-CRS:DOSCAN.MAC	;11	00007b dispatched hex to octal decode--had BPL/BEQ,
-			-changed to BEQ/BPL
+CRS:DOSCAN.MAC
 11 27-Jul-24 IJH	00007b dispatched hex to octal decode because branch
 			order BPL/BEQ was wrong. BEQ/BPL was right.
-
 CCS:LDATE.MAC
  3 01-Mar-25 IJH	RT-11 Y2K update and correct month mask
 
